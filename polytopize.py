@@ -1,4 +1,32 @@
-print(mt(2,2,2,2)[1,1])
+from __future__ import print_function
+
+from importlib import reload
+
+
+
+import os
+from collections import defaultdict
+import numpy as np
+import scipy.stats
+import torch
+ts = torch.tensor
+mt = torch.empty
+zs = torch.zeros
+from torch.distributions import constraints
+from matplotlib import pyplot
+#matplotlib inline
+
+import pyro
+import pyro.distributions as dist
+from pyro import poutine
+from pyro.contrib.autoguide import AutoDelta
+from pyro.optim import Adam
+from pyro.infer import SVI, TraceEnum_ELBO, config_enumerate, infer_discrete
+
+smoke_test = ('CI' in os.environ)
+assert pyro.__version__.startswith('0.3.0')
+pyro.enable_validation(True)
+
 def approx_eq(a,b):
     print(torch.lt(torch.abs(torch.add(a, -b)), 1e-8))
     print("So:",torch.all(torch.lt(torch.abs(torch.add(a, -b)), 1e-8)))
@@ -46,7 +74,7 @@ def polytopize(R, C, raw, basis, start):
     step1 = inbasis(R, C, raw, basis)
     ratio = torch.div(step1, start)
     closest = torch.min(ratio)
-    return((step1 / -closest) * (1 - exp(closest)))
+    return((step1 / -closest) * (1 - torch.exp(closest)))
 
 def test_funs(R, C, innerReps=2, outerReps=2):
     for i in range(outerReps):
