@@ -153,17 +153,7 @@ loc = pyro.distributions.Normal(0.,4.).sample(torch.Size([R,C]))
 loc.requires_grad_(True)
 result = polytopize(R,C,loc,basis,indep)
 result_ = torch.sum(result)
-if False: #shows how to do a Hessian over a single input
-    print("Hessian:",hessian.hessian(result_,loc))
-if False: #False: #shows how to do a Hessian over multiple inputs
-
-    delta = pyro.distributions.Normal(0.,4.).sample(torch.Size([R,C]))
-    delta.requires_grad_(True)
-    result2 = torch.sum(result + delta)
-    print("Hessian1:",hessian.hessian(result2,loc))
-    print("Hessian2:",hessian.hessian(result2,[loc,delta]))
-
-
+#print("Hessian:",hessian.hessian(result_,loc))
 
 #Take an (R-1)*(C-1) point, polytopize it, and compute the pseudo-"Jacobian determinant" (as if the Jacobian were full-ranked)
 loc2 = pyro.distributions.Normal(0.,4.).sample(torch.Size([R-1,C-1]))
@@ -213,35 +203,36 @@ def eimodel(R,C,data):
             #print("unn", unnormalized)
     #        print("rs",[ts([torch.exp(ec[c] + erc[r,c] + eprc[p,r,c]) for c in range(C)]) for r in rs])
     y = zs(P,R,C)
-    logittotals = eprc+erc+ec
     probs = zs(P,R,C)
-    for p in range(P):
-        for r in range(R):
-            for c in range(C):
-                temp = torch.exp(ec[c] + erc[r,c] + eprc[p,r,c])
-                print("eimod innnnnnner",ec.size(),erc.size(),eprc.size(),
-                            ec[c],erc[r,c],eprc[p,r,c])
-                probs[p,r,c] = temp.item()
-            #
-            print("eimod inner",p,r,c,probs[p,r])
-            print("eimod inner2",int(data[p,RNUMS,r].item()))
-            print("eimod inner3",probs[p,r]/torch.sum(probs[p,r]))
+    with pyro.plate('yprecincts', P) as ps:
+        with pyro.plate('yrgroups', R) as rs:
+            for p in ps:
+                for r in rs:
+                    for c in range(C):
+                        temp = torch.exp(ec[c] + erc[r,c] + eprc[p,r,c])
+                        print("eimod innnnnnner",ec.size(),erc.size(),eprc.size(),
+                                    ec[c],erc[r,c],eprc[p,r,c])
+                        probs[p,r,c] = temp.item()
+                    #
+                    print("eimod inner",p.item(),r.item(),c,probs[p,r])
+                    print("eimod inner2",int(data[p,RNUMS,r].item()))
+                    print("eimod inner3",probs[p,r]/torch.sum(probs[p,r]))
 
-            cprobs = probs[p,r]/torch.sum(probs[p,r])
-            n = int(data[p,RNUMS,r].item())
-            print("eimod inner4",n, cprobs)
-            samp= pyro.sample(f"y_{p}_{r}_{c}",
-                        dist.Multinomial(n,cprobs))
-            print("ei",samp)
-            print("ei2",p,r,y[p,r],"and",y[p,r,0])
-            y[p,r] = samp
-    yparam = pyro.param("y", y)
-
+                    cprobs = probs[p,r]/torch.sum(probs[p,r])
+                    n = int(data[p.item(),RNUMS,r.item()].item())
+                    print("eimod inner4",n, cprobs)
+                    samp= pyro.sample('y',
+                                dist.Multinomial(n,cprobs))
+                    print("ei",samp)
+                    print("ei2",p,r,y[p,r],"and",y[p,r,0])
+                    y[p,r] = samp
     print("eimod",[[int(data[p,RNUMS,r].item()) for r in range(R)] for p in range(len(data))])
     r,p = 0,0
     print("eimod2",[[ts([torch.exp(ec[c] + erc[r,c] + eprc[p,r,c]).item() for c in range(C)])
              for r in range(R)] for p in range(len(data))])
-
+    y = ts([[pyro.sample('y',dist.Multinomial(int(data[p,RNUMS,r].item()),
+              ts([torch.exp(ec[c] + erc[r,c] + eprc[p,r,c]).item() for c in range(C)])
+            )) for r in range(R)] for p in range(len(data))])
 
     print("eimodel",y)
 
