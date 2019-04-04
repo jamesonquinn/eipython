@@ -5,10 +5,11 @@ from torch.distributions import Categorical
 from numbers import Number
 from torch.distributions import constraints
 from torch.distributions.utils import broadcast_all
+from pyro.distributions.torch_distribution import IndependentConstraint, TorchDistributionMixin, TorchDistribution
 
 print("Reloading cmult...")
 
-class CMult(Distribution):
+class TorchCMult(TorchDistribution):
     r"""
     Creates a Continuous Multinomial distribution parameterized by :attr:`total_count` and
     either :attr:`probs` or :attr:`logits` (but not both). The innermost dimension of
@@ -45,7 +46,7 @@ class CMult(Distribution):
         return self.total_count * self.probs * (1 - self.probs)
 
     def __init__(self, total_count=1, probs=None, logits=None, validate_args=None):
-        print("total count",total_count)
+        print("total count",total_count,type(total_count))
         if not isinstance(total_count, Number):
             raise NotImplementedError('inhomogeneous total_count is not supported')
         self.total_count = total_count
@@ -103,3 +104,7 @@ class CMult(Distribution):
         logits[(value == 0) & (logits == -inf)] = 0
         log_powers = (logits * value).sum(-1)
         return log_factorial_n - log_factorial_xs + log_powers
+
+CMult = TorchCMult
+#class CMult(TorchCMult, TorchDistributionMixin):#
+#    pass
