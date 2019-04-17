@@ -4,11 +4,19 @@ from __future__ import print_function
 print('Yes, I will run.')
 
 import torch
+from torch.distributions import constraints
 import pyro
 import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO
 from pyro.optim import ClippedAdam
 from matplotlib import pyplot as plt
+from cmult import CMult
+from polytopize import get_indep, polytopize, depolytopize
+from pyro import poutine
+ts = torch.tensor
+
+
+torch.manual_seed(478301986) #Gingles
 
 pyro.enable_validation(True)
 pyro.set_rng_seed(0)
@@ -26,39 +34,54 @@ def model(data=None, include_nuisance=False):
         ns = torch.zeros(P,R)
         for p in range(P):
             for r in range(R):
-                ns[p,r] = pyro.sample('precinctSizes', dist.NegativeBinomial(n + r + 1, .95))
+                ns[p,r] = pyro.sample('precinctSizes', dist.NegativeBinomial(p + r + 1, .95))
     else:
         ns, vs = data
         assert len(ns)==len(vs)
         # Hyperparams.
         P = len(ns)
+        R = len(ns[0])
+        C = len(vs[0])
     sdc = 5
     sdrc = pyro.sample('sdrc', dist.Exponential(.2))
     sdprc = pyro.sample('sdprc', dist.Exponential(.2))
 
-    with pyro.plate('candidates', C):
+    if data is None:
+        sdc = .2
+        sdrc = .4
+        sdprc = .6
+
+
+    with pyro.plate('candidatesm', C):
         ec = pyro.sample('ec', dist.Normal(0,sdc))
-        with pyro.plate('rgroups', R):
+        with pyro.plate('rgroupsm', R):
             erc = pyro.sample('erc', dist.Normal(0,sdrc))
             if include_nuisance:
-                with pyro.plate('precincts', P):
+                with pyro.plate('precinctsm', P):
                     eprc = pyro.sample('eprc', dist.Normal(0,sdprc))
 
     logittotals = ec+erc
     if include_nuisance:
-        logittotals += eprc
+        logittotals += eprc #.permute(2,1,0)
+    else:
+        logittotals = torch.cat([logittotals.unsqueeze(0) for p in range(P)],0)
+        print(logittotals.size())
 
-    y = zs(P,R,C)
+    y = torch.zeros(P,R,C)
 
-    probs = zs(P,R,C)
-    for p in pyro.plate('precincts', P):
-        tmp = torch.exp(logittotals[p,r])
-        cprobs = tmp/torch.sum(tmp)
-        n = int(ns[p,r].item())
+    for p in pyro.plate('precinctsm2', P):
+        tmp = torch.exp(logittotals[p])
+        cprobs = tmp/torch.sum(tmp,0)
+        n = int(torch.sum(ns[p]))
         samp= pyro.sample(f"y_{p}",
-                    dist.Multinomial(n,cprobs)
-                    .to_event(1))
-        y[p,r] = samp
+                    CMult(ns[p],cprobs)
+                    .to_event(0)) #This line gives error:
+                    #ValueError: only one element tensors can be converted to Python scalars
+                    #I believe that even if I fixed that, I'd still get:
+                    #NotImplementedError: inhomogeneous total_count is not supported
+                    #So I'm gonna give up and also index by r.
+        print(f"modys:{p},{n},{torch.sum(samp)},{ns[p]},{samp}")
+        y[p] = samp
 
 
 
@@ -76,6 +99,19 @@ print(data)
 # Let's now write a variational approximation.
 
 init_narrow = 10  # Numerically stabilize initialization.
+BASE_PSI =.01
+
+def hToM(H,psi):
+    M = torch.zeros(tlen,tlen)
+    lseterms = torch.zeros(3)
+    for i in range(tlen):
+        lseterms[1] = -H[i,i]
+        lseterms[2] = -abs(H[i,i])
+        for j in range(tlen):
+            if j != i:
+                lseterms[2] += abs(H[i,j])
+        M[i,i] = psi[i]*logsumexp(lseterms/psi[i])
+    return H
 
 def guide(data, include_nuisance=False):
 
@@ -83,30 +119,34 @@ def guide(data, include_nuisance=False):
     P = len(ns)
     R = len(ns[1])
     C = len(vs[1])
+
+    #declare precinct-level psi params
+    precinctpsi = pyro.param('precinctpsi',torch.ones((R-1)*(C-1)),
+                constraint=constraints.positive)
+
+
     #Start with hats.
 
     hat_data = dict()
-    sdrchat = pyro.param('sdrchat',5)
-    sdprchat = pyro.param('sdprchat',5)
+    sdrchat = pyro.param('sdrchat',ts(5.))
+    sdprchat = pyro.param('sdprchat',ts(5.))
     hat_data.update(sdrc=sdrchat,sdprc=sdprchat)
-    with pyro.plate('candidates', C):
-        echat = pyro.param('echat', 0)
-        with pyro.plate('rgroups', R):
-            erchat = pyro.param('erchat', 0)
+    with pyro.plate('candidatesg', C):
+        echat = pyro.param('echat', ts(0.))
+        with pyro.plate('rgroupsg', R):
+            erchat = pyro.param('erchat', ts(0.))
             if include_nuisance:
-                with pyro.plate('precincts', P):
-                    eprchat = pyro.param('eprchat', 0)
-    hat_data.update(ec=echat,erc=erchat,eprc=eprchat)
+                with pyro.plate('precinctsg', P):
+                    eprchat = pyro.param('eprchat', ts(0.))
+                hat_data.update(eprc=eprchat)
+    hat_data.update(ec=echat,erc=erchat)
 
 
-    with pyro.plate('precincts2', P):
-        with pyro.plate('Wcandidates', C):
-            with pyro.plate('Wrgroups', R):
-                what = pyro.param('what', 0)
+    what = pyro.param('what', torch.zeros(P,R-1,C-1))
 
-    for p in pyro.plate('precincts3', P):
+    for p in pyro.plate('precinctsg2', P):
         indep = get_indep(R, C, ns[p], vs[p])
-        yhat = polytopize(R,C,indep,what[p])
+        yhat = polytopize(R,C,what[p],indep)
         yy = pyro.param(f"y_{p}_hat",
                     yhat)
         hat_data.update({f"y_{p}":yy})
@@ -125,16 +165,25 @@ def guide(data, include_nuisance=False):
     thetaParts = [sdrchat, sdprchat, echat, erchat]
     H = hessian.hessian(loss, thetaParts)#, allow_unused=True)
 
-    thetaMean = thetaParts.view(-1)
+    thetaMean = torch.cat([thetaPart.view(-1) for thetaPart in thetaParts],0)
     tlen = len(thetaMean)
+
+    #declare global-level psi params
+    precinctpsi = pyro.param('globalpsi',torch.ones(tlen)*BASE_PSI,
+                constraint=constraints.positive)
+    M = hToM(H,precinctpsi)
     theta = pyro.sample('theta',
-                    dist.MultivariateNormal(thetaMean, precision_matrix=H),
+                    dist.MultivariateNormal(thetaMean, precision_matrix=H+M),
                     infer={'is_auxiliary': True})
 
+
+    combinedpsi = pyro.cat([globalpsi, precinctpsi],0)
 
     for p in pyro.plate('precincts3', P):
         wthetaparts = thetaParts + [what[p]]
         HW = hessian.hessian(loss, wthetaParts)
+
+        M = hToM(H,precinctpsi)
         Sig = torch.inverse(H) #This is not efficient computationally — redundancy. But I don't want to hand-code the right thing yet.
         wmean = (what[p].view(-1) +
                 Sig[tlen:, :tlen] * H * (theta - thetaMean))
@@ -143,7 +192,7 @@ def guide(data, include_nuisance=False):
                         dist.MultivariateNormal(wmean, wSig),
                         infer={'is_auxiliary': True})
         indep = get_indep(R, C, ns[p], vs[p])
-        y = polytopize(R,C,indep,w.view(R,C))
+        y = depolytopize(R,C,w.view(R,C),indep)
         yy = pyro.sample(f"y_{p}", dist.Delta(y))
         if include_nuisance:
             pass #unimplemented — gamma
@@ -195,7 +244,7 @@ svi = SVI(model, guide, ClippedAdam({'lr': 0.005}), Trace_ELBO())
 pyro.clear_param_store()
 losses = []
 for i in range(3001):
-    loss = svi.step(populations, data)
+    loss = svi.step(data)
     losses.append(loss)
     if i % 100 == 0:
         print('epoch {} loss = {}'.format(i, loss))

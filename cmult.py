@@ -47,8 +47,8 @@ class TorchCMult(TorchDistribution):
 
     def __init__(self, total_count=1, probs=None, logits=None, validate_args=None):
         print("total count",total_count,type(total_count))
-        if not isinstance(total_count, Number):
-            raise NotImplementedError('inhomogeneous total_count is not supported')
+        #if not isinstance(total_count, Number):
+        #    raise NotImplementedError('inhomogeneous total_count is not supported')
         self.total_count = total_count
         self._categorical = Categorical(probs=probs, logits=logits)
         batch_shape = self._categorical.batch_shape
