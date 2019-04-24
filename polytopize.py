@@ -75,7 +75,8 @@ def polytopize(R, C, raw, start):
     #print("shrink:",shrinkfac)
     return start - shrinkfac * aug2
 
-def depolytopize(R,C,poly,start):
+def depolytopize(R, C, poly, start):
+    assert poly.size() == start.size(), f"depoly fail {R},{C},{poly.size()},{start.size()}"
     diff = poly - start
     ratio = torch.div(diff, -start)
     closest = torch.argmax(ratio)
