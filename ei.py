@@ -3,6 +3,8 @@
 from __future__ import print_function
 print('Yes, I will run.')
 
+from importlib import reload
+import go_or_nogo
 import torch
 from torch.distributions import constraints
 import pyro
@@ -15,6 +17,7 @@ from polytopize import get_indep, polytopize, depolytopize
 from pyro import poutine
 import hessian
 import numpy as np
+import cProfile as profile
 ts = torch.tensor
 
 
@@ -32,11 +35,14 @@ pyro.set_rng_seed(0)
 
 def model(data=None, include_nuisance=False):
     if data is None:
-        P, R, C = 10, 4, 3
+        P, R, C = 30, 4, 3
         ns = torch.zeros(P,R)
         for p in range(P):
             for r in range(R):
-                ns[p,r] = pyro.sample('precinctSizes', dist.NegativeBinomial(p + r + 1, .95))
+                ns[p,r] = 20 * (p*r - 5*(r+1-R) + 6) + ((p-15)*(r-1))^2
+
+                # pyro.sample('precinctSizes',
+                #         dist.NegativeBinomial(p*r - 5*(r+1-R) + 6, .95))
     else:
         ns, vs = data
         assert len(ns)==len(vs)
@@ -46,7 +52,8 @@ def model(data=None, include_nuisance=False):
         C = len(vs[0])
     sdc = 5
     sdrc = pyro.sample('sdrc', dist.Exponential(.2))
-    sdprc = pyro.sample('sdprc', dist.Exponential(.2))
+    if include_nuisance:
+        sdprc = pyro.sample('sdprc', dist.Exponential(.2))
 
     if data is None:
         sdc = .2
@@ -57,6 +64,11 @@ def model(data=None, include_nuisance=False):
     erc = pyro.sample('erc', dist.Normal(torch.zeros(R,C),sdrc).to_event(2))
     if include_nuisance:
         eprc = pyro.sample('eprc', dist.Normal(torch.zeros(P,R,C),sdprc).to_event(3))
+
+    if data is None:
+        erc = torch.zeros([R,C])
+        erc[0] = ts(range(C))
+        erc[1,0] = ts(2.)
 
     # with pyro.plate('candidatesm', C):
     #     ec = pyro.sample('ec', dist.Normal(0,sdc))
@@ -76,7 +88,7 @@ def model(data=None, include_nuisance=False):
 
     y = torch.zeros(P,R,C)
 
-    for p in pyro.plate('precinctsm2', P):
+    for p in range(P):#pyro.plate('precinctsm2', P):
         for r in range(R):#pyro.plate('rgroupsm2', R):
             tmp = torch.exp(logittotals[p,r])
             cprobs = tmp/torch.sum(tmp,0)
@@ -87,6 +99,10 @@ def model(data=None, include_nuisance=False):
 
 
     if data is None:
+        #
+        print(f"ec:{ec}")
+        print(f"erc:{erc}")
+        print(f"y[0]:{y[0]}")
         vs = torch.sum(y,1)
 
         return (ns,vs)
@@ -110,6 +126,19 @@ def infoToM(Info,psi):
         M.append( psi[i] * torch.logsumexp(lseterms / psi[i],0))
     return torch.diag(torch.stack(M))
 
+BUNCHFAC = 9999
+#P=10, BUNCHFAC = 9999: 61/31
+#P=10, BUNCHFAC = 1: 110/31
+#P=30, BUNCHFAC = 1: 785/31; 2490..1799..1213
+#P=30, BUNCHFAC = 1: 675/31; 2490..1799..1213
+#P=30, BUNCHFAC = 2: 339/31
+#P=30, BUNCHFAC = 3: 96/11
+#P=30, BUNCHFAC = 9999: 42/11
+#P=30, BUNCHFAC = 9999: 189/51 2346..1708..1175..864..746
+
+def recenter_rc(rc):
+    return (rc - .95 * torch.mean(rc,0))
+
 def guide(data, include_nuisance=False):
 
     ns, vs = data
@@ -125,18 +154,19 @@ def guide(data, include_nuisance=False):
     #Start with hats.
 
     hat_data = dict()
-    sdrchat = pyro.param('sdrchat',ts(5.))
-    hat_data.update(sdrc=sdrchat)
+    transformation = dict()
+    logsdrchat = pyro.param('logsdrchat',ts(2.))
+    hat_data.update(sdrc=logsdrchat)
+    transformation.update(sdrc=torch.exp)
     if include_nuisance:
-        sdprchat = pyro.param('sdprchat',ts(5.))
-        hat_data.update(sdprc=sdprchat)
+        logsdprchat = pyro.param('logsdprchat',ts(2.))
+        hat_data.update(sdprc=logsdprchat)
+        transformation.update(sdprc=torch.exp)
 
     echat = pyro.param('echat', torch.zeros(C))
     erchat = pyro.param('erchat', torch.zeros(R,C))
     hat_data.update(ec=echat,erc=erchat)
-    if include_nuisance:
-        eprchat = pyro.param('eprchat', torch.zeros(P,R,C))
-        hat_data.update(eprc=eprchat)
+    transformation.update(erc=recenter_rc)
     # with pyro.plate('candidatesg', C):
     #     echat = pyro.param('echat', ts(0.))
     #     with pyro.plate('rgroupsg', R):
@@ -146,17 +176,18 @@ def guide(data, include_nuisance=False):
     #                 eprchat = pyro.param('eprchat', ts(0.))
     #             hat_data.update(eprc=eprchat)
 
+    global_logit_totals =
 
-    what = pyro.param('what', torch.zeros(P,R-1,C-1))
+    what = []
 
-    for p in pyro.plate('precinctsg2', P):
+    for p in range(P):#pyro.plate('precinctsg2', P):
+        pwhat = pyro.param(f'what_{p}', torch.zeros(R-1,C-1))
+        what.append(pwhat)
         indep = get_indep(R, C, ns[p], vs[p])
-        yhat = polytopize(R, C, what[p], indep)
+        yhat = polytopize(R, C, pwhat, indep)
         for r in range(R):
-            yy = pyro.param(f"y_{p}_{r}_hat",
-                        yhat[r])
             #print(f"yy size:{yy.size()},{R},{C}")
-            hat_data.update({f"y_{p}_{r}":yy}) #no, don't; do it separately.
+            hat_data.update({f"y_{p}_{r}":yhat[r]}) #no, don't; do it separately.
             if include_nuisance:
                 pass #unimplemented — get MLE for gamma, yuck
 
@@ -165,18 +196,22 @@ def guide(data, include_nuisance=False):
 
     #Start with theta
 
-    hess_center = pyro.condition(model,hat_data)
+    transformed_hat_data = dict()
+    for k,v in hat_data.items():
+        if k in transformation:
+            transformed_hat_data[k] = transformation[k](v)
+        else:
+            transformed_hat_data[k] = v
+    hess_center = pyro.condition(model,transformed_hat_data)
     mytrace = poutine.block(poutine.trace(hess_center).get_trace)(data, include_nuisance)
     log_posterior = mytrace.log_prob_sum()
     theta_part_names = ["sdrc", "sdprc", "ec", "erc", "eprc"]
     theta_parts = []
     theta_hat_data = dict()
     for part_name in theta_part_names:
-        try:
+        if part_name in hat_data:
             theta_parts.append(hat_data[part_name]) #fails if missing (ie, eprc)
             theta_hat_data[part_name] = hat_data[part_name]
-        except:
-            pass
 
     Info = -hessian.hessian(log_posterior, theta_parts)#, allow_unused=True)
 
@@ -199,37 +234,55 @@ def guide(data, include_nuisance=False):
         elems = phat.nelement()
         pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
         #print(f"adding {pname} from theta ({elems}, {phat.size()}, {tmptheta.size()}, {pdat})" )
-        pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
+        if pname in transformation:
+            pyro.sample(pname, dist.Delta(transformation[pname](pdat.view(phat.size())))
+                                .to_event(len(list(phat.size()))))
+        else:
+            pyro.sample(pname, dist.Delta(pdat.view(phat.size()))
+                                .to_event(len(list(phat.size()))))
     assert list(tmptheta.size())[0] == 0
 
 
     combinedpsi = torch.cat([globalpsi, precinctpsi],0)
 
-
-    wtheta = theta_parts + [what]
-    big_HW = hessian.hessian(log_posterior, wtheta)
+    #
+    B = tlen * BUNCHFAC // (R-1) // (C-1) #bunch size; should do enough precincts to approximately double total matrix size
+    nbunches = ((P-1) // B) + 1
+    big_HWs = []
+    for b in range(nbunches):
+        wtheta = theta_parts + what[(b*B):((b+1)*B)]
+        big_HWs.append(hessian.hessian(log_posterior, wtheta))
     #print(big_HW.size())
+    precinct_indices = []
+    for pp in range(B): #possible remainders
+         precinct_indices.append(ts(range(tlen + pp*(R-1)*(C-1), tlen + (pp+1)*(R-1)*(C-1))))
     global_indices = ts(range(tlen))
-    for p in pyro.plate('precincts3', P):
-        precinct_indices = ts(range(tlen + p*(R-1)*(C-1), tlen + (p+1)*(R-1)*(C-1)))
-        full_indices = torch.cat([global_indices,precinct_indices],0)
-        HW = big_HW.index_select(0,full_indices).index_select(1,full_indices)
+    for p in range(P):#pyro.plate('precincts3', P):
+        pp = p % B #remainder
+        #print(f"Hesshess:{hessian.hessian(log_posterior,theta_parts + [what[p]])}")
+
+        full_indices = torch.cat([global_indices,precinct_indices[pp]],0)
+        HW = big_HWs[p // B].index_select(0,full_indices).index_select(1,full_indices)
         #print(f"size:{HW.size()},{tlen},{len(precinct_indices)},{len(combinedpsi)}")
         M = infoToM(HW,combinedpsi)
         precision = HW + M
         Sig = torch.inverse(precision) #This is not efficient computationally — redundancy.
                         #But I don't want to hand-code the right thing yet.
-        print(f"substep:{tlen},{Info.size()},{Sig.size()}")
+        #print(f"substep:{tlen},{Info.size()},{Sig.size()}")
         substep = torch.mm(Sig[tlen:, :tlen], adjusted)
 
         wmean = (what[p].view(-1) +
                 torch.mv(substep, (theta - theta_mean)))
         wSig = Sig[tlen:, tlen:] - torch.mm(substep, Sig[:tlen, tlen:])
         wSig = wSig + infoToM(wSig, combinedpsi[tlen:])
-        print(f"det:{np.linalg.det(wSig.data.numpy())}")
-        w = pyro.sample(f"w_{p}",
-                        dist.MultivariateNormal(wmean, wSig),
-                        infer={'is_auxiliary': True})
+        try:
+            w = pyro.sample(f"w_{p}",
+                            dist.MultivariateNormal(wmean, wSig),
+                            infer={'is_auxiliary': True})
+        except:
+            print(wSig)
+            print(f"det:{np.linalg.det(wSig.data.numpy())}")
+            raise
         indep = get_indep(R, C, ns[p], vs[p])
         y = polytopize(R,C,w.view(R-1,C-1),indep)
         for r in range(R):
@@ -238,7 +291,7 @@ def guide(data, include_nuisance=False):
             pass #unimplemented — gamma
 
 
-
+nsteps = 5001
 
 def trainGuide():
 
@@ -253,11 +306,18 @@ def trainGuide():
 
     pyro.clear_param_store()
     losses = []
-    for i in range(3001):
+    for i in range(nsteps):
         loss = svi.step(data)
         losses.append(loss)
-        if i % 100 == 0:
-            print(f'epoch {i} loss = {loss}')
+        if i % 10 == 0:
+            print(f'epoch {i} loss = {loss};'+
+                f' logsdrchat = {pyro.get_param_store()["logsdrchat"]};' +
+                f' erchat[0] = {pyro.get_param_store()["erchat"][0]}')
+            reload(go_or_nogo)
+            if go_or_nogo.go:
+                pass
+            else:
+                break
 
     ##
 
@@ -266,6 +326,13 @@ def trainGuide():
     plt.ylabel('loss')
 
     ##
-
-    for (key, val) in sorted(pyro.get_param_store().items()):
+    pyroStore = pyro.get_param_store()
+    for (key, val) in sorted(pyroStore.items()):
         print(f"{key}:\n{val}")
+
+    ns, vs = data
+    print("yhat[0]:",
+        polytopize(4,3,pyroStore["what_0"],
+                   get_indep(4,3,ns[0],vs[0])))
+
+    return(svi,losses,data)

@@ -97,7 +97,7 @@ def trainGuide():
     for i in range(3001):
         loss = svi.step()
         losses.append(loss)
-        if i % 100 == 0:
+        if i % 10 == 0:
             print(f'epoch {i} loss = {loss}')
 
     ##

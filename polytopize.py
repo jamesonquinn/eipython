@@ -46,18 +46,23 @@ def get_indep(R, C, rnums, cnums): #note, not-voting is a candidate
     assert len(cnums)==C
     assert torch.all(torch.eq(rnums,0.) ^ 1) #`^ 1` means "not".
     assert torch.all(torch.eq(cnums,0.) ^ 1) #`^ 1` means "not".
-    tot = sum(rnums)
+    tot = torch.sum(rnums,0)
     #print("sums",tot,sum(cnums))
     assert approx_eq(tot,sum(cnums)), f'#print("sums",{tot},{sum(cnums)})'
-    indep = ts([[(rnum * cnum / tot) for cnum in cnums] for rnum in rnums])
+    indep = ts([[(rnum * cnum / tot) for cnum in cnums] for rnum in rnums])#TODO: better pytorch
     return indep
 
+def to_subspace(raw, R, C, rnums, cnums)
+    rdiffs = rnums - torch.sum(raw,0)
+    tot = torch.sum(cnums[0])
+    return(raw + torch.stack([rdiffs[i]*cnums[i]/tot for i in range(R)],0)) #TODO: better pytorch way to do this
 
-
-def polytopize(R, C, raw, start):
-
-    aug1 = torch.cat((raw,-raw.sum(0).unsqueeze(0)),0)
-    aug2 = torch.cat((aug1,-aug1.sum(1).unsqueeze(1)),1)
+def polytopize(R, C, raw, start, do_aug=True):
+    if do_aug:
+        aug1 = torch.cat((raw,-raw.sum(0).unsqueeze(0)),0)
+        aug2 = torch.cat((aug1,-aug1.sum(1).unsqueeze(1)),1)
+    else:
+        aug2 = raw
 
     if 0==torch.max(torch.abs(aug2)):
         return(aug2)
