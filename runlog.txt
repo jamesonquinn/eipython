@@ -124,3 +124,7 @@ Separately: error:
      35                 if not constraint.check(getattr(self, param)).all():
 ---> 36                     raise ValueError("The parameter {} has invalid values".format(param))
 ...
+
+
+
+May 1: semi-amortized w, with 1-step newton's method, but no polytopization squishiness param.

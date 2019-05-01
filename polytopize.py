@@ -1,7 +1,7 @@
 from __future__ import print_function
 
 
-print('Yes, I will run.')
+print('Reloading polytopize.')
 
 from importlib import reload
 
@@ -30,7 +30,7 @@ smoke_test = ('CI' in os.environ)
 assert pyro.__version__.startswith('0.3.0')
 pyro.enable_validation(True)
 
-MIN_DIFF = 1e-4
+MIN_DIFF = 1e-2
 
 def approx_eq(a,b):
     #print("a",a)
@@ -41,21 +41,37 @@ def approx_eq(a,b):
     #        torch.all(torch.lt(zs(1),1)))
     return(torch.all(torch.lt(torch.abs(torch.add(a, -b)), MIN_DIFF)))
 
-def get_indep(R, C, rnums, cnums): #note, not-voting is a candidate
-    assert len(rnums)==R
-    assert len(cnums)==C
-    assert torch.all(torch.eq(rnums,0.) ^ 1) #`^ 1` means "not".
-    assert torch.all(torch.eq(cnums,0.) ^ 1) #`^ 1` means "not".
-    tot = torch.sum(rnums,0)
-    #print("sums",tot,sum(cnums))
-    assert approx_eq(tot,sum(cnums)), f'#print("sums",{tot},{sum(cnums)})'
-    indep = ts([[(rnum * cnum / tot) for cnum in cnums] for rnum in rnums])#TODO: better pytorch
+def get_indep(R, C, ns, vs): #note, not-voting is a candidate
+    assert len(ns)==R
+    assert len(vs)==C
+    assert torch.all(torch.eq(ns,0.) ^ 1) #`^ 1` means "not".
+    assert torch.all(torch.eq(vs,0.) ^ 1) #`^ 1` means "not".
+    tot = torch.sum(ns,0)
+    #print("sums",tot,sum(vs))
+    assert approx_eq(tot,sum(vs)), f'#print("sums",{tot},{sum(vs)})'
+    indep = ts([[(rnum * cnum / tot) for cnum in vs] for rnum in ns])#TODO: better pytorch
     return indep
 
-def to_subspace(raw, R, C, rnums, cnums)
-    rdiffs = rnums - torch.sum(raw,0)
-    tot = torch.sum(cnums[0])
-    return(raw + torch.stack([rdiffs[i]*cnums[i]/tot for i in range(R)],0)) #TODO: better pytorch way to do this
+def to_subspace(raw, R, C, ns, vs):
+    vdiffs = vs - torch.sum(raw,0)
+    tot = torch.sum(vs)
+    result = raw + torch.stack([vdiffs*ns[r]/tot for r in range(R)],0)
+    try:
+        assert approx_eq(torch.sum(result,0), vs)
+        #assert approx_eq(torch.sum(result,1), ns)
+    except:
+        print(f"to_subspace error:{torch.sum(raw,0)}")
+        print(f"to_subspace error:{torch.sum(result,0)}")
+        print(f"to_subspace error:{vs}")
+        print(f"to_subspace error:{(torch.sum(result,1), ns)}")
+        print(f"to_subspace error:{vdiffs}")
+        print(f"to_subspace error:{tot}")
+        print(f"to_subspace error:{vdiffs[0]*vs[0]/tot}")
+        print(f"to_subspace error:{torch.stack([vdiffs*ns[r]/tot for r in range(R)],0)}")
+        print(f"to_subspace error:{vdiffs}")
+        print(f"to_subspace error:{vdiffs}")
+        raise
+    return(result) #TODO: better pytorch way to do this
 
 def polytopize(R, C, raw, start, do_aug=True):
     if do_aug:
@@ -96,27 +112,27 @@ def depolytopize(R, C, poly, start):
 def dummyPrecinct(R, C, i=0, israndom=True):
 
     if israndom:
-        rnums = pyro.distributions.Exponential(1.).sample(torch.Size([R]))
-        cnums = pyro.distributions.Exponential(1.).sample(torch.Size([C]))
+        ns = pyro.distributions.Exponential(1.).sample(torch.Size([R]))
+        vs = pyro.distributions.Exponential(1.).sample(torch.Size([C]))
     else:
         #print("Not random")
-        rnums = ts([r+i+1. for r in range(R)])
-        cnums = ts([c+i+2. for c in range(C)])
-    #print("ttots:",rnums,cnums,torch.sum(rnums),torch.sum(cnums))
-    cnums = cnums / torch.sum(cnums) * torch.sum(rnums)
-    #print("ttots:",rnums,cnums)
-    indep = get_indep(R,C,rnums,cnums)
-    return(rnums,cnums,indep)
+        ns = ts([r+i+1. for r in range(R)])
+        vs = ts([c+i+2. for c in range(C)])
+    #print("ttots:",ns,vs,torch.sum(ns),torch.sum(vs))
+    vs = vs / torch.sum(vs) * torch.sum(ns)
+    #print("ttots:",ns,vs)
+    indep = get_indep(R,C,ns,vs)
+    return(ns,vs,indep)
 
 def test_funs(R, C, innerReps=2, outerReps=2, israndom=True):
     for i in range(outerReps):
-        rnums,cnums,indep = dummyPrecinct(R,C,i,israndom)
+        ns,vs,indep = dummyPrecinct(R,C,i,israndom)
         for j in range(innerReps):
             loc = pyro.distributions.Normal(0.,4.).sample(torch.Size([R-1,C-1]))
             polytopedLoc = polytopize(R,C,loc,indep)
             try:
-                assert approx_eq(rnums, torch.sum(polytopedLoc, dim=1).view(R)) , "rnums fail"
-                assert approx_eq(cnums, torch.sum(polytopedLoc, dim=0).view(C)) , "cnums fail"
+                assert approx_eq(ns, torch.sum(polytopedLoc, dim=1).view(R)) , "ns fail"
+                assert approx_eq(vs, torch.sum(polytopedLoc, dim=0).view(C)) , "vs fail"
                 assert torch.all(torch.ge(polytopedLoc,0)) , "ge fail"
             except Exception as e:
                 print(e)
