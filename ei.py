@@ -62,15 +62,22 @@ def model(data=None, include_nuisance=False, do_print=False):
         sdrc = .4
         sdprc = .6
 
+
+    #This is NOT used for data, but instead as a way to sneak a "prior" into the guide to improve identification.
+    param_residual=pyro.sample('param_residual', dist.Normal(0.,1.))
+
     ec = pyro.sample('ec', dist.Normal(torch.zeros(C),sdc).to_event(1))
     erc = pyro.sample('erc', dist.Normal(torch.zeros(R,C),sdrc).to_event(2))
     if include_nuisance:
-        eprc = pyro.sample('eprc', dist.Normal(torch.zeros(P,R,C),sdprc).to_event(3))
+        for p in range(P):
+            eprc = pyro.sample(f'eprc_{p}', dist.Normal(torch.zeros(R,C),sdprc).to_event(2))
 
     if data is None:
         erc = torch.zeros([R,C])
         erc[0] = ts(range(C))
         erc[1,0] = ts(2.)
+        ec = torch.zeros(C)
+        ec[1] = .5
 
     # with pyro.plate('candidatesm', C):
     #     ec = pyro.sample('ec', dist.Normal(0,sdc))
@@ -128,7 +135,7 @@ def infoToM(Info,psi):
         M.append( psi[i] * torch.logsumexp(lseterms / psi[i],0))
     return torch.diag(torch.stack(M))
 
-BUNCHFAC = 9999
+BUNCHFAC = 35
 #P=10, BUNCHFAC = 9999: 61/31
 #P=10, BUNCHFAC = 1: 110/31
 #P=30, BUNCHFAC = 1: 785/31; 2490..1799..1213
@@ -140,9 +147,12 @@ BUNCHFAC = 9999
 
 ADJUST_SCALE = .05
 MAX_NEWTON_STEP = 1.2
+RECENTER_PRIOR_STRENGTH = 2.
 
 def recenter_rc(rc):
-    return (rc - .95 * torch.mean(rc,0))
+    rowcentered= (rc - torch.mean(rc,0))
+    colcentered = rowcentered - torch.mean(rowcentered,0)
+    return colcentered
 
 def guide(data, include_nuisance=False, do_print=False):
 
@@ -167,6 +177,11 @@ def guide(data, include_nuisance=False, do_print=False):
         logsdprchat = pyro.param('logsdprchat',ts(2.))
         hat_data.update(sdprc=logsdprchat)
         transformation.update(sdprc=torch.exp)
+        eprchat_startingpoint = []
+        for p in range(P):#pyro.plate('precinctsg2', P):
+            eprchat_startingpoint.append(torch.zeros(R,C)) #not a pyro param
+            hat_data.update({f"eprc_{p}":eprchat_startingpoint[p]})
+            #eprc = pyro.sample('eprc', dist.Normal(torch.zeros(P,R,C),sdprc).to_event(3))
 
     echat = pyro.param('echat', torch.zeros(C))
     erchat = pyro.param('erchat', torch.zeros(R,C))
@@ -180,6 +195,11 @@ def guide(data, include_nuisance=False, do_print=False):
     #             with pyro.plate('precinctsg', P):
     #                 eprchat = pyro.param('eprchat', ts(0.))
     #             hat_data.update(eprc=eprchat)
+
+    #Including recenter_rc makes erc not identifiable, so "impose a prior"
+    recentering_amount = (RECENTER_PRIOR_STRENGTH *
+            torch.mean((erchat - recenter_rc(erchat))**2)/torch.exp(logsdrchat))
+    pyro.sample('param_residual', dist.Delta(recentering_amount))
 
     global_logit_totals = echat + erchat
 
@@ -206,8 +226,9 @@ def guide(data, include_nuisance=False, do_print=False):
         for r in range(R):
             #print(f"yy size:{yy.size()},{R},{C}")
             hat_data.update({f"y_{p}_{r}":yhat[r]}) #no, don't; do it separately.
-            if include_nuisance:
-                pass #unimplemented — get MLE for gamma, yuck
+            # if include_nuisance:
+            #     pass #unimplemented — get MLE for gamma, yuck
+            # Above is commented out because we actually make this correction post-Hessian now.
 
 
     #Get hessians and sample params
@@ -268,20 +289,29 @@ def guide(data, include_nuisance=False, do_print=False):
             'precinct_newton_step_multiplier_logit',ts(0.))
     epnsml = torch.exp(precinct_newton_step_multiplier_logit)
     step_mult = MAX_NEWTON_STEP * epnsml / (1 + epnsml)
-    #
-    B = tlen * BUNCHFAC // (R-1) // (C-1) #bunch size; should do enough precincts to approximately double total matrix size
+    num_precinct_params = ((R-1) * (C-1) + #W
+                            R*C) #eprc
+    B = tlen * BUNCHFAC // num_precinct_params #bunch size; should do enough precincts to approximately double total matrix size
     nbunches = ((P-1) // B) + 1
     big_HWs = []
     big_grads = []
     for b in range(nbunches):
         wtheta = theta_parts + what[(b*B):((b+1)*B)]
+        if include_nuisance:
+            wtheta = wtheta + eprchat_startingpoint[(b*B):((b+1)*B)]
         negHW, grad = myhessian.hessian(log_posterior, wtheta, return_grad=True)
         big_HWs.append(-negHW)
         big_grads.append(grad)
     #print(big_HW.size())
     precinct_indices = []
+    first_eprchat = tlen + B*(R-1)*(C-1)
     for pp in range(B): #possible remainders
-         precinct_indices.append(ts(range(tlen + pp*(R-1)*(C-1), tlen + (pp+1)*(R-1)*(C-1))))
+        pis_list = [ts(range(tlen + pp*(R-1)*(C-1), tlen + (pp+1)*(R-1)*(C-1)))]
+        if include_nuisance:
+            pis_list = pis_list + [ts(range(first_eprchat + pp*R*C, first_eprchat + (pp+1)*R*C))]
+        precinct_indices.append(
+             torch.cat(pis_list,0)
+             )
     global_indices = ts(range(tlen))
     for p in range(P):#pyro.plate('precincts3', P):
 
@@ -296,7 +326,9 @@ def guide(data, include_nuisance=False, do_print=False):
 
         #one step of Newton's method on the Ws
         precinct_cov = torch.inverse(HW[tlen:,tlen:])
-        precinct_grad = big_grads[p // B][tlen + pp*(R-1)*(C-1): tlen + (pp+1)*(R-1)*(C-1)]
+
+        precinct_grad = big_grads[p // B
+            ].index_select(0,precinct_indices[pp]) #[tlen + pp*(R-1)*(C-1): tlen + (pp+1)*(R-1)*(C-1)]
         precinct_adj = step_mult * torch.mv(precinct_cov, precinct_grad)
 
 
@@ -312,10 +344,16 @@ def guide(data, include_nuisance=False, do_print=False):
 
         #print(f"wmean1:{theta.size()},{theta_mean.size()},{5+5}")
         #print(f"wmean2:{what[p].size()},{what[p].contiguous().view(-1).size()},{precinct_adj.size()},{torch.mv(substep, (theta - theta_mean)).size()}")
-        wmean = (what[p].contiguous().view(-1) - precinct_adj +
+        wmean = (what[p].contiguous().view(-1) - precinct_adj[:(R-1)*(C-1)] +
                 torch.mv(substep, (theta - theta_mean)))
         wSig = Sig[tlen:, tlen:] - torch.mm(substep, Sig[:tlen, tlen:])
         wSig = wSig + infoToM(wSig, combinedpsi[tlen:])
+
+        if include_nuisance:
+            eprc_adjusted = (precinct_adj[(R-1)*(C-1):] / step_mult).view(R,C)
+            eprc = pyro.sample(f"eprc_{p}",
+                dist.Delta(eprc_adjusted).to_event(2)) #Not adjusting for deviation from hat!!!! TODO: fix!!!!
+
         try:
             w = pyro.sample(f"w_{p}",
                             dist.MultivariateNormal(wmean, wSig),
@@ -329,8 +367,6 @@ def guide(data, include_nuisance=False, do_print=False):
         y = polytopize(R,C,w.view(R-1,C-1),indep)
         for r in range(R):
             yy = pyro.sample(f"y_{p}_{r}", dist.Delta(y[r]).to_event(1))
-        if include_nuisance:
-            pass #unimplemented — gamma
     if do_print:
         go_or_nogo.printstuff2()
 
@@ -342,7 +378,7 @@ def trainGuide():
     # Let's generate voting data. I'm conditioning concentration=1 for numerical stability.
 
     data = model()
-    print(data)
+    #print(data)
 
 
     # Now let's train the guide.
