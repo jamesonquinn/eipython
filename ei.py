@@ -69,8 +69,14 @@ def model(data=None, include_nuisance=False, do_print=False):
     ec = pyro.sample('ec', dist.Normal(torch.zeros(C),sdc).to_event(1))
     erc = pyro.sample('erc', dist.Normal(torch.zeros(R,C),sdrc).to_event(2))
     if include_nuisance:
+        eprc_list = []
         for p in range(P):
-            eprc = pyro.sample(f'eprc_{p}', dist.Normal(torch.zeros(R,C),sdprc).to_event(2))
+            eprc_list.append(
+                pyro.sample(f'eprc_{p}', dist.Normal(torch.zeros(R,C),sdprc).to_event(2))
+                )
+        eprc = torch.stack(eprc_list,0)
+    else:
+        eprc = ts(0.) #dummy for print statements. TODO:remove
 
     if data is None:
         erc = torch.zeros([R,C])
@@ -88,12 +94,13 @@ def model(data=None, include_nuisance=False, do_print=False):
     #                 eprc = pyro.sample('eprc', dist.Normal(0,sdprc))
 
     logittotals = ec+erc
-    #print("sizes ",P,R,C,ec.size(),erc.size(),logittotals.size())
+    print("sizes1 ",P,R,C,eprc.size(),ec.size(),erc.size(),logittotals.size())
     if include_nuisance:
-        logittotals += eprc
+        logittotals = logittotals + eprc # += doesn't work here because mumble in-place mumble shape
     else:
         logittotals = torch.cat([logittotals.unsqueeze(0) for p in range(P)],0)
         #print(logittotals.size())
+    print("sizes2 ",P,R,C,ec.size(),erc.size(),logittotals.size())
 
     y = torch.zeros(P,R,C)
 
@@ -161,8 +168,12 @@ def guide(data, include_nuisance=False, do_print=False):
     R = len(ns[1])
     C = len(vs[1])
 
+    if include_nuisance:
+        precinctpsi_len = (R-1)*(C-1) + R*C
+    else:
+        precinctpsi_len = (R-1)*(C-1)
     #declare precinct-level psi params
-    precinctpsi = pyro.param('precinctpsi',BASE_PSI * torch.ones((R-1)*(C-1)),
+    precinctpsi = pyro.param('precinctpsi',BASE_PSI * torch.ones(precinctpsi_len),
                 constraint=constraints.positive)
 
 
@@ -179,7 +190,8 @@ def guide(data, include_nuisance=False, do_print=False):
         transformation.update(sdprc=torch.exp)
         eprchat_startingpoint = []
         for p in range(P):#pyro.plate('precinctsg2', P):
-            eprchat_startingpoint.append(torch.zeros(R,C)) #not a pyro param
+            eprchat_startingpoint.append(torch.zeros(R,C)) #not a pyro param...
+            eprchat_startingpoint[p].requires_grad_(True) #...so we have to do this manually
             hat_data.update({f"eprc_{p}":eprchat_startingpoint[p]})
             #eprc = pyro.sample('eprc', dist.Normal(torch.zeros(P,R,C),sdprc).to_event(3))
 
@@ -304,7 +316,27 @@ def guide(data, include_nuisance=False, do_print=False):
         big_grads.append(grad)
     #print(big_HW.size())
     precinct_indices = []
-    first_eprchat = tlen + B*(R-1)*(C-1)
+    first_eprchat = tlen + B*(R-1)*(C-1) #Doesn't work for last block!!!!!!!!!!!!!!!!!!!!!!!!
+    #!!!!
+    #!!!!
+    #!!!!
+    #!!!!
+    #!!!!
+    #!!!!
+    #!!!!
+    #!!!!
+    #!!!!
+    #!!!!
+    #!!!!
+    #!!!!
+    #!!!!
+    #!!!!
+    #!!!!
+    #!!!!
+    #!!!!
+    #!!!!
+    #!!!!
+    #!!!!
     for pp in range(B): #possible remainders
         pis_list = [ts(range(tlen + pp*(R-1)*(C-1), tlen + (pp+1)*(R-1)*(C-1)))]
         if include_nuisance:
@@ -321,12 +353,16 @@ def guide(data, include_nuisance=False, do_print=False):
         #print(f"Hesshess:{hessian.hessian(log_posterior,theta_parts + [what[p]])}")
 
         full_indices = torch.cat([global_indices,precinct_indices[pp]],0)
+
+        print(f"HW:{P},{p},{B},{P//B},{len(big_HWs)},{big_HWs[p//B].size()},")
+        print(f"HW2:{big_HWs[p//B].size()},{list(full_indices)}")
         HW = big_HWs[p // B].index_select(0,full_indices).index_select(1,full_indices)
 
 
         #one step of Newton's method on the Ws
         precinct_cov = torch.inverse(HW[tlen:,tlen:])
 
+        print()
         precinct_grad = big_grads[p // B
             ].index_select(0,precinct_indices[pp]) #[tlen + pp*(R-1)*(C-1): tlen + (pp+1)*(R-1)*(C-1)]
         precinct_adj = step_mult * torch.mv(precinct_cov, precinct_grad)
@@ -340,14 +376,18 @@ def guide(data, include_nuisance=False, do_print=False):
         Sig = torch.inverse(precision) #This is not efficient computationally — redundancy.
                         #But I don't want to hand-code the right thing yet.
         #print(f"substep:{tlen},{Info.size()},{Sig.size()}")
-        substep = torch.mm(Sig[tlen:, :tlen], adjusted)
+        substep = torch.mm(Sig[tlen:tlen+(R-1)*(C-1), :tlen], adjusted)
 
-        #print(f"wmean1:{theta.size()},{theta_mean.size()},{5+5}")
-        #print(f"wmean2:{what[p].size()},{what[p].contiguous().view(-1).size()},{precinct_adj.size()},{torch.mv(substep, (theta - theta_mean)).size()}")
+        print(f"wmean1:{theta.size()},{theta_mean.size()},{5+5}")
+        print(f"wmean2:{what[p].size()},{what[p].contiguous().view(-1).size()},{precinct_adj.size()},{torch.mv(substep, (theta - theta_mean)).size()}")
         wmean = (what[p].contiguous().view(-1) - precinct_adj[:(R-1)*(C-1)] +
-                torch.mv(substep, (theta - theta_mean)))
-        wSig = Sig[tlen:, tlen:] - torch.mm(substep, Sig[:tlen, tlen:])
-        wSig = wSig + infoToM(wSig, combinedpsi[tlen:])
+                torch.mv(substep, (theta - theta_mean))[:(R-1)*(C-1)])
+        subSig = Sig[tlen:tlen+(R-1)*(C-1), tlen:tlen+(R-1)*(C-1)]
+        subDel = torch.mm(substep, Sig[:tlen, tlen:tlen+(R-1)*(C-1)])
+        print(f"wmean3:{subSig.size()},{subDel.size()}")
+
+        wSig = subSig - subDel
+        wSig = wSig + infoToM(wSig, combinedpsi[tlen:tlen+(R-1)*(C-1)])
 
         if include_nuisance:
             eprc_adjusted = (precinct_adj[(R-1)*(C-1):] / step_mult).view(R,C)
@@ -387,7 +427,7 @@ def trainGuide():
     pyro.clear_param_store()
     losses = []
     for i in range(nsteps):
-        loss = svi.step(data,do_print=(i % 10 == 0))
+        loss = svi.step(data,True,do_print=(i % 10 == 0))
         losses.append(loss)
         if i % 10 == 0:
             reload(go_or_nogo)

@@ -128,3 +128,20 @@ Separately: error:
 
 
 May 1: semi-amortized w, with 1-step newton's method, but no polytopization squishiness param.
+erchat "recentered" 95% by row.
+
+result: kinda works? loss bottoms out around ~400 after ~1400 steps;
+erchat is of right scale and kinda sorta in the right direction but definitely has
+some confusion between "similar" (roughly co-occurring) racial groups.
+
+...
+
+May 4:
+vague thoughts:
+   Mira has now worked out an optimum for w|θ without ν. Problem is, without an analytic solution to this, the ELBO isn't differentiable over θ. But if we could force pyro to use the gradient over (θ,W)[Θ] instead of the gradient over Θ, that's OK.
+
+   Rewrite hessian to be smarter about arrowheads. Worth it?
+
+   Instead of doing full hessian (slow, even with the above), build an approximation thereof?? Probably a rabbit-hole, at least for now.
+
+   But we do need (ν|θ,W). Use Hessian?
