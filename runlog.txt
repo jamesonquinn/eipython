@@ -145,3 +145,23 @@ vague thoughts:
    Instead of doing full hessian (slow, even with the above), build an approximation thereof?? Probably a rabbit-hole, at least for now.
 
    But we do need (ν|θ,W). Use Hessian?
+
+
+
+Action items from talk at Christina's:
+
+* Memoize Hessian
+* Rewrite partial derivs so it doesn't have to be blocked
+* change ν_urc to ν_u(r+c) (rank one)
+* subsampling u's
+* How to get Ŷ? (n iterations of projection)
+* How to get ν̂? (Initial guess 0 or MLE when σ_ν = ∞ or some combination? OR previous value?)
+
+* proposed algo for y, ν:
+
+Given θ̂
+Get Ŷ^(0)|θ=θ̂,ν=0
+Let ν̂^(0)=initial position as above
+Compute ℐ̂=Hessian + gradient
+One step of Newton on Ŷ^(0),ν̂^(0) to get Ŷ,ν̂
+sample θ,W~𝒩[(θ̂,depoly(Ŷ)), ℐ̂^-1]
