@@ -1,12 +1,23 @@
+
+# THIS FILE CONTAINS AN ALGORITHM FOR FINDING THE APPROXIMATE MLE (Q) 
+# OF A MATRIX OF MULTINOMIAL PROBABILITIES (PI), SUBJECT TO CONSTRAINTS ON
+# THE ROWS AND COLUMNS OF Q.
+
+# IT ALSO CONTAINS CODE FOR TESTING THE ALGORITHM.
+
 import numpy as np
+np.random.seed(1234)
 
 ############################
-np.random.seed(1234)
+
+# Global parameters set by user
+
 R = 3
 C = 5
 tolerance = .001
 numtests = 50
 verbose=False
+
 #############################
 
 # auxiliary functions: row and column sum
@@ -16,7 +27,7 @@ def colsum(array):
 def rowsum(array):
    return np.sum(array, axis=1)
 
-
+# main function: returns [Q,i], where i is the number of iterations required
 def optimize_Q(R,C,pi,v,d,tolerance):
 
    # Some auxiliary matrices
@@ -32,38 +43,37 @@ def optimize_Q(R,C,pi,v,d,tolerance):
    M = np.vstack((M_top,M_bottom))
 
    # Matrix D = M^T*(M*M^T)^{-1}*M
-      # D is the projection to orthogonal complement of ker M;
-      # it helps us obtain nearest Q that actually satisfy the linear constraints
+      # D is the matrx of projection to orthogonal complement of ker M;
+      # it helps us obtain the nearest Q that actually satisfies the linear constraints
    D = np.linalg.inv(np.matmul(M,M.T))
    D=np.matmul(M.T,D)
    D=np.matmul(D,M)
 
-   # Other stff we'll need
+   # Other stuff we'll need
    v_d = np.hstack((v,d)).reshape(R+C,1)
    ind = np.matmul(d.reshape(R,1),v.reshape(1,C))
 
   # OK, let's get started!
-  # Start with bad guess for beta...
+  # Start with a bad guess for beta and a very high error...
    beta = np.ones((1,C))
    errorQ=np.ones((R,C))
 
-   # Iterate while the error (i.e. distance from Q to constraint spave) is high,
-   # or for a given number of iterantions
+   # Iterate while the error (i.e. distance from Q to constraint space) is above the tolerance level
    i=0
    while (np.any(errorQ>tolerance) or np.any(errorQ<-tolerance)):
       i=i+1
 
-      #adjust alpha
+      #adjust alpha based on current beta
       pi_beta =  np.matmul(pi,np.diagflat(beta))
       M_alpha = np.vstack((pi_beta.T,np.diag(rowsum(pi_beta))))
       alpha = np.linalg.solve(np.matmul(M_alpha.T,M_alpha), np.matmul(M_alpha.T,v_d))                   
 
-      #adjust beta
+      #adjust beta based on current alpha
       alpha_pi = np.matmul(np.diagflat(alpha),pi)
       M_beta = np.vstack((np.diag(colsum(alpha_pi)),alpha_pi))
       beta = np.linalg.solve(np.matmul(M_beta.T,M_beta), np.matmul(M_beta.T,v_d))     
  
-      # figure out how far Q is from satisfying the constraints
+      # figure out error
       Q = np.matmul(np.diagflat(alpha), np.matmul(pi,np.diagflat(beta)))
       errorQ = np.matmul(D,(Q-ind).flatten()).reshape(R,C)
       #print(f"Error in Q:\n{errorQ}")
@@ -77,7 +87,7 @@ print(f"Testing optimize_Q ({numtests} tests): \nR={R}, C={C}, tolerance={tolera
 print("==================================================")
 
 # Here's where we'll record the number of iterations we need in each test
-# and the worst error in Q that we come across
+# and the worst error in Q (componentwise) that we come across
 num_iter = np.zeros(100)
 worst_error=0
 
@@ -99,7 +109,7 @@ for n in range(numtests):
    trueQ = trueQ/np.sum(trueQ)
    #print(f"True Q:\n {trueQ}")
 
-   # create d and v
+   # create "data" d and v
    v = colsum(trueQ)
    d = rowsum(trueQ)
 
