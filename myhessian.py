@@ -22,6 +22,7 @@ def hessian(output, inputs, out=None, allow_unused=False, create_graph=False, re
     n = sum(p.numel() for p in inputs)
     if out is None:
         out = output.new_zeros(n, n)
+    out.requires_grad = True
 
     ai = 0
     if return_grad:
@@ -53,7 +54,8 @@ def hessian(output, inputs, out=None, allow_unused=False, create_graph=False, re
         return out
 
 
-def arrowhead_hessian(output, inputs, headsize, blocksize, out=None, allow_unused=False, create_graph=False, return_grad=False):
+def arrowhead_hessian(output, inputs, headsize, blocksize, out=None, allow_unused=False,
+    create_graph=False, return_grad=False):
     '''
     Compute the Hessian of `output` with respect to `inputs`,
     assuming block arrowhead form. That is, for the call:
@@ -86,9 +88,10 @@ def arrowhead_hessian(output, inputs, headsize, blocksize, out=None, allow_unuse
         if i < headsize:
             maxi = I
         else:
-            maxi = headsize + ((i - headsize) // blocksize) * blocksize
+            maxi = headsize + (1 + (i - headsize) // blocksize) * blocksize
         for j in range(inp.numel()):
             if grad[j].requires_grad:
+                #print(f"arrow {i},{maxi},{headsize},{blocksize}")
                 row = gradient(grad[j], inputs[i:maxi], retain_graph=True, create_graph=create_graph)[j:]
             else:
                 row = grad[j].new_zeros(sum(x.numel() for x in inputs[i:]) - j)
