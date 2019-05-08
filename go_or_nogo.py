@@ -1,7 +1,7 @@
 import pyro
 
 go = True
-#go = False
+go = False
 
 
 def printstuff(i,loss):

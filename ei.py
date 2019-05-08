@@ -4,6 +4,8 @@ from __future__ import print_function
 print('Yes, I will run.')
 
 from importlib import reload
+import contextlib
+from itertools import chain
 import go_or_nogo
 import torch
 from torch.distributions import constraints
@@ -34,8 +36,14 @@ pyro.set_rng_seed(0)
 
 # Now suppose precinct-level behavior follows a Beta distribution with class-dependent parameters, so that individual level behavior is Bernoulli distributed. We can write this as a generative model that we'll use both for data generation and inference.
 
+MINIMAL_DEBUG = False
+if MINIMAL_DEBUG:
+    pyrosample = lambda x,y,infer=None : y.sample()
+else:
+    pyrosample = pyro.sample
 
 def model(data=None, scale=1., include_nuisance=False, do_print=False):
+    #print("model:begin")
     if data is None:
         P, R, C = 30, 4, 3
         ns = torch.zeros(P,R)
@@ -43,7 +51,7 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
             for r in range(R):
                 ns[p,r] = 20 * (p*r - 5*(r+1-R) + 6) + ((p-15)*(r-1))^2
 
-                    # pyro.sample('precinctSizes',
+                    # pyrosample('precinctSizes',
                     #         dist.NegativeBinomial(p*r - 5*(r+1-R) + 6, .95))
     else:
         ns, vs = data
@@ -53,12 +61,16 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
         R = len(ns[0])
         C = len(vs[0])
 
+    all_ps_plate = pyro.plate('all_ps',P)
+    @contextlib.contextmanager
+    def all_ps():
+        with all_ps_plate as p, poutine.scale(scale=scale) as pscale:
+            yield p
 
-    all_ps = range(P) #plate(P)
     sdc = 5
-    sdrc = pyro.sample('sdrc', dist.Exponential(.2))
+    sdrc = pyrosample('sdrc', dist.Exponential(.2))
     if include_nuisance:
-        sdprc = pyro.sample('sdprc', dist.Exponential(.2))
+        sdprc = pyrosample('sdprc', dist.Exponential(.2))
 
     if data is None:
         sdc = .2
@@ -67,20 +79,20 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
     #print(f"sdprc in model:{sdprc}")
 
     #This is NOT used for data, but instead as a way to sneak a "prior" into the guide to improve identification.
-    param_residual=pyro.sample('param_residual', dist.Normal(0.,1.))
+    param_residual=pyrosample('param_residual', dist.Normal(0.,1.))
 
-    ec = pyro.sample('ec', dist.Normal(torch.zeros(C),sdc).to_event(1))
-    erc = pyro.sample('erc', dist.Normal(torch.zeros(R,C),sdrc).to_event(2))
+    ec = pyrosample('ec', dist.Normal(torch.zeros(C),sdc).to_event(1))
+    erc = pyrosample('erc', dist.Normal(torch.zeros(R,C),sdrc).to_event(2))
     if include_nuisance:
         eprc_list = []
-        with poutine.scale(scale=scale):
-            for p in all_ps:
+        with all_ps() as p_tensor:
+            for p in p_tensor:
                 eprc_list.append(
-                    pyro.sample(f'eprc_{p}', dist.Normal(torch.zeros(R,C),sdprc).to_event(2))
+                    pyrosample(f'eprc_{p}', dist.Normal(torch.zeros(R,C),sdprc).to_event(2))
                     )
 
-                if p==0:
-                    print(f"model eprc {eprc_list[0].size()}")
+                if p==(P-1):
+                    pass#print(f"model eprc_{p} {eprc_list[0].size()}")
         eprc = torch.stack(eprc_list,0)
     else:
         eprc = ts(0.) #dummy for print statements. TODO:remove
@@ -93,32 +105,37 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
         ec[1] = .5
 
     # with pyro.plate('candidatesm', C):
-    #     ec = pyro.sample('ec', dist.Normal(0,sdc))
+    #     ec = pyrosample('ec', dist.Normal(0,sdc))
     #     with pyro.plate('rgroupsm', R):
-    #         erc = pyro.sample('erc', dist.Normal(0,sdrc))
+    #         erc = pyrosample('erc', dist.Normal(0,sdrc))
     #         if include_nuisance:
     #             with pyro.plate('precinctsm', P):
-    #                 eprc = pyro.sample('eprc', dist.Normal(0,sdprc))
+    #                 eprc = pyrosample('eprc', dist.Normal(0,sdprc))
 
     logittotals = ec+erc
-    print("sizes1 ",P,R,C,eprc.size(),ec.size(),erc.size(),logittotals.size())
+    #print("sizes1 ",P,R,C,eprc.size(),ec.size(),erc.size(),logittotals.size())
     if include_nuisance:
         logittotals = logittotals + eprc # += doesn't work here because mumble in-place mumble shape
     else:
-        logittotals = torch.cat([logittotals.unsqueeze(0) for p in all_ps],0)
+        logittotals = torch.cat([logittotals.unsqueeze(0) for p in range(P)],0)
         #print(logittotals.size())
-    print("sizes2 ",P,R,C,ec.size(),erc.size(),logittotals.size(),scale)
+    #print("sizes2 ",P,R,C,ec.size(),erc.size(),logittotals.size(),scale)
 
     y = torch.zeros(P,R,C)
 
-    with poutine.scale(scale=scale):
-        for p in all_ps:#pyro.plate('precinctsm2', P):
+    with all_ps() as p_tensor:#pyro.plate('precinctsm2', P):
+        for p in p_tensor:
             for r in range(R):#pyro.plate('rgroupsm2', R):
                 tmp = torch.exp(logittotals[p,r])
                 cprobs = tmp/torch.sum(tmp,0)
-                #print("cprobs ",cprobs)
-                y[p,r]= pyro.sample(f"y_{p}_{r}",
+                print("p_tensor ",p,r)
+                print("y_{p}_{r}.... {ns[p,r]}",f"y_{p}_{r}.... {ns[p,r]}")
+
+                #with poutine.scale(scale=scale): #TODO: insert!
+                tmp2 = pyrosample(f"y_{p}_{r}",
                             CMult(ns[p,r],cprobs))
+                print(tmp2,y[p,r].size())
+                y[p,r]= tmp2
 
 
 
@@ -130,6 +147,8 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
         vs = torch.sum(y,1)
 
         return (ns,vs)
+
+    print("model:end")
 
 
 
@@ -175,6 +194,7 @@ def recenter_rc(rc):
     return colcentered
 
 def guide(data, scale, include_nuisance=False, do_print=False):
+    #print("guide:begin")
 
     ns, vs = data
     P = len(ns)
@@ -189,11 +209,17 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     precinctpsi = pyro.param('precinctpsi',BASE_PSI * torch.ones(precinctpsi_len),
                 constraint=constraints.positive)
 
-    all_ps = range(P) #plate(P)
+    prepare_ps = range(P) #for dealing with hatted quantities (no pyro.sample)
+    all_ps_plate = pyro.plate('all_ps',P)
+    @contextlib.contextmanager
+    def all_ps(): #for dealing with unhatted quantities (include pyro.sample)
+        with all_ps_plate as p, poutine.scale(scale=scale) as pscale:
+            yield p
 
     #Start with hats.
 
     hat_data = dict()
+    phat_data = [dict() for p in range(P)]
     transformation = dict()
     logsdrchat = pyro.param('logsdrchat',ts(2.))
     hat_data.update(sdrc=logsdrchat)
@@ -204,14 +230,13 @@ def guide(data, scale, include_nuisance=False, do_print=False):
         transformation.update(sdprc=torch.exp)
         eprchat_startingpoint = []
 
-        with poutine.scale(scale=scale):
-            for p in all_ps:#pyro.plate('precinctsg2', P):
-                eprchat_startingpoint.append(torch.zeros(R,C)) #not a pyro param...
-                eprchat_startingpoint[p].requires_grad_(True) #...so we have to do this manually
-                hat_data.update({f"eprc_{p}":eprchat_startingpoint[p]})
-                if p==0:
-                    print(f"guide1 eprc {eprchat_startingpoint[0].size()}")
-                #eprc = pyro.sample('eprc', dist.Normal(torch.zeros(P,R,C),sdprc).to_event(3))
+        for p in prepare_ps:#pyro.plate('precinctsg2', P):
+            eprchat_startingpoint.append(torch.zeros(R,C)) #not a pyro param...
+            eprchat_startingpoint[p].requires_grad_(True) #...so we have to do this manually
+            phat_data[p].update({f"eprc_{p}":eprchat_startingpoint[p]})
+            if p==(P-1):
+                pass#print(f"guide1 eprc {eprchat_startingpoint[0].size()}")
+                #eprc = pyrosample('eprc', dist.Normal(torch.zeros(P,R,C),sdprc).to_event(3))
 
     echat = pyro.param('echat', torch.zeros(C))
     erchat = pyro.param('erchat', torch.zeros(R,C))
@@ -229,7 +254,7 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     #Including recenter_rc makes erc not identifiable, so "impose a prior"
     recentering_amount = (RECENTER_PRIOR_STRENGTH *
             torch.mean((erchat - recenter_rc(erchat))**2)/torch.exp(logsdrchat))
-    pyro.sample('param_residual', dist.Delta(recentering_amount))
+    pyrosample('param_residual', dist.Delta(recentering_amount))
 
     global_logit_totals = echat + erchat
 
@@ -246,18 +271,17 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     what_adjustor = pyro.param('what_adjustor',torch.zeros(P,R-1,C-1))
 
 
-    with poutine.scale(scale=scale):
-        for p in all_ps:#pyro.plate('precinctsg2', P):
-            raw_w = gprobs_tensor * torch.unsqueeze(ns[p],1)
-            pwhat = to_subspace(raw_w,R,C,ns[p],vs[p])
-            #print("cprobs ",cprobs)
-            what.append(pwhat[:R-1,:C-1] + what_adjustor[p] * torch.sum(ns[p]) * ADJUST_SCALE)
-            indep = get_indep(R, C, ns[p], vs[p])
-            yhat = polytopize(R, C, what[p], indep) #was: pwhat, indep, do_aug=False)
-                    #but that confuses hessian, so remove and re-add? inefficient but whatevx.
-            for r in range(R):
-                #print(f"yy size:{yy.size()},{R},{C}")
-                hat_data.update({f"y_{p}_{r}":yhat[r]}) #no, don't; do it separately.
+    for p in prepare_ps:#pyro.plate('precinctsg2', P):
+        raw_w = gprobs_tensor * torch.unsqueeze(ns[p],1)
+        pwhat = to_subspace(raw_w,R,C,ns[p],vs[p])
+        #print("cprobs ",cprobs)
+        what.append(pwhat[:R-1,:C-1] + what_adjustor[p] * torch.sum(ns[p]) * ADJUST_SCALE)
+        indep = get_indep(R, C, ns[p], vs[p])
+        yhat = polytopize(R, C, what[p], indep) #was: pwhat, indep, do_aug=False)
+                #but that confuses hessian, so remove and re-add? inefficient but whatevx.
+        for r in range(R):
+            #print(f"yy size:{yy.size()},{R},{C}")
+            phat_data[p].update({f"y_{p}_{r}":yhat[r]}) #no, don't; do it separately.
                 # if include_nuisance:
                 #     pass #unimplemented — get MLE for gamma, yuck
                 # Above is commented out because we actually make this correction post-Hessian now.
@@ -268,37 +292,45 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     #Start with theta
 
     transformed_hat_data = dict()
-    for k,v in hat_data.items():
+    for k,v in chain(hat_data.items(),*[phat.items() for phat in phat_data]):
         if k in transformation:
             transformed_hat_data[k] = transformation[k](v)
         else:
             transformed_hat_data[k] = v
-    hess_center = pyro.condition(model,transformed_hat_data)
-    mytrace = poutine.block(poutine.trace(hess_center).get_trace)(data, scale, include_nuisance)
-    log_posterior = mytrace.log_prob_sum()
+
+    real_hessian = not MINIMAL_DEBUG
+    if real_hessian:
+        hess_center = pyro.condition(model,transformed_hat_data)
+        mytrace = poutine.block(poutine.trace(hess_center).get_trace)(data, scale, include_nuisance)
+        log_posterior = mytrace.log_prob_sum()
     theta_part_names = ["sdrc", "sdprc", "ec", "erc"]
     theta_parts = []
     theta_hat_data = dict()
-    for part_name in theta_part_names:
+    for part_name in theta_part_names: #TODO: theta_hat_data redundant with hat_data, now we have phat_data????
         if part_name in hat_data:
+            #print(f"adding {part_name} to theta_parts")
             theta_parts.append(hat_data[part_name]) #fails if missing (ie, eprc)
             theta_hat_data[part_name] = hat_data[part_name]
     tlen = sum(theta_part.numel() for theta_part in theta_parts)
     if include_nuisance:
         blocksize = 2 #tensors, not elements=(R-1)*(C-1) + R*C
         precelems = (R-1)*(C-1) + R*C
-        for p in all_ps:
+        for p in prepare_ps:
             theta_parts.extend([what[p], hat_data[f"eprc_{p}"]])
     else:
         blocksize = 1 #tensors, not elements=(R-1)*(C-1)
         precelems = (R-1)*(C-1)
-        for p in all_ps:
+        for p in prepare_ps:
             theta_parts.extend([what[p]])
+    full_len = sum(theta_part.numel() for theta_part in theta_parts)
 
-    neg_big_hessian, big_grad = myhessian.arrowhead_hessian(log_posterior, theta_parts,
-                len(theta_hat_data), #tensors, not elements=tlen
-                blocksize,
-                return_grad=True)
+    if real_hessian:
+        neg_big_hessian, big_grad = myhessian.arrowhead_hessian(log_posterior, theta_parts,
+                    len(theta_hat_data), #tensors, not elements=tlen
+                    blocksize,
+                    return_grad=True)
+    else:
+        neg_big_hessian, big_grad = -torch.eye(full_len), torch.zeros(full_len)
     big_hessian = -neg_big_hessian #TODO: in-place
     Info = big_hessian[:tlen][:tlen]
 
@@ -311,8 +343,8 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     globalInfo = Info[:tlen,:tlen]
     M = infoToM(globalInfo,globalpsi)
     adjusted = globalInfo+M
-    print("matrix?",globalInfo.size(),M.size(),theta_mean.size(),adjusted.size(),[(float(globalInfo[i,i]),float(M[i,i])) for i in range(tlen)])#,np.linalg.det(adjusted))
-    theta = pyro.sample('theta',
+    #print("matrix?",globalInfo.size(),M.size(),theta_mean.size(),adjusted.size(),[(float(globalInfo[i,i]),float(M[i,i])) for i in range(tlen)])#,np.linalg.det(adjusted))
+    theta = pyrosample('theta',
                     dist.MultivariateNormal(theta_mean, precision_matrix=adjusted),
                     infer={'is_auxiliary': True})
 
@@ -322,12 +354,26 @@ def guide(data, scale, include_nuisance=False, do_print=False):
         elems = phat.nelement()
         pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
         #print(f"adding {pname} from theta ({elems}, {phat.size()}, {tmptheta.size()}, {pdat})" )
+
         if pname in transformation:
-            pyro.sample(pname, dist.Delta(transformation[pname](pdat.view(phat.size())))
-                                .to_event(len(list(phat.size()))))
+            pyrosample(pname, dist.Delta(transformation[pname](pdat.view(phat.size())))
+                                .to_event(len(list(phat.size())))) #TODO: reshape after transformation, not just before???
         else:
-            pyro.sample(pname, dist.Delta(pdat.view(phat.size()))
+            pyrosample(pname, dist.Delta(pdat.view(phat.size()))
                                 .to_event(len(list(phat.size()))))
+    with all_ps() as p_tensor:
+        for p in p_tensor:
+            for pname, phat in phat_data[p].items():
+                elems = phat.nelement()
+                pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
+                #print(f"adding {pname} from theta ({elems}, {phat.size()}, {tmptheta.size()}, {pdat})" )
+
+                if pname in transformation:
+                    pyrosample(pname, dist.Delta(transformation[pname](pdat.view(phat.size())))
+                                        .to_event(len(list(phat.size())))) #TODO: reshape after transformation, not just before???
+                else:
+                    pyrosample(pname, dist.Delta(pdat.view(phat.size()))
+                                        .to_event(len(list(phat.size()))))
     assert list(tmptheta.size())[0] == 0
 
 
@@ -339,68 +385,72 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     epnsml = torch.exp(precinct_newton_step_multiplier_logit)
     step_mult = MAX_NEWTON_STEP * epnsml / (1 + epnsml)
     global_indices = ts(range(tlen))
-    for p in all_ps:#pyro.plate('precincts3', P):
+    with all_ps() as p_tensor:
+        for p in p_tensor:
 
 
-        precinct_indices = ts(range(tlen + p*precelems, tlen + (p+1)*precelems))
+            precinct_indices = ts(range(tlen + p*precelems, tlen + (p+1)*precelems))
 
-        full_indices = torch.cat([global_indices,precinct_indices],0)
+            full_indices = torch.cat([global_indices,precinct_indices],0)
 
-        #print(f"HW:{P},{p},{B},{P//B},{len(big_HWs)},{big_HWs[p//B].size()},")
-        #print(f"HW2:{big_HWs[p//B].size()},{list(full_indices)}")
-        HW = big_hessian.index_select(0,full_indices).index_select(1,full_indices)
+            #print(f"HW:{P},{p},{B},{P//B},{len(big_HWs)},{big_HWs[p//B].size()},")
+            #print(f"HW2:{big_HWs[p//B].size()},{list(full_indices)}")
+            HW = big_hessian.index_select(0,full_indices).index_select(1,full_indices)
 
 
-        #one step of Newton's method on the Ws
-        precinct_cov = torch.inverse(HW[tlen:,tlen:])
+            #one step of Newton's method on the Ws
+            precinct_cov = torch.inverse(HW[tlen:,tlen:])
 
-        print()
-        precinct_grad = big_grad.index_select(0,precinct_indices) #[tlen + pp*(R-1)*(C-1): tlen + (pp+1)*(R-1)*(C-1)]
-        precinct_adj = step_mult * torch.mv(precinct_cov, precinct_grad)
-
+            precinct_grad = big_grad.index_select(0,precinct_indices) #[tlen + pp*(R-1)*(C-1): tlen + (pp+1)*(R-1)*(C-1)]
+            precinct_adj = step_mult * torch.mv(precinct_cov, precinct_grad)
 
 
 
-        #print(f"size:{HW.size()},{tlen},{len(precinct_indices)},{len(combinedpsi)}")
-        M = infoToM(HW,combinedpsi)
-        precision = HW + M
-        Sig = torch.inverse(precision) #This is not efficient computationally — redundancy.
-                        #But I don't want to hand-code the right thing yet.
-        #print(f"substep:{tlen},{Info.size()},{Sig.size()}")
-        substep = torch.mm(Sig[tlen:tlen+(R-1)*(C-1), :tlen], adjusted)
 
-        #print(f"wmean1:{theta.size()},{theta_mean.size()},{5+5}")
-        #print(f"wmean2:{what[p].size()},{what[p].contiguous().view(-1).size()},{precinct_adj.size()},{torch.mv(substep, (theta - theta_mean)).size()}")
-        wmean = (what[p].contiguous().view(-1) - precinct_adj[:(R-1)*(C-1)] +
-                torch.mv(substep, (theta - theta_mean))[:(R-1)*(C-1)])
-        subSig = Sig[tlen:tlen+(R-1)*(C-1), tlen:tlen+(R-1)*(C-1)]
-        subDel = torch.mm(substep, Sig[:tlen, tlen:tlen+(R-1)*(C-1)])
-        #print(f"wmean3:{subSig.size()},{subDel.size()}")
+            #print(f"size:{HW.size()},{tlen},{len(precinct_indices)},{len(combinedpsi)}")
+            M = infoToM(HW,combinedpsi)
+            precision = HW + M
+            Sig = torch.inverse(precision) #This is not efficient computationally — redundancy.
+                            #But I don't want to hand-code the right thing yet.
+            #print(f"substep:{tlen},{Info.size()},{Sig.size()}")
+            substep = torch.mm(Sig[tlen:tlen+(R-1)*(C-1), :tlen], adjusted)
 
-        wSig = subSig - subDel
-        wSig = wSig + infoToM(wSig, combinedpsi[tlen:tlen+(R-1)*(C-1)])
+            #print(f"wmean1:{theta.size()},{theta_mean.size()},{5+5}")
+            #print(f"wmean2:{what[p].size()},{what[p].contiguous().view(-1).size()},{precinct_adj.size()},{torch.mv(substep, (theta - theta_mean)).size()}")
+            wmean = (what[p].contiguous().view(-1) - precinct_adj[:(R-1)*(C-1)] +
+                    torch.mv(substep, (theta - theta_mean))[:(R-1)*(C-1)])
+            subSig = Sig[tlen:tlen+(R-1)*(C-1), tlen:tlen+(R-1)*(C-1)]
+            subDel = torch.mm(substep, Sig[:tlen, tlen:tlen+(R-1)*(C-1)])
+            #print(f"wmean3:{subSig.size()},{subDel.size()}")
 
-        if include_nuisance:
-            eprc_adjusted = (precinct_adj[(R-1)*(C-1):] / step_mult).view(R,C)
-            print(f"eprc_{p} adjusted {eprc_adjusted.size()}")
-            eprc = pyro.sample(f"eprc_{p}",
-                dist.Delta(eprc_adjusted).to_event(2)) #Not adjusting for deviation from hat!!!! TODO: fix!!!!
+            wSig = subSig - subDel
+            wSig = wSig + infoToM(wSig, combinedpsi[tlen:tlen+(R-1)*(C-1)])
 
-        try:
-            w = pyro.sample(f"w_{p}",
-                            dist.MultivariateNormal(wmean, wSig),
-                            infer={'is_auxiliary': True})
-        except:
-            print(wSig)
-            print(f"det:{np.linalg.det(wSig.data.numpy())}")
-            raise
-        indep = get_indep(R, C, ns[p], vs[p])
-        #print(f"wmean3:{wmean.size()},{wSig.size()},{w.size()}")
-        y = polytopize(R,C,w.view(R-1,C-1),indep)
-        for r in range(R):
-            yy = pyro.sample(f"y_{p}_{r}", dist.Delta(y[r]).to_event(1))
+            if include_nuisance:
+                eprc_adjusted = (precinct_adj[(R-1)*(C-1):] / step_mult).view(R,C)
+                eprc = pyro.sample(f"eprc_{p}",
+                    dist.Delta(eprc_adjusted).to_event(2)) #Not adjusting for deviation from hat!!!! TODO: fix!!!!
+
+                if p==(P-1):
+                    pass
+                    #print(f"eprc_{p} adjusted {eprc.size()}")
+            try:
+                w = pyrosample(f"w_{p}",
+                                dist.MultivariateNormal(wmean, wSig),
+                                infer={'is_auxiliary': True})
+            except:
+                print(wSig)
+                print(f"det:{np.linalg.det(wSig.data.numpy())}")
+                raise
+            indep = get_indep(R, C, ns[p], vs[p])
+            #print(f"wmean3:{wmean.size()},{wSig.size()},{w.size()}")
+            y = polytopize(R,C,w.view(R-1,C-1),indep)
+            for r in range(R):
+                yy = pyrosample(f"y_{p}_{r}", dist.Delta(y[r]).to_event(1))
     if do_print:
         go_or_nogo.printstuff2()
+
+    print("guide:end")
 
 
 nsteps = 5001
@@ -433,6 +483,7 @@ def trainGuide():
     losses = []
     for i in range(nsteps):
         subset, scale = get_subset(data,subset_size,i)
+        print("svi.step(...",i,scale)
         loss = svi.step(subset,scale,True,do_print=(i % 10 == 0))
         losses.append(loss)
         if i % 10 == 0:
