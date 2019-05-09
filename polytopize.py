@@ -52,6 +52,14 @@ def get_indep(R, C, ns, vs): #note, not-voting is a candidate
     indep = ts([[(rnum * cnum / tot) for cnum in vs] for rnum in ns])#TODO: better pytorch
     return indep
 
+def process_data(data):
+    ns, vs = data
+    R = len(ns[0])
+    C = len(vs[0])
+    indeps = [get_indep(R,C,n,v) for n, v in zip(ns, vs)]
+    tots = [torch.sum(n) for n in ns]
+    return (ns, vs, indeps, tots)
+
 def to_subspace(raw, R, C, ns, vs):
     vdiffs = vs - torch.sum(raw,0)
     tot = torch.sum(vs)

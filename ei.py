@@ -27,7 +27,7 @@ import go_or_nogo
 from cmult import CMult
 import polytopize
 reload(polytopize)
-from polytopize import get_indep, polytopize, depolytopize, to_subspace
+from polytopize import get_indep, polytopize, depolytopize, to_subspace, process_data
 
 ts = torch.tensor
 
@@ -61,7 +61,7 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
                     # pyrosample('precinctSizes',
                     #         dist.NegativeBinomial(p*r - 5*(r+1-R) + 6, .95))
     else:
-        ns, vs = data
+        ns, vs, indeps, tots = data
         assert len(ns)==len(vs)
         # Hyperparams.
         P = len(ns)
@@ -120,7 +120,7 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
     if include_nuisance:
         logittotals = logittotals + eprc # += doesn't work here because mumble in-place mumble shape
     else:
-        logittotals = torch.cat([logittotals.unsqueeze(0) for p in range(P)],0)
+        logittotals = logittotals.expand(P,R,C)
         #print(logittotals.size())
     #print("sizes2 ",P,R,C,ec.size(),erc.size(),logittotals.size(),scale)
 
@@ -200,7 +200,7 @@ def recenter_rc(rc):
 def guide(data, scale, include_nuisance=False, do_print=False):
     #print("guide:begin")
 
-    ns, vs = data
+    ns, vs, indeps, tots = data
     P = len(ns)
     R = len(ns[1])
     C = len(vs[1])
@@ -234,7 +234,7 @@ def guide(data, scale, include_nuisance=False, do_print=False):
         transformation.update(sdprc=torch.exp)
         eprchat_startingpoint = torch.zeros(P,R,C,requires_grad =True) #not a pyro param...
         #eprchat_startingpoint[p].requires_grad_(True) #...so we have to do this manually
-        phat_data.update({f"eprc":eprchat_startingpoint})
+        phat_data.update(eprc=eprchat_startingpoint)
 
     echat = pyro.param('echat', torch.zeros(C))
     erchat = pyro.param('erchat', torch.zeros(R,C))
@@ -261,25 +261,43 @@ def guide(data, scale, include_nuisance=False, do_print=False):
         tmp = torch.exp(global_logit_totals[r])
         global_probs.append(tmp/torch.sum(tmp,0))
 
-
+    #Amortize hats
+    yhat = []
     what = []
+    nuhat = []
+
+    logittotals = echat + erchat
+    #print("sizes1 ",P,R,C,eprc.size(),ec.size(),erc.size(),logittotals.size())
+    if include_nuisance:
+        logittotals = logittotals + eprchat_startingpoint # += doesn't work here because mumble in-place mumble shape
+        #note that startingpoint is currently zero, so this is effectively just unsqueeze
+        #but still healthy to do it like this in case that changes later.
+    else:
+        logittotals = logittotals.expand(P,R,C)
+    pi_raw = torch.exp(logittotals)
+    pi = pi_raw / torch.sum(pi_raw,-1).unsqueeze(-1)
 
     for p in prepare_ps:#pyro.plate('precinctsg2', P):
+        #precalculation - logits to pi
 
-        raw_w = gprobs_tensor * torch.unsqueeze(ns[p],1)
-        pwhat = to_subspace(raw_w,R,C,ns[p],vs[p])
-        #print("cprobs ",cprobs)
-        what.append(pwhat[:R-1,:C-1] + what_adjustor[p] * torch.sum(ns[p]) * ADJUST_SCALE)
-        indep = get_indep(R, C, ns[p], vs[p])
-        yhat = polytopize(R, C, what[p], indep) #was: pwhat, indep, do_aug=False)
-                #but that confuses hessian, so remove and re-add? inefficient but whatevx.
-        for r in range(R):
-            #print(f"yy size:{yy.size()},{R},{C}")
-            phat_data[p].update({f"y_{p}_{r}":yhat[r]}) #no, don't; do it separately.
-                # if include_nuisance:
-                #     pass #unimplemented — get MLE for gamma, yuck
-                # Above is commented out because we actually make this correction post-Hessian now.
 
+        #get ŷ^(0)
+        Q, iters = optimize_Q(R,C,pi[p],vs[p],ns[p],tolerance=.01,maxiters=3)
+        yhat.append(Q*tots[p])
+
+        #depolytopize
+        what.append(depolytopize(R,C,yhat[p],indeps[p]))
+
+        #get ν̂^(0)
+        if include_nuisance:
+            pi_precision = tots[p] / pi[p] / (torch.ones_like(pi) - pi)
+            Q_precision = torch.exp(-logsdprchat) * R / (R-1) #TODO: check that correction for R
+            pweighted_Q = pi[p] + (Q-pi[p]) * Q_precision / (Q_precision + pi_precision)
+            nuhat.append(torch.log(pweighted_Q/pi[p]))
+
+
+    if include_nuisance:
+        phat_data.update(y=torch.cat(yhat,0))
 
     #Get hessians and sample params
 
@@ -467,6 +485,7 @@ def trainGuide():
     # Let's generate voting data. I'm conditioning concentration=1 for numerical stability.
 
     data = model()
+    processed_data = process_data(data) #precalculate independence points
     #print(data)
 
 
@@ -476,7 +495,7 @@ def trainGuide():
     pyro.clear_param_store()
     losses = []
     for i in range(nsteps):
-        subset, scale = get_subset(data,subset_size,i)
+        subset, scale = get_subset(processed_data,subset_size,i)
         print("svi.step(...",i,scale)
         loss = svi.step(subset,scale,True,do_print=(i % 10 == 0))
         losses.append(loss)
