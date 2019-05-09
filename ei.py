@@ -6,22 +6,29 @@ print('Yes, I will run.')
 from importlib import reload
 import contextlib
 from itertools import chain
-import go_or_nogo
+import cProfile as profile
+
+
+from matplotlib import pyplot as plt
+import numpy as np
+
 import torch
 from torch.distributions import constraints
 import pyro
 import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO
 from pyro.optim import ClippedAdam
-from matplotlib import pyplot as plt
+from pyro import poutine
+
+
+import myhessian
+from rank1torch import optimize_Q
+import go_or_nogo
 from cmult import CMult
 import polytopize
 reload(polytopize)
 from polytopize import get_indep, polytopize, depolytopize, to_subspace
-from pyro import poutine
-import myhessian
-import numpy as np
-import cProfile as profile
+
 ts = torch.tensor
 
 
@@ -254,15 +261,11 @@ def guide(data, scale, include_nuisance=False, do_print=False):
         tmp = torch.exp(global_logit_totals[r])
         global_probs.append(tmp/torch.sum(tmp,0))
 
-    gprobs_tensor = torch.stack(global_probs,0)
-    #print(f"gprobs_tensor,{gprobs_tensor.size()},{torch.unsqueeze(ns[p],1).size()}")
-
 
     what = []
-    what_adjustor = pyro.param('what_adjustor',torch.zeros(P,R-1,C-1))
-
 
     for p in prepare_ps:#pyro.plate('precinctsg2', P):
+
         raw_w = gprobs_tensor * torch.unsqueeze(ns[p],1)
         pwhat = to_subspace(raw_w,R,C,ns[p],vs[p])
         #print("cprobs ",cprobs)
