@@ -61,6 +61,7 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
         R = len(ns[0])
         C = len(vs[0])
 
+    prepare_ps = range(P)
     all_ps_plate = pyro.plate('all_ps',P)
     @contextlib.contextmanager
     def all_ps():
@@ -84,15 +85,10 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
     ec = pyrosample('ec', dist.Normal(torch.zeros(C),sdc).to_event(1))
     erc = pyrosample('erc', dist.Normal(torch.zeros(R,C),sdrc).to_event(2))
     if include_nuisance:
-        eprc_list = []
         with all_ps() as p_tensor:
-            for p in p_tensor:
-                eprc_list.append(
-                    pyrosample(f'eprc_{p}', dist.Normal(torch.zeros(R,C),sdprc).to_event(2))
-                    )
-
-                if p==(P-1):
-                    pass#print(f"model eprc_{p} {eprc_list[0].size()}")
+            eprc = (
+                pyrosample(f'eprc', dist.Normal(torch.zeros(R,C),sdprc).to_event(2))
+                ) #eprc.size() == [P,R,C] because plate dimension happens on left
         eprc = torch.stack(eprc_list,0)
     else:
         eprc = ts(0.) #dummy for print statements. TODO:remove
@@ -121,23 +117,24 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
         #print(logittotals.size())
     #print("sizes2 ",P,R,C,ec.size(),erc.size(),logittotals.size(),scale)
 
-    y = torch.zeros(P,R,C)
-
+    if include_nuisance:
+        logits = ec + erc + eprc
+    else:
+        logits = (ec + erc).expand(P,-1,-1)#P,R,C
     with all_ps() as p_tensor:#pyro.plate('precinctsm2', P):
-        for p in p_tensor:
-            for r in range(R):#pyro.plate('rgroupsm2', R):
-                tmp = torch.exp(logittotals[p,r])
-                cprobs = tmp/torch.sum(tmp,0)
-                print("p_tensor ",p,r)
-                print("y_{p}_{r}.... {ns[p,r]}",f"y_{p}_{r}.... {ns[p,r]}")
-
-                #with poutine.scale(scale=scale): #TODO: insert!
-                tmp2 = pyrosample(f"y_{p}_{r}",
-                            CMult(ns[p,r],cprobs))
-                print(tmp2,y[p,r].size())
-                y[p,r]= tmp2
-
-
+        #with poutine.scale(scale=scale): #TODO: insert!
+        if data is None:
+            y = zeros(P,R,C)
+            for p in p_tensor:
+                for r in range(R):
+                    y[p,r] = pyrosample(f"FAKE_y_{p}_{r}",
+                                CMult(ns[p,r],logits=logits))
+        else:
+            y = pyrosample(f"y",
+                        CMult(1000,logits=logits).to_event(1))
+                        #dim P, R, C from plate, to_event, CMult
+                        #note that n is totally fake — sums are what matter.
+                        #TODO: fix CMult so this fakery isn't necessary.
 
     if data is None:
         #
@@ -219,7 +216,7 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     #Start with hats.
 
     hat_data = dict()
-    phat_data = [dict() for p in range(P)]
+    phat_data = dict()
     transformation = dict()
     logsdrchat = pyro.param('logsdrchat',ts(2.))
     hat_data.update(sdrc=logsdrchat)
@@ -228,15 +225,9 @@ def guide(data, scale, include_nuisance=False, do_print=False):
         logsdprchat = pyro.param('logsdprchat',ts(2.))
         hat_data.update(sdprc=logsdprchat)
         transformation.update(sdprc=torch.exp)
-        eprchat_startingpoint = []
-
-        for p in prepare_ps:#pyro.plate('precinctsg2', P):
-            eprchat_startingpoint.append(torch.zeros(R,C)) #not a pyro param...
-            eprchat_startingpoint[p].requires_grad_(True) #...so we have to do this manually
-            phat_data[p].update({f"eprc_{p}":eprchat_startingpoint[p]})
-            if p==(P-1):
-                pass#print(f"guide1 eprc {eprchat_startingpoint[0].size()}")
-                #eprc = pyrosample('eprc', dist.Normal(torch.zeros(P,R,C),sdprc).to_event(3))
+        eprchat_startingpoint = torch.zeros(P,R,C,requires_grad =True) #not a pyro param...
+        #eprchat_startingpoint[p].requires_grad_(True) #...so we have to do this manually
+        phat_data.update({f"eprc":eprchat_startingpoint})
 
     echat = pyro.param('echat', torch.zeros(C))
     erchat = pyro.param('erchat', torch.zeros(R,C))

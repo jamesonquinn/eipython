@@ -19,11 +19,12 @@ torch.manual_seed(478301986) #Gingles
 pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
-
-def model(G = 3, N = 4):
+#Leaving this in broken state because I tested it out outside a model.
+def model(G = 3, T = 4, N=ts([10,20,30,40]), O=3): #groups, subgroups, groupsize by trial, options
     sdhyper = pyro.sample('sdhyper', dist.Gumbel(0.,1.))
 
-    gmeans = pyro.sample('gmeans', dist.StudentT(ts(7.).expand([G]),0.,torch.exp(sdhyper)).to_event(1))
+    gmeans = pyro.sample('gmeans', dist.StudentT(ts(7.).expand([G,O]),0.,torch.exp(sdhyper)).to_event(1))
+    gmeans_fat = gmeans.unsqueeze(1)
     gs = []
     for g in pyro.plate('groups', G):
         gs.append(pyro.sample(f'x_{g}',
