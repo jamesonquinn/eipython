@@ -41,17 +41,17 @@ def optimize_Q(R,C,pi,v,d,tolerance=tolerance,maxiters=30):
       if r<R-1:
          bottom_new[r]=torch.ones(1,C)
       M_bottom = torch.cat((M_bottom, bottom_new),1)
-   M = torch.vstack((M_top,M_bottom),0)
+   M = torch.cat((M_top,M_bottom),0)
 
    # Matrix D = M^T*(M*M^T)^{-1}*M
       # D is the matrx of projection to orthogonal complement of ker M;
       # it helps us obtain the nearest Q that actually satisfies the linear constraints
-   D = torch.inverse(torch.mm(M,M.T))
-   D=torch.mm(M.T,D)
+   D = torch.inverse(torch.mm(M,M.permute(1,0)))
+   D=torch.mm(M.permute(1,0),D)
    D=torch.mm(D,M)
 
    # Other stuff we'll need
-   v_d = torch.cat((v,d),1).reshape(R+C,1)
+   v_d = torch.cat((v,d),0).reshape(R+C,1)
    ind = torch.mm(d.reshape(R,1),v.reshape(1,C))
 
   # OK, let's get started!
@@ -66,13 +66,13 @@ def optimize_Q(R,C,pi,v,d,tolerance=tolerance,maxiters=30):
 
       #adjust alpha based on current beta
       pi_beta =  torch.mm(pi,torch.diag(beta.view(-1)))
-      M_alpha = torch.cat((pi_beta.T,torch.diag(rowsum(pi_beta))),0)
-      alpha, lu_ = torch.solve(torch.mm(M_alpha.T,v_d), torch.mm(M_alpha.T,M_alpha))
+      M_alpha = torch.cat((pi_beta.permute(1,0),torch.diag(rowsum(pi_beta))),0)
+      alpha, lu_ = torch.gesv(torch.mm(M_alpha.permute(1,0),v_d), torch.mm(M_alpha.permute(1,0),M_alpha))
 
       #adjust beta based on current alpha
       alpha_pi = torch.mm(torch.diag(alpha.view(-1)),pi)
       M_beta = torch.cat((torch.diag(colsum(alpha_pi)),alpha_pi),0)
-      beta, lu_ = torch.solve( torch.mm(M_beta.T,v_d), torch.mm(M_beta.T,M_beta))
+      beta, lu_ = torch.gesv( torch.mm(M_beta.permute(1,0),v_d), torch.mm(M_beta.permute(1,0),M_beta))
 
       # figure out error
       Q = torch.mm(torch.diag(alpha.view(-1)), torch.mm(pi,torch.diag(beta.view(-1))))

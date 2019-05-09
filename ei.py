@@ -131,11 +131,12 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
     with all_ps() as p_tensor:#pyro.plate('precinctsm2', P):
         #with poutine.scale(scale=scale): #TODO: insert!
         if data is None:
-            y = zeros(P,R,C)
+            y = torch.zeros(P,R,C)
             for p in p_tensor:
                 for r in range(R):
-                    y[p,r] = pyrosample(f"FAKE_y_{p}_{r}",
-                                CMult(ns[p,r],logits=logits))
+                    tmp = dist.Multinomial(int(ns[p,r]),logits=logits[p,r]).sample()
+                    #print(f"y_{p}_{r}: {tmp} {y[p,r]}")
+                    y[p,r] = tmp
         else:
             y = pyrosample(f"y",
                         CMult(1000,logits=logits).to_event(1))
@@ -472,10 +473,11 @@ bigprime = 73 #Wow, that's big!
 
 def get_subset(data,size,i):
 
-    ns, vs = data
+    ns, vs, indeps, tots = data
     P = len(ns)
     indices = ts([((i*size + j)* bigprime) % P for j in range(size)])
-    subset = (ns.index_select(0,indices) , vs.index_select(0,indices))
+    subset = (ns.index_select(0,indices) , vs.index_select(0,indices),
+                [indeps[p] for p in indices], [tots[p] for p in indices])
     scale = sum(ns) / sum(subset[0]) #likelihood impact of a precinct proportional to n
     #print(f"scale:{scale}")
     return(subset,scale)
