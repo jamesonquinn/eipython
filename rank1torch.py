@@ -61,7 +61,7 @@ def optimize_Q(R,C,pi,v,d,tolerance=tolerance,maxiters=30):
 
    # Iterate while the error (i.e. distance from Q to constraint space) is above the tolerance level
    i=0
-   while (i<maxiters and torch.any(errorQ > tolerance) or torch.any(errorQ < -tolerance)):
+   while (i<maxiters and (torch.any(errorQ > tolerance) or torch.any(errorQ < -tolerance))):
       i=i+1
 
       #adjust alpha based on current beta
@@ -76,7 +76,7 @@ def optimize_Q(R,C,pi,v,d,tolerance=tolerance,maxiters=30):
 
       # figure out error
       Q = torch.mm(torch.diag(alpha.view(-1)), torch.mm(pi,torch.diag(beta.view(-1))))
-      errorQ = torch.mm(D,(Q-ind).view(-1)).reshape(R,C)
+      errorQ = torch.mv(D,(Q-ind).view(-1)).reshape(R,C)
       #print(f"Error in Q:\n{errorQ}")
 
    return [Q-errorQ,i]
@@ -136,4 +136,4 @@ def test_solver(numtests=numtests):
     print("\nTo get within tolerance, it took us:")
     for i in range(100):
        if num_iter[i]>0:
-          print(f"{i} iterations: {num_iter[i]} times")
+          print(f"{i:03} iterations: {'*'*int(num_iter[i])} {num_iter[i]} times")

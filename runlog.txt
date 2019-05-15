@@ -165,3 +165,11 @@ Let ν̂^(0)=initial position as above
 Compute ℐ̂=Hessian + gradient
 One step of Newton on Ŷ^(0),ν̂^(0) to get Ŷ,ν̂
 sample θ,W~𝒩[(θ̂,depoly(Ŷ)), ℐ̂^-1]
+
+
+
+.....
+
+May 11:
+ValueError: Error while computing log_prob_sum at site 'y':
+Value is not broadcastable with batch_shape+event_shape: torch.Size([68, 3]) vs torch.Size([17, 4, 3]).

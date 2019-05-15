@@ -7,6 +7,8 @@ from importlib import reload
 import contextlib
 from itertools import chain
 import cProfile as profile
+import inspect
+from collections import OrderedDict
 
 
 from matplotlib import pyplot as plt
@@ -50,7 +52,7 @@ else:
     pyrosample = pyro.sample
 
 def model(data=None, scale=1., include_nuisance=False, do_print=False):
-    #print("model:begin")
+    print("model:begin")
     if data is None:
         P, R, C = 30, 4, 3
         ns = torch.zeros(P,R)
@@ -72,7 +74,7 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
     all_ps_plate = pyro.plate('all_ps',P)
     @contextlib.contextmanager
     def all_ps():
-        with all_ps_plate as p, poutine.scale(scale=scale) as pscale:
+        with all_ps_plate as p:#, poutine.scale(scale=scale) as pscale:
             yield p
 
     sdc = 5
@@ -96,7 +98,6 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
             eprc = (
                 pyrosample(f'eprc', dist.Normal(torch.zeros(R,C),sdprc).to_event(2))
                 ) #eprc.size() == [P,R,C] because plate dimension happens on left
-        eprc = torch.stack(eprc_list,0)
     else:
         eprc = ts(0.) #dummy for print statements. TODO:remove
 
@@ -198,8 +199,13 @@ def recenter_rc(rc):
     colcentered = rowcentered - torch.mean(rowcentered,0)
     return colcentered
 
+
+def lineno():
+    """Returns the current line number in our program."""
+    return inspect.currentframe().f_back.f_lineno
+
 def guide(data, scale, include_nuisance=False, do_print=False):
-    #print("guide:begin")
+    print("guide:begin")
 
     ns, vs, indeps, tots = data
     P = len(ns)
@@ -223,9 +229,9 @@ def guide(data, scale, include_nuisance=False, do_print=False):
 
     #Start with hats.
 
-    hat_data = dict()
-    phat_data = dict()
-    transformation = dict()
+    hat_data = OrderedDict()
+    phat_data = OrderedDict()
+    transformation = OrderedDict()
     logsdrchat = pyro.param('logsdrchat',ts(2.))
     hat_data.update(sdrc=logsdrchat)
     transformation.update(sdrc=torch.exp)
@@ -278,12 +284,14 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     pi_raw = torch.exp(logittotals)
     pi = pi_raw / torch.sum(pi_raw,-1).unsqueeze(-1)
 
+    #print("guide:pre-p")
     for p in prepare_ps:#pyro.plate('precinctsg2', P):
         #precalculation - logits to pi
 
 
         #get ŷ^(0)
         Q, iters = optimize_Q(R,C,pi[p],vs[p],ns[p],tolerance=.01,maxiters=3)
+        #print(f"optimize_Q {p}:{iters}")
         yhat.append(Q*tots[p])
 
         #depolytopize
@@ -300,12 +308,15 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     if include_nuisance:
         phat_data.update(y=torch.cat(yhat,0))
 
+
+    #print("guide:post-p")
+
     #Get hessians and sample params
 
     #Start with theta
 
-    transformed_hat_data = dict()
-    for k,v in chain(hat_data.items(),*[phat.items() for phat in phat_data]):
+    transformed_hat_data = OrderedDict()
+    for k,v in chain(hat_data.items(),phat_data.items()):
         if k in transformation:
             transformed_hat_data[k] = transformation[k](v)
         else:
@@ -313,12 +324,17 @@ def guide(data, scale, include_nuisance=False, do_print=False):
 
     real_hessian = not MINIMAL_DEBUG
     if real_hessian:
+        #
+        print("line ",lineno())
         hess_center = pyro.condition(model,transformed_hat_data)
+        print("line ",lineno())
         mytrace = poutine.block(poutine.trace(hess_center).get_trace)(data, scale, include_nuisance)
+        print("line ",lineno())
         log_posterior = mytrace.log_prob_sum()
+        print("line ",lineno())
     theta_part_names = ["sdrc", "sdprc", "ec", "erc"]
     theta_parts = []
-    theta_hat_data = dict()
+    theta_hat_data = OrderedDict()
     for part_name in theta_part_names: #TODO: theta_hat_data redundant with hat_data, now we have phat_data????
         if part_name in hat_data:
             #print(f"adding {part_name} to theta_parts")
