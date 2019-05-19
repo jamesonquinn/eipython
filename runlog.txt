@@ -173,3 +173,7 @@ sample θ,W~𝒩[(θ̂,depoly(Ŷ)), ℐ̂^-1]
 May 11:
 ValueError: Error while computing log_prob_sum at site 'y':
 Value is not broadcastable with batch_shape+event_shape: torch.Size([68, 3]) vs torch.Size([17, 4, 3]).
+
+may 19:
+demoruns2: hessian (not myhessian); meanfield vs laplace, particles 1 2 5
+demoruns5: hessian; mf, lp, amlp.

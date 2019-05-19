@@ -2,6 +2,10 @@
 # -*- coding: utf-8 -*-
 from __future__ import print_function
 
+from importlib import reload
+import csv
+import time
+import math
 
 from matplotlib import pyplot as plt
 from collections import OrderedDict
@@ -13,9 +17,14 @@ import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO
 from pyro.optim import ClippedAdam
 from pyro import poutine
-import hessian
+from pyro.contrib.autoguide import AutoDiagonalNormal
+if False:#True:#
+    import myhessian
+else:
+    import hessian as myhessian
 import numpy as np
 import pandas as pd
+import go_or_nogo
 ts = torch.tensor
 
 pyro.enable_validation(True)
@@ -37,26 +46,8 @@ def model1(N,effects,errors,scalehyper,tailhyper): #groups, subgroups, groupsize
     #Observations conditional on truth (likelihood)
     observations = pyro.sample('observations', dist.Normal(truth,errors).to_event(1), obs=effects)
 
-def model2(N,effects,errors,scalehyper,tailhyper): #groups, subgroups, groupsize by trial, options
-    #prior on μ_τ
-    meanEffect = pyro.sample('meanEffect',dist.Normal(ts(0.),ts(20.)))
 
-    #prior on sd(τ)
-    scale = pyro.sample('scale',dist.Normal(ts(0.),torch.abs(scalehyper)))
-
-    #prior on muln
-    tail = pyro.sample('tail',dist.LogNormal(ts(2.),tailhyper))
-
-    sigln = torch.sqrt(ts(1.) + ts(2.) * tail * scale) - 1
-    deltaln = torch.exp(tail + sigln)
-
-    #Latent true values (offset)
-    truth = pyro.sample('truth',dist.LogNormal(tail.expand(N),sigln).to_event(1))
-
-    #Observations conditional on truth (likelihood)
-    observations = pyro.sample('observations', dist.Normal(meanEffect+truth-deltaln,errors).to_event(1), obs=effects)
-
-def guide1(N,effects,errors,scalehyper,tailhyper):
+def guide1(N,effects,errors,scalehyper=ts(10.),tailhyper=ts(10.)):
     #For the parameter of primary interest — the true mean — we fit both mean and error
     meanHat = pyro.param("meanHat",ts(0.)) #mode of the posterior for μ_τ
     meanSig = pyro.param("meanSig",ts(1.), constraint=constraints.positive)
@@ -80,40 +71,315 @@ def guide1(N,effects,errors,scalehyper,tailhyper):
     truth = pyro.sample('truth',dist.Normal(truthHat + truthRho+(meanEffect-meanHat),truthSEmult * errors).to_event(1))
 
 
-def guide2(N,effects,errors,scalehyper,tailhyper):
+BASE_PSI = .01
+
+def infoToM(Info,psi=None):
+    tlen = len(Info)
+    if psi is None:
+        psi = torch.ones(tlen) * BASE_PSI
+    try:
+        assert len(Info)==tlen
+    except:
+        print(Info.size(),tlen)
+        raise
+    M = []
+    for i in range(tlen):
+        lseterms = torch.stack([ts(0.),
+                            -Info[i,i] + psi[i],
+                            -abs(Info[i,i]) + psi[i] +
+                                torch.sum(torch.stack([abs(Info[i,j])
+                                    for j in range(tlen) if j != i]))])
+        M.append( psi[i] * torch.logsumexp(lseterms / psi[i],0))
+    return torch.diag(torch.stack(M))
+
+
+
+def model2(N,effects,errors,
+            scalehyper=ts(10.),tailhyper=ts(10.),
+            fixedParams = None): #groups, subgroups, groupsize by trial, options
+
+    if fixedParams is not None:
+        pass#print("model2 for fake")
+    else:
+        pass#print("model2 for real")
+
+    #prior on μ_τ
+    modal_effect = pyro.sample('modal_effect',dist.Normal(ts(0.),ts(20.)))
+
+    #prior on sd(ν)
+    norm_scale = pyro.sample('norm_scale',dist.Normal(ts(0.),torch.abs(scalehyper)))
+
+    #prior on sd(γ)
+    gum_scale = pyro.sample('gum_scale',dist.Normal(ts(0.),torch.abs(scalehyper)))
+
+    if fixedParams is not None:
+        #
+        modal_effect = fixedParams['modal_effect']
+        norm_scale = fixedParams['norm_scale']
+        gum_scale = fixedParams['gum_scale']
+
+    norm_part = pyro.sample('norm_part',dist.Normal(ts(0.).expand(N),ts(1.)).to_event(1))
+    gum_part = pyro.sample('gum_part',dist.Gumbel(ts(0.).expand(N),ts(1.)).to_event(1))
+
+    #Latent true values (offset)
+    truth = modal_effect + norm_part * torch.abs(norm_scale) + gum_part * gum_scale
+
+    #Observations conditional on truth (likelihood)
+    if fixedParams is not None:
+        observations = pyro.sample('observations', dist.Normal(truth,errors).to_event(1))
+        print("Not none.")
+    else:
+        observations = pyro.sample('observations', dist.Normal(truth,errors).to_event(1), obs=effects)
+
+    if fixedParams is not None:
+        return observations
+    #print("end model2")
+
+
+def laplace(N,effects,errors,scalehyper,tailhyper):
+    #print("guide2 start")
     #
-    meanHat = pyro.param("meanHat",ts(0.))
-    meanSig = pyro.param("meanSig",ts(1.), constraint=constraints.positive)
-    logScaleHat = pyro.param("logScaleHat",ts(0.))
-    logTailHat = pyro.param("logTailHat",ts(0.))
-    logTailSig = pyro.param("logTailSig",ts(1.), constraint=constraints.positive)
+    hat_data = OrderedDict()
+    mode_hat = pyro.param("mode_hat",ts(0.))
+    hat_data.update(modal_effect=mode_hat)
 
-    truthHat = pyro.param("truthHat",effects)
-    truthRho = pyro.param("truthRho",ts(.5), constraint=constraints.unit_interval)
-    truthSEmult = pyro.param("truthSEmult",ts(.9), constraint=constraints.unit_interval)
+    nscale_hat = pyro.param("nscale_hat",ts(1.)) #log this? nah; just use "out of box"
+    hat_data.update(norm_scale=nscale_hat)
 
-    #sample values
-    meanEffect = pyro.sample('meanEffect',dist.Normal(meanHat,meanSig))
-    scale = pyro.sample('scale',dist.Delta(torch.exp(logScaleHat)))
-    tail = pyro.sample('tail',dist.LogNormal(logTailHat,logTailSig))
+    gscale_hat = pyro.param("gscale_hat",ts(1.))
+    hat_data.update(gum_scale=gscale_hat)
 
-    truth = pyro.sample('truth',dist.Normal(truthHat + truthRho+(meanEffect-meanHat),truthSEmult * errors).to_event(1))
+    true_n_hat = pyro.param("true_n_hat",effects/2)
+    hat_data.update(norm_part=true_n_hat)
+
+    true_g_hat = pyro.param("true_g_hat",effects/2)
+    hat_data.update(gum_part=true_g_hat)
+
+    #Get hessian
+    thetaMean = torch.cat([thetaPart.view(-1) for thetaPart in hat_data.values()],0)
+
+    hessCenter = pyro.condition(model2,hat_data)
+    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,effects,errors,scalehyper,tailhyper) #*args,**kwargs)
+    logPosterior = blockedTrace.log_prob_sum()
+    Info = -myhessian.hessian(logPosterior, hat_data.values())#, allow_unused=True)
+    #print("det:",np.linalg.det(Info.data.numpy()))
+    #print(Info)
+
+    #declare global-level psi params
+    theta = pyro.sample('theta',
+                    dist.MultivariateNormal(thetaMean,
+                                precision_matrix=Info + infoToM(Info)),
+                    infer={'is_auxiliary': True})
+
+    #decompose theta into specific values
+    tmptheta = theta
+    for pname, phat in hat_data.items():
+        elems = phat.nelement()
+        pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
+        #print(f"adding {pname} from theta ({elems}, {phat.size()})" )
+
+        pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
+    #
+
+def getMLE(nscale, gscale, error, obs):
+    sigmasq = nscale**2 + error**2
+    normpart = (gscale + obs) * sigmasq / (obs * (gscale**2 + sigmasq))
+    gumpart = obs - normpart
+    return (normpart, gumpart)
+
+
+def amortized_laplace(N,effects,errors,scalehyper,tailhyper):
+    #print("guide2 start")
+    #
+    hat_data = OrderedDict()
+    mode_hat = pyro.param("mode_hat",ts(0.))
+    hat_data.update(modal_effect=mode_hat)
+
+    nscale_hat = pyro.param("nscale_hat",ts(1.)) #log this? nah; just use "out of box"
+    hat_data.update(norm_scale=nscale_hat)
+
+    gscale_hat = pyro.param("gscale_hat",ts(1.))
+    hat_data.update(gum_scale=gscale_hat)
+
+    normpart, gumpart = getMLE(nscale_hat, gscale_hat, errors, effects)
+
+    true_n_hat = normpart * nscale_hat / (nscale_hat + errors)
+    true_n_hat = true_n_hat.detach()
+    true_n_hat.requires_grad = True
+    hat_data.update(norm_part=true_n_hat)
+
+    true_g_hat = gumpart.detach()
+
+    true_g_hat.requires_grad = True
+    hat_data.update(gum_part=true_g_hat)
+
+    #Get hessian
+    thetaMean = torch.cat([thetaPart.view(-1) for thetaPart in hat_data.values()],0)
+
+    hessCenter = pyro.condition(model2,hat_data)
+    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,effects,errors,scalehyper,tailhyper) #*args,**kwargs)
+    logPosterior = blockedTrace.log_prob_sum()
+    theta_names = ["modal_effect", "norm_scale", "gum_scale"]
+    theta_parts = dict((theta_name,hat_data[theta_name]) for theta_name in theta_names)
+    Info = -myhessian.hessian(logPosterior, hat_data.values())#, allow_unused=True)
+    #print("det:",np.linalg.det(Info.data.numpy()))
+    #print(Info)
+
+    #declare global-level psi params
+    #print(f"thetaMean.size():{thetaMean.size()}; Info.size():{Info.size()}")
+    theta = pyro.sample('theta',
+                    dist.MultivariateNormal(thetaMean,
+                                precision_matrix=Info + infoToM(Info)),
+                    infer={'is_auxiliary': True})
+
+    #decompose theta into specific values
+    tmptheta = theta
+    for pname, phat in theta_parts.items():
+        elems = phat.nelement()
+        pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
+        #print(f"adding {pname} from theta ({elems}, {phat.size()})" )
+
+        pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
+    #
+def amortized_meanfield(N,effects,errors,scalehyper,tailhyper):
+    #print("guide2 start")
+    #
+    hat_data = OrderedDict()
+    mode_hat = pyro.param("mode_hat",ts(0.))
+    hat_data.update(modal_effect=mode_hat)
+
+    nscale_hat = pyro.param("nscale_hat",ts(1.)) #log this? nah; just use "out of box"
+    hat_data.update(norm_scale=nscale_hat)
+
+    gscale_hat = pyro.param("gscale_hat",ts(1.))
+    hat_data.update(gum_scale=gscale_hat)
+
+    normpart, gumpart = getMLE(nscale_hat, gscale_hat, errors, effects)
+
+    true_n_hat = normpart * nscale_hat / (nscale_hat + errors)
+    hat_data.update(norm_part=true_n_hat)
+
+    true_g_hat = gumpart
+    hat_data.update(gum_part=true_g_hat)
+
+    #Get hessian
+    thetaMean = torch.cat([thetaPart.view(-1) for thetaPart in hat_data.values()],0)
+    nparams = len(thetaMean)
+
+    theta_scale = pyro.param("theta_scale",torch.ones(nparams))
+
+    #declare global-level psi params
+    theta = pyro.sample('theta',
+                    dist.Normal(thetaMean,torch.abs(theta_scale)).independent(1),
+                    infer={'is_auxiliary': True})
+
+    #decompose theta into specific values
+    tmptheta = theta
+    for pname, phat in hat_data.items():
+        elems = phat.nelement()
+        pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
+        #print(f"adding {pname} from theta ({elems}, {phat.size()})" )
+
+        pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
+    #
+
+
 
 data = pd.read_csv('effects_errors.csv')
-effects = torch.tensor(data.effects)
+echs_effects = torch.tensor(data.effects)
 errors = torch.tensor(data.errors)
-N = len(effects)
+N = len(echs_effects)
+fake_effects_params = dict(modal_effect=ts(.5),
+                            norm_scale=ts(.01),
+                            gum_scale=ts(.2))
+#
+f2 = dict(modal_effect=ts(.5),
+                            norm_scale=ts(.2),
+                            gum_scale=ts(.01))
+#
+f3 = dict(modal_effect=ts(.5),
+                            norm_scale=ts(.1),
+                            gum_scale=ts(.1))
+#
+f4 = dict(modal_effect=ts(.5),
+                            norm_scale=ts(.01),
+                            gum_scale=ts(-.2))
+#
+fake_effects = model2(N,echs_effects,errors,fixedParams = fake_effects_params)
+print("Fake:",fake_effects)
 
-def trainGuide():
-    svi = SVI(model1, guide1, ClippedAdam({'lr': 0.005}), Trace_ELBO())
+autoguide = AutoDiagonalNormal(model2)
+guides = OrderedDict(
+                    #meanfield=autoguide,
+                    #laplace=laplace,
+                    amortized_meanfield = amortized_meanfield,
+                    #amortized_laplace = amortized_laplace,
+                    )
+
+class FakeSink(object):
+    def write(self, *args):
+        pass
+    def writelines(self, *args):
+        pass
+    def close(self, *args):
+        pass
+
+def getLaplaceParams():
+    store = pyro.get_param_store()
+    return [store[item] for item in ("mode_hat","nscale_hat","gscale_hat")]
+
+def getMeanfieldParams():
+    store = pyro.get_param_store()
+    return list(store["auto_loc"])[:3]
+
+def trainGuide(guidename = "laplace",
+            nparticles = 1,
+            trueparams = fake_effects_params,
+            filename = None):
+
+    guide = guides[guidename]
+
+    effects = model2(N,echs_effects,errors,fixedParams = trueparams)
+
+    if filename is None:
+        file = FakeSink()
+    else:
+        file = open(filename,"a")
+    writer = csv.writer(file)
+
+    #guide = guide2
+    svi = SVI(model2, guide, ClippedAdam({'lr': 0.005}), Trace_ELBO(nparticles))
 
     pyro.clear_param_store()
     losses = []
+    mean_losses = [] #(moving average)
+    runtime = time.time()
+    base_line = [guidename, runtime,
+                    [trueparams[item] for item in ("modal_effect",
+                                    "norm_scale","gum_scale")]]
     for i in range(3001):
-        loss = svi.step(N,effects,errors,ts(10.),ts(10.))
+        loss = svi.step(N,fake_effects,errors,ts(10.),ts(10.))
+        if len(losses)==0:
+            mean_losses.append(loss)
+        else:
+            mean_losses.append((mean_losses[-1] * 49. + loss) / 50.)
         losses.append(loss)
         if i % 10 == 0:
-            print(f'epoch {i} loss = {loss}')
+            try:
+                writer.writerow(base_line + [i, time.time(), loss] + getLaplaceParams())
+            except:
+                writer.writerow(base_line + [i, time.time(), loss] + getMeanfieldParams())
+            reload(go_or_nogo)
+            go_or_nogo.demoprintstuff(i,loss)
+            try:
+                if mean_losses[-1] > mean_losses[-500]:
+                    break
+            except:
+                pass
+            if go_or_nogo.go:
+                pass
+            else:
+                break
 
     ##
 

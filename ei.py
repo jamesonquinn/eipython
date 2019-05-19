@@ -164,7 +164,7 @@ init_narrow = 10  # Numerically stabilize initialization.
 BASE_PSI =.01
 
 def infoToM(Info,psi):
-    tlen = len(psi)
+    tlen = len(Info)
     try:
         assert len(Info)==tlen
     except:
