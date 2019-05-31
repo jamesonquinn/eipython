@@ -61,7 +61,7 @@ def infoToM(Info,psi=None):
 
 
 
-def model(N,effects,errors,
+def model(N,data,errors,
             scalehyper=ts(10.),tailhyper=ts(10.),
             fixedParams = None): #groups, subgroups, groupsize by trial, options
 
@@ -85,11 +85,11 @@ def model(N,effects,errors,
         norm_scale = fixedParams['norm_scale']
         gum_scale = fixedParams['gum_scale']
 
-    norm_part = pyro.sample('norm_part',dist.Normal(ts(0.).expand(N),torch.abs(norm_scale)).to_event(1))
-    gum_part = pyro.sample('gum_part',dist.Normal(ts(0.).expand(N),torch.abs(gum_scale)).to_event(1))
+    norm_part = pyro.sample('norm_part',dist.Normal(ts(0.).expand(N),ts(1.)).to_event(1))
+    gum_part = pyro.sample('gum_part',dist.Normal(ts(0.).expand(N),ts(1.)).to_event(1))
 
     #Latent true values (offset)
-    truth = modal_effect + norm_part + gum_part 
+    truth = modal_effect + norm_part * torch.abs(norm_scale) + gum_part * gum_scale
 
     #Observations conditional on truth (likelihood)
     if fixedParams is not None:
@@ -97,7 +97,7 @@ def model(N,effects,errors,
         print("Not none.")
     else:
         try:
-            observations = pyro.sample('observations', dist.Normal(truth,errors).to_event(1), obs=effects)
+            observations = pyro.sample('observations', dist.Normal(truth,errors).to_event(1), obs=data)
         except:
             print("ERROR", truth, errors)
             print("ERROR", modal_effect, norm_scale, gum_scale)
@@ -108,7 +108,7 @@ def model(N,effects,errors,
     #print("end model",modal_effect,norm_scale,gum_scale,gum_part)
 
 
-def laplace(N,effects,errors,scalehyper,tailhyper):
+def laplace(N,data,errors,scalehyper,tailhyper):
     hat_data = OrderedDict() #
     mode_hat = pyro.param("mode_hat",ts(0.))
     hat_data.update(modal_effect=mode_hat)
@@ -119,23 +119,22 @@ def laplace(N,effects,errors,scalehyper,tailhyper):
     gscale_hat = pyro.param("gscale_hat",ts(1.))
     hat_data.update(gum_scale=gscale_hat)
 
-    true_n_hat = pyro.param("true_n_hat",effects/2)
+    true_n_hat = pyro.param("true_n_hat",data/2)
     hat_data.update(norm_part=true_n_hat)
 
-    true_g_hat = pyro.param("true_g_hat",effects/2)
+    true_g_hat = pyro.param("true_g_hat",data/2)
     hat_data.update(gum_part=true_g_hat)
 
     #Get hessian
     thetaMean = torch.cat([thetaPart.view(-1) for thetaPart in hat_data.values()],0)
 
     hessCenter = pyro.condition(model,hat_data)
-    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,effects,errors,scalehyper,tailhyper) #*args,**kwargs)
+    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,data,errors,scalehyper,tailhyper) #*args,**kwargs)
     logPosterior = blockedTrace.log_prob_sum()
     Info = -myhessian.hessian(logPosterior, hat_data.values())#, allow_unused=True)
     #print("det:",np.linalg.det(Info.data.numpy()))
     #print(Info)
 
-    #declare global-level psi params
     theta = pyro.sample('theta',
                     dist.MultivariateNormal(thetaMean,
                                 precision_matrix=Info + infoToM(Info)),
@@ -146,90 +145,17 @@ def laplace(N,effects,errors,scalehyper,tailhyper):
     for pname, phat in hat_data.items():
         elems = phat.nelement()
         pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
-        #print(f"adding {pname} from theta ({elems}, {phat.size()})" )
-
-        pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
-    #
-
-
-def laplace_transparent(N,effects,errors,scalehyper,tailhyper):
-    #print("guide2 start")
-    #
-    hat_data = OrderedDict()
-    mode_hat = pyro.param("mode_hat",ts(0.))
-    hat_data.update(modal_effect=mode_hat)
-
-    nscale_hat = pyro.param("nscale_hat",ts(1.)) #log this? nah; just use "out of box"
-    hat_data.update(norm_scale=nscale_hat)
-
-    gscale_hat = pyro.param("gscale_hat",ts(1.))
-    hat_data.update(gum_scale=gscale_hat)
-
-    true_n_hat = pyro.param("true_n_hat",effects/2)
-    hat_data.update(norm_part=true_n_hat)
-
-    true_g_hat = pyro.param("true_g_hat",effects/2)
-    hat_data.update(gum_part=true_g_hat)
-
-    #Get hessian
-    thetaMean = torch.cat([thetaPart.view(-1) for thetaPart in hat_data.values()],0)
-
-    hessCenter = pyro.condition(model,hat_data)
-    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,effects,errors,scalehyper,tailhyper) #*args,**kwargs)
-    logPosterior = blockedTrace.log_prob_sum()
-    Info = -myhessian.hessian(logPosterior, hat_data.values())#, allow_unused=True)
-    #print("det:",np.linalg.det(Info.data.numpy()))
-    #print(Info)
-
-    #declare global-level psi params
-    theta = pyro.sample('theta',
-                    dist.MultivariateNormal(thetaMean,
-                                precision_matrix=Info + infoToM(Info)),
-                    infer={'is_auxiliary': True})
-
-    #decompose theta into specific values
-    tmptheta = theta
-    for pname, phat in hat_data.items():
-        elems = phat.nelement()
-        pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
-
         #print(f"adding {pname} from theta ({elems}, {phat.size()})" )
 
         pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
     #
 
 def getMLE(nscale, gscale, error, obs, tol=1e-5, maxit=100):
-    tot = nscale + gscale + error
-    normpart = nscale / tot
-    gumpart = gscale / tot
+    tot = nscale**2 + gscale**2 + error**2
+    normpart = obs / tot * nscale
+    gumpart = obs / tot * gscale
     return (normpart, gumpart)
 
-
-def getdens(nscale,gscale,np,gp):
-    return (dist.Normal(0,nscale).log_prob(np) +
-            dist.Gumbel(0,torch.abs(gscale)).log_prob(torch.sign(gscale)*gp))
-
-def testMLE(n=20):
-    for i in range(n):
-        fac = -torch.log(torch.rand([1]))
-        gscale = fac * (1. - 2. * torch.rand([1]))
-        nscale = fac - torch.abs(gscale)
-        obs = fac * (-torch.log(torch.rand([1]))-1)
-        npr, gpr = getMLE(nscale,gscale,0.,obs)
-        print(obs,nscale,gscale,npr,gpr)
-        ml = getdens(nscale,gscale,npr,gpr)
-        for delta in [.0001,-.0001]:
-            mlnot = getdens(nscale,gscale,npr+delta,gpr-delta)
-            if mlnot < ml:
-                print(f"getMLE seems to have failed, {fac} {nscale} {gscale} {obs} {npr} {gpr} {delta} {ml} {mlnot}")
-
-                print(fac.item())
-                plt.plot([getdens(nscale,gscale,npr-delta,gpr+delta) for delta in np.linspace(-.5*fac.item(), .5*fac.item(), 100)])
-                plt.xlabel('dg')
-                plt.ylabel('dens')
-                plt.show()
-                plt.clf()
-                #raise "Broken!"
 
 LAMBERT_MAX_ITERS = 10
 LAMBERT_TOL = 1e-2
@@ -239,7 +165,7 @@ def conditional_normal(full_mean, full_precision, n, first_draw, full_cov=None):
         full_cov = torch.inverse(full_precision)
 
     new_precision = full_precision[n:,n:]
-    new_mean = full_mean[n:] - torch.mv(torch.mm(full_cov[n:,:n],
+    new_mean = full_mean[n:] + torch.mv(torch.mm(full_cov[n:,:n],
                                                 torch.inverse(full_cov[:n,:n])),
                                         first_draw - full_mean[:n])
     return(new_mean,new_precision)
@@ -248,7 +174,7 @@ def get_unconditional_cov(full_precision, n):
     #TODO: more efficient
     return(torch.inverse(full_precision)[:n,:n])
 
-def amortized_laplace(N,effects,errors,scalehyper,tailhyper):
+def amortized_laplace(N,data,errors,scalehyper,tailhyper):
     hat_data = OrderedDict()
     #this will hold values to condition the model and get the Hessian
 
@@ -265,17 +191,15 @@ def amortized_laplace(N,effects,errors,scalehyper,tailhyper):
     dn = nscale_hat#.detach().requires_grad_()
     dg = gscale_hat#.detach().requires_grad_()
 
-    normpart, gumpart = getMLE(dn, dg, errors, effects-dm,
+    normpart, gumpart = getMLE(dn, dg, errors, data-dm,
                             maxit=LAMBERT_MAX_ITERS, tol=LAMBERT_TOL)
     #print("normpart",normpart)
 
-    true_n_hat = normpart * nscale_hat / (nscale_hat + errors)
-    true_n_hat = true_n_hat.detach()
+    true_n_hat = normpart.detach()
     true_n_hat.requires_grad = True
     hat_data.update(norm_part=true_n_hat)
 
     true_g_hat = gumpart.detach()
-
     true_g_hat.requires_grad = True
     hat_data.update(gum_part=true_g_hat)
 
@@ -283,7 +207,7 @@ def amortized_laplace(N,effects,errors,scalehyper,tailhyper):
     thetaMean = torch.cat([thetaPart.view(-1) for thetaPart in hat_data.values()],0)
 
     hessCenter = pyro.condition(model,hat_data)
-    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,effects,errors,scalehyper,tailhyper) #*args,**kwargs)
+    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,data,errors,scalehyper,tailhyper) #*args,**kwargs)
     logPosterior = blockedTrace.log_prob_sum()
     theta_names = ["modal_effect", "norm_scale", "gum_scale"]
     theta_parts = dict((theta_name,hat_data[theta_name]) for theta_name in theta_names)
@@ -354,7 +278,7 @@ def amortized_laplace(N,effects,errors,scalehyper,tailhyper):
         #
         #
 
-        precinct_indices = ts([usedup + i])
+        precinct_indices = ts([usedup + i, usedup + N + i]) #norm_part[i], gum_part[i]
 
         full_indices = torch.cat([global_indices, precinct_indices],0)
 
@@ -372,8 +296,10 @@ def amortized_laplace(N,effects,errors,scalehyper,tailhyper):
             print(new_precision)
             print(f"det:{np.linalg.det(new_precision.data.numpy())}")
             raise
-    ytens = torch.cat(ylist,0)
-    pyro.sample("y", dist.Delta(ytens).to_event(1))
+    norm_part = torch.cat([y[0].view(-1) for y in ylist],0)
+    gum_part = torch.cat([y[1].view(-1) for y in ylist],0)
+    pyro.sample("norm_part", dist.Delta(norm_part).to_event(1))
+    pyro.sample("gum_part", dist.Delta(gum_part).to_event(1))
     #
     #print("end guide.",theta[:3],mode_hat,nscale_hat,gscale_hat,Info[:5,:5],Info[-3:,-3:])
     #
@@ -382,7 +308,7 @@ def amortized_laplace(N,effects,errors,scalehyper,tailhyper):
 
 
     #
-def amortized_meanfield(N,effects,errors,scalehyper,tailhyper):
+def amortized_meanfield(N,data,errors,scalehyper,tailhyper):
     #print("guide2 start")
     #
     hat_data = OrderedDict()
@@ -395,7 +321,7 @@ def amortized_meanfield(N,effects,errors,scalehyper,tailhyper):
     gscale_hat = pyro.param("gscale_hat",ts(1.))
     hat_data.update(gum_scale=gscale_hat)
 
-    normpart, gumpart = getMLE(nscale_hat, gscale_hat, errors, effects)
+    normpart, gumpart = getMLE(nscale_hat, gscale_hat, errors, data)
 
     true_n_hat = normpart * nscale_hat / (nscale_hat + errors)
     hat_data.update(norm_part=true_n_hat)
@@ -482,7 +408,7 @@ def trainGuide(guidename = "laplace",
 
     guide = guides[guidename]
 
-    effects = model(N,echs_effects,errors,fixedParams = trueparams)
+    data = model(N,echs_effects,errors,fixedParams = trueparams)
 
     if filename is None:
         file = FakeSink()

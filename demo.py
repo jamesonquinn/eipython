@@ -241,18 +241,19 @@ def getMLE(nscale, gscale, error, obs, tol=1e-5, maxit=100):
     varratio = sigmasq/gscale**2
     w = lambertw(varratio * torch.exp(sigmasq/gscale * (1/gscale-obs/sigmasq))
                                 ,tol=tol, maxit=maxit)
-    gumpart = gscale * (w - varratio) + obs
-    if torch.any(torch.isnan(gumpart)):
+    gumpart_raw = gscale * (w - varratio) + obs
+    if torch.any(torch.isnan(gumpart_raw)):
         print("getMLE: replacing nans")
-        newgum = torch.zeros_like(gumpart)
+        newgum = torch.zeros_like(gumpart_raw)
+        full_variance = gscale**2 + sigmasq
         for i in range(len(gumpart)):
             if torch.isnan(gumpart[i]):
-                newgum[i] += obs[i] * torch.abs(gscale) / (torch.abs(nscale) + torch.abs(gscale))
+                newgum[i] += obs[i] * gscale**2 / full_variance
             else:
-                newgum[i] += gumpart[i]
-        gumpart = newgum
-    normpart = obs-gumpart
-    return (normpart, gumpart)
+                newgum[i] += gumpart_raw[i]
+        gumpart_raw = newgum
+    normpart = (obs-gumpart_raw) * nscale / sigmasq #normpart_raw would have gumpart**2
+    return (normpart, gumpart_raw/gscale)
 
 
 def getdens(nscale,gscale,np,gp):
@@ -267,14 +268,14 @@ def testMLE(n=20):
         obs = fac * (-torch.log(torch.rand([1]))-1)
         npr, gpr = getMLE(nscale,gscale,0.,obs)
         print(obs,nscale,gscale,npr,gpr)
-        ml = getdens(nscale,gscale,npr,gpr)
+        ml = getdens(nscale,gscale,npr*nscale,gpr*gscale)
         for delta in [.0001,-.0001]:
-            mlnot = getdens(nscale,gscale,npr+delta,gpr-delta)
+            mlnot = getdens(nscale,gscale,(npr+delta)*nscale,(gpr-delta)*gscale)
             if mlnot < ml:
                 print(f"getMLE seems to have failed, {fac} {nscale} {gscale} {obs} {npr} {gpr} {delta} {ml} {mlnot}")
 
                 print(fac.item())
-                plt.plot([getdens(nscale,gscale,npr-delta,gpr+delta) for delta in np.linspace(-.5*fac.item(), .5*fac.item(), 100)])
+                plt.plot([getdens(nscale,gscale,(npr+delta)*nscale,(gpr-delta)*gscale) for delta in np.linspace(-.5*fac.item(), .5*fac.item(), 100)])
                 plt.xlabel('dg')
                 plt.ylabel('dens')
                 plt.show()
@@ -289,7 +290,7 @@ def conditional_normal(full_mean, full_precision, n, first_draw, full_cov=None):
         full_cov = torch.inverse(full_precision)
 
     new_precision = full_precision[n:,n:]
-    new_mean = full_mean[n:] - torch.mv(torch.mm(full_cov[n:,:n],
+    new_mean = full_mean[n:] + torch.mv(torch.mm(full_cov[n:,:n],
                                                 torch.inverse(full_cov[:n,:n])),
                                         first_draw - full_mean[:n])
     return(new_mean,new_precision)
