@@ -22,19 +22,19 @@ def hessian(output, inputs, out=None, allow_unused=False, create_graph=False, re
     n = sum(p.numel() for p in inputs)
     if out is None:
         out = output.new_zeros(n, n)
-    out.requires_grad = True
+    #out.requires_grad = True
 
     ai = 0
     if return_grad:
         fullgrad = []
     for i, inp in enumerate(inputs):
-        [grad] = torch.autograd.grad(output, inp, create_graph=True, retain_graph=False, allow_unused=allow_unused)
+        [grad] = torch.autograd.grad(output, inp, create_graph=True, retain_graph=True, allow_unused=allow_unused)
         grad = torch.zeros_like(inp) if grad is None else grad
         grad = grad.contiguous().view(-1)
 
         for j in range(inp.numel()):
             if grad[j].requires_grad:
-                row = gradient(grad[j], inputs[i:], create_graph=True, retain_graph=False)[j:]
+                row = gradient(grad[j], inputs[i:], create_graph=True, retain_graph=True)[j:]
             else:
                 row = grad[j].new_zeros(sum(x.numel() for x in inputs[i:]) - j)
 

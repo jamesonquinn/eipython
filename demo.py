@@ -15,7 +15,7 @@ from torch.distributions import constraints
 import pyro
 import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO
-from pyro.optim import ClippedAdam
+from pyro.optim import ClippedAdam, AdagradRMSProp
 from pyro import poutine
 from pyro.contrib.autoguide import AutoDiagonalNormal
 if False:#True:#
@@ -24,11 +24,17 @@ else:
     import hessian as myhessian
 import numpy as np
 import pandas as pd
+
+from lambertw import lambertw
 import go_or_nogo
 ts = torch.tensor
 
 pyro.enable_validation(True)
 pyro.set_rng_seed(0)
+
+
+
+BASE_PSI = .01
 
 def model1(N,effects,errors,scalehyper,tailhyper): #groups, subgroups, groupsize by trial, options
     #prior on μ_τ
@@ -71,7 +77,6 @@ def guide1(N,effects,errors,scalehyper=ts(10.),tailhyper=ts(10.)):
     truth = pyro.sample('truth',dist.Normal(truthHat + truthRho+(meanEffect-meanHat),truthSEmult * errors).to_event(1))
 
 
-BASE_PSI = .01
 
 def infoToM(Info,psi=None):
     tlen = len(Info)
@@ -129,17 +134,20 @@ def model2(N,effects,errors,
         observations = pyro.sample('observations', dist.Normal(truth,errors).to_event(1))
         print("Not none.")
     else:
-        observations = pyro.sample('observations', dist.Normal(truth,errors).to_event(1), obs=effects)
+        try:
+            observations = pyro.sample('observations', dist.Normal(truth,errors).to_event(1), obs=effects)
+        except:
+            print("ERROR", truth, errors)
+            print("ERROR", modal_effect, norm_scale, gum_scale)
+            raise
 
     if fixedParams is not None:
         return observations
-    #print("end model2")
+    #print("end model2",modal_effect,norm_scale,gum_scale,gum_part)
 
 
 def laplace(N,effects,errors,scalehyper,tailhyper):
-    #print("guide2 start")
-    #
-    hat_data = OrderedDict()
+    hat_data = OrderedDict() #
     mode_hat = pyro.param("mode_hat",ts(0.))
     hat_data.update(modal_effect=mode_hat)
 
@@ -181,14 +189,8 @@ def laplace(N,effects,errors,scalehyper,tailhyper):
         pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
     #
 
-def getMLE(nscale, gscale, error, obs):
-    sigmasq = nscale**2 + error**2
-    normpart = (gscale + obs) * sigmasq / (obs * (gscale**2 + sigmasq))
-    gumpart = obs - normpart
-    return (normpart, gumpart)
 
-
-def amortized_laplace(N,effects,errors,scalehyper,tailhyper):
+def laplace_transparent(N,effects,errors,scalehyper,tailhyper):
     #print("guide2 start")
     #
     hat_data = OrderedDict()
@@ -201,7 +203,121 @@ def amortized_laplace(N,effects,errors,scalehyper,tailhyper):
     gscale_hat = pyro.param("gscale_hat",ts(1.))
     hat_data.update(gum_scale=gscale_hat)
 
-    normpart, gumpart = getMLE(nscale_hat, gscale_hat, errors, effects)
+    true_n_hat = pyro.param("true_n_hat",effects/2)
+    hat_data.update(norm_part=true_n_hat)
+
+    true_g_hat = pyro.param("true_g_hat",effects/2)
+    hat_data.update(gum_part=true_g_hat)
+
+    #Get hessian
+    thetaMean = torch.cat([thetaPart.view(-1) for thetaPart in hat_data.values()],0)
+
+    hessCenter = pyro.condition(model2,hat_data)
+    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,effects,errors,scalehyper,tailhyper) #*args,**kwargs)
+    logPosterior = blockedTrace.log_prob_sum()
+    Info = -myhessian.hessian(logPosterior, hat_data.values())#, allow_unused=True)
+    #print("det:",np.linalg.det(Info.data.numpy()))
+    #print(Info)
+
+    #declare global-level psi params
+    theta = pyro.sample('theta',
+                    dist.MultivariateNormal(thetaMean,
+                                precision_matrix=Info + infoToM(Info)),
+                    infer={'is_auxiliary': True})
+
+    #decompose theta into specific values
+    tmptheta = theta
+    for pname, phat in hat_data.items():
+        elems = phat.nelement()
+        pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
+
+        #print(f"adding {pname} from theta ({elems}, {phat.size()})" )
+
+        pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
+    #
+
+def getMLE(nscale, gscale, error, obs, tol=1e-5, maxit=100):
+    sigmasq = nscale**2 + error**2
+    varratio = sigmasq/gscale**2
+    w = lambertw(varratio * torch.exp(sigmasq/gscale * (1/gscale-obs/sigmasq))
+                                ,tol=tol, maxit=maxit)
+    gumpart = gscale * (w - varratio) + obs
+    if torch.any(torch.isnan(gumpart)):
+        print("getMLE: replacing nans")
+        newgum = torch.zeros_like(gumpart)
+        for i in range(len(gumpart)):
+            if torch.isnan(gumpart[i]):
+                newgum[i] += obs[i] * torch.abs(gscale) / (torch.abs(nscale) + torch.abs(gscale))
+            else:
+                newgum[i] += gumpart[i]
+        gumpart = newgum
+    normpart = obs-gumpart
+    return (normpart, gumpart)
+
+
+def getdens(nscale,gscale,np,gp):
+    return (dist.Normal(0,nscale).log_prob(np) +
+            dist.Gumbel(0,torch.abs(gscale)).log_prob(torch.sign(gscale)*gp))
+
+def testMLE(n=20):
+    for i in range(n):
+        fac = -torch.log(torch.rand([1]))
+        gscale = fac * (1. - 2. * torch.rand([1]))
+        nscale = fac - torch.abs(gscale)
+        obs = fac * (-torch.log(torch.rand([1]))-1)
+        npr, gpr = getMLE(nscale,gscale,0.,obs)
+        print(obs,nscale,gscale,npr,gpr)
+        ml = getdens(nscale,gscale,npr,gpr)
+        for delta in [.0001,-.0001]:
+            mlnot = getdens(nscale,gscale,npr+delta,gpr-delta)
+            if mlnot < ml:
+                print(f"getMLE seems to have failed, {fac} {nscale} {gscale} {obs} {npr} {gpr} {delta} {ml} {mlnot}")
+
+                print(fac.item())
+                plt.plot([getdens(nscale,gscale,npr-delta,gpr+delta) for delta in np.linspace(-.5*fac.item(), .5*fac.item(), 100)])
+                plt.xlabel('dg')
+                plt.ylabel('dens')
+                plt.show()
+                plt.clf()
+                #raise "Broken!"
+
+LAMBERT_MAX_ITERS = 10
+LAMBERT_TOL = 1e-2
+
+def conditional_normal(full_mean, full_precision, n, first_draw, full_cov=None):
+    if full_cov is None:
+        full_cov = torch.inverse(full_precision)
+
+    new_precision = full_precision[n:,n:]
+    new_mean = full_mean[n:] - torch.mv(torch.mm(full_cov[n:,:n],
+                                                torch.inverse(full_cov[:n,:n])),
+                                        first_draw - full_mean[:n])
+    return(new_mean,new_precision)
+
+def get_unconditional_cov(full_precision, n):
+    #TODO: more efficient
+    return(torch.inverse(full_precision)[:n,:n])
+
+def amortized_laplace(N,effects,errors,scalehyper,tailhyper):
+    hat_data = OrderedDict()
+    #this will hold values to condition the model and get the Hessian
+
+    mode_hat = pyro.param("mode_hat",torch.zeros([]))
+    hat_data.update(modal_effect=mode_hat)
+
+    nscale_hat = pyro.param("nscale_hat",torch.ones([])) #log this? nah; just use "out of box"
+    hat_data.update(norm_scale=nscale_hat)
+
+    gscale_hat = pyro.param("gscale_hat",torch.ones([]))
+    hat_data.update(gum_scale=gscale_hat)
+
+    dm = mode_hat#.detach().requires_grad_()
+    dn = nscale_hat#.detach().requires_grad_()
+    dg = gscale_hat#.detach().requires_grad_()
+
+    normpart, gumpart = getMLE(dn, dg, errors, effects-dm,
+                            maxit=LAMBERT_MAX_ITERS, tol=LAMBERT_TOL)
+    #print("normpart",normpart)
 
     true_n_hat = normpart * nscale_hat / (nscale_hat + errors)
     true_n_hat = true_n_hat.detach()
@@ -214,32 +330,102 @@ def amortized_laplace(N,effects,errors,scalehyper,tailhyper):
     hat_data.update(gum_part=true_g_hat)
 
     #Get hessian
+    #print("mid guide.",mode_hat,nscale_hat,gscale_hat,true_n_hat[:4],true_g_hat[:4])
     thetaMean = torch.cat([thetaPart.view(-1) for thetaPart in hat_data.values()],0)
 
+    #print("Get hessian")
     hessCenter = pyro.condition(model2,hat_data)
     blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,effects,errors,scalehyper,tailhyper) #*args,**kwargs)
     logPosterior = blockedTrace.log_prob_sum()
     theta_names = ["modal_effect", "norm_scale", "gum_scale"]
     theta_parts = dict((theta_name,hat_data[theta_name]) for theta_name in theta_names)
     Info = -myhessian.hessian(logPosterior, hat_data.values())#, allow_unused=True)
-    #print("det:",np.linalg.det(Info.data.numpy()))
-    #print(Info)
+
+
+    if True: #Fake first-order effects on Hessian gradient
+        dn = nscale_hat.detach()#.requires_grad_()
+        dg = gscale_hat.detach()#.requires_grad_()
+        if True: #I think False is correct but let's try this
+            diag_factor_fixed = torch.cat([torch.ones(3),torch.ones(N*2)*(1/dn+1/dg)],0)
+            diag_factor_variable = torch.cat([torch.ones(3),torch.ones(N*2)/(1/nscale_hat+1/gscale_hat)],0)
+        else:
+            diag_factor_fixed = torch.cat([torch.ones(3),torch.ones(N*2)/(1/dn+1/dg)],0)
+            diag_factor_variable = torch.cat([torch.ones(3),torch.ones(N*2)*(1/nscale_hat+1/gscale_hat)],0)
+        variable_eye = torch.mm(torch.diag(diag_factor_fixed),torch.diag(diag_factor_variable))
+        #print("sumlog",sum(math.log(mote) for mote in torch.diag(variable_eye)))
+        #print("N",N,effects.size(),errors.size(),thetaMean.size(),Info.size(),variable_eye.size())
+        Info = torch.mm(Info, variable_eye)
+
+
+
+    if False: #print determinant
+        det = np.linalg.det(Info.data.numpy())
+        print("det:",det)
+
+        #print("Got hessian")
+        if math.isinf(det):
+            print("Inf:",Info)
+            print("det3:",np.linalg.det(Info[:3,:3].data.numpy()))
+            print("det3:",np.linalg.det(Info[:5,:5].data.numpy()))
 
     #declare global-level psi params
     #print(f"thetaMean.size():{thetaMean.size()}; Info.size():{Info.size()}")
+    big_hessian = Info + infoToM(Info)
+
+    usedup = int(sum(theta_parts[pname].nelement() for pname in theta_names))
+    theta_cov = get_unconditional_cov(big_hessian,usedup)
+
     theta = pyro.sample('theta',
-                    dist.MultivariateNormal(thetaMean,
-                                precision_matrix=Info + infoToM(Info)),
+                    dist.MultivariateNormal(thetaMean[:usedup],
+                                theta_cov),
                     infer={'is_auxiliary': True})
 
     #decompose theta into specific values
     tmptheta = theta
-    for pname, phat in theta_parts.items():
+    for pname in theta_names:
+        phat = theta_parts[pname]
         elems = phat.nelement()
+        #print(f"pname, phat: {pname}, {phat}")
         pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
         #print(f"adding {pname} from theta ({elems}, {phat.size()})" )
 
         pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
+
+    global_indices = ts(range(usedup))
+    base_theta = theta
+    base_theta_hat = thetaMean[:usedup]
+    ylist = []
+    for i in range(N):
+        #
+        #
+
+        precinct_indices = ts([usedup + i])
+
+        full_indices = torch.cat([global_indices, precinct_indices],0)
+
+        full_precision = big_hessian.index_select(0,full_indices).index_select(1,full_indices) #TODO: do in-place?
+        full_mean = thetaMean.index_select(0,full_indices) #TODO: do in-place!
+        new_mean, new_precision = conditional_normal(full_mean, full_precision, usedup, theta)
+
+
+
+        try:
+            ylist.append( pyro.sample(f"y_{i}",
+                            dist.MultivariateNormal(new_mean, precision_matrix=new_precision),
+                            infer={'is_auxiliary': True}))
+        except:
+            print(new_precision)
+            print(f"det:{np.linalg.det(new_precision.data.numpy())}")
+            raise
+    ytens = torch.cat(ylist,0)
+    pyro.sample("y", dist.Delta(ytens).to_event(1))
+    #
+    #print("end guide.",theta[:3],mode_hat,nscale_hat,gscale_hat,Info[:5,:5],Info[-3:,-3:])
+    #
+    #print(".....1....",true_g_hat,theta[-6:])
+    #print(".....2....",theta[-9:-6])
+
+
     #
 def amortized_meanfield(N,effects,errors,scalehyper,tailhyper):
     #print("guide2 start")
@@ -285,25 +471,27 @@ def amortized_meanfield(N,effects,errors,scalehyper,tailhyper):
 
 
 
-data = pd.read_csv('effects_errors.csv')
+data = pd.read_csv('testresults/effects_errors.csv')
 echs_effects = torch.tensor(data.effects)
 errors = torch.tensor(data.errors)
 N = len(echs_effects)
-fake_effects_params = dict(modal_effect=ts(.5),
-                            norm_scale=ts(.01),
-                            gum_scale=ts(.2))
+base_scale = 10
+modal_effect = 0.#.5
+fake_effects_params = dict(modal_effect=ts(modal_effect),
+                            norm_scale=ts(.01*base_scale),
+                            gum_scale=ts(.2*base_scale))
 #
-f2 = dict(modal_effect=ts(.5),
-                            norm_scale=ts(.2),
-                            gum_scale=ts(.01))
+f2 = dict(modal_effect=ts(modal_effect),
+                            norm_scale=ts(.2*base_scale),
+                            gum_scale=ts(.01*base_scale))
 #
-f3 = dict(modal_effect=ts(.5),
-                            norm_scale=ts(.1),
-                            gum_scale=ts(.1))
+f3 = dict(modal_effect=ts(modal_effect),
+                            norm_scale=ts(.1*base_scale),
+                            gum_scale=ts(.1*base_scale))
 #
-f4 = dict(modal_effect=ts(.5),
-                            norm_scale=ts(.01),
-                            gum_scale=ts(-.2))
+f4 = dict(modal_effect=ts(modal_effect),
+                            norm_scale=ts(.01*base_scale),
+                            gum_scale=ts(-.2*base_scale))
 #
 fake_effects = model2(N,echs_effects,errors,fixedParams = fake_effects_params)
 print("Fake:",fake_effects)
@@ -312,8 +500,8 @@ autoguide = AutoDiagonalNormal(model2)
 guides = OrderedDict(
                     #meanfield=autoguide,
                     #laplace=laplace,
-                    amortized_meanfield = amortized_meanfield,
-                    #amortized_laplace = amortized_laplace,
+                    #amortized_meanfield = amortized_meanfield,
+                    amortized_laplace = amortized_laplace,
                     )
 
 class FakeSink(object):
@@ -348,7 +536,14 @@ def trainGuide(guidename = "laplace",
     writer = csv.writer(file)
 
     #guide = guide2
-    svi = SVI(model2, guide, ClippedAdam({'lr': 0.005}), Trace_ELBO(nparticles))
+    #svi = SVI(model2, guide, ClippedAdam({'lr': 0.005}), Trace_ELBO(nparticles))
+    #svi = SVI(model2, guide, ClippedAdam({'lr': 0.005, 'betas': (0.99,0.9999)}), Trace_ELBO(nparticles)) #.72
+    svi = SVI(model2, guide, ClippedAdam({'lr': 0.005, 'betas': (0.8,0.9)}), Trace_ELBO(nparticles)) #?
+    #svi = SVI(model2, guide, ClippedAdam({'lr': 0.005, 'clip_norm': 5.0}), Trace_ELBO(nparticles)) #.66
+    #svi = SVI(model2, guide, ClippedAdam({'lr': 0.005, 'weight_decay': ...}), Trace_ELBO(nparticles))
+    #svi = SVI(model2, guide, ClippedAdam({'lr': 0.005, 'eps': 1e-5}), Trace_ELBO(nparticles))
+    #svi = SVI(model2, guide, ClippedAdam({'lr': 0.005, 'eps': 1e-10}), Trace_ELBO(nparticles))
+    #svi = SVI(model2, guide, AdagradRMSProp({}), Trace_ELBO(nparticles))
 
     pyro.clear_param_store()
     losses = []
