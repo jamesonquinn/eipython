@@ -6,6 +6,7 @@ from importlib import reload
 import csv
 import time
 import math
+import time
 
 from matplotlib import pyplot as plt
 from collections import OrderedDict
@@ -30,52 +31,13 @@ import go_or_nogo
 ts = torch.tensor
 
 pyro.enable_validation(True)
-pyro.set_rng_seed(0)
+now = int(time.time())
+print("The time is ",now)
+pyro.set_rng_seed(int(now))
 
 
 
 BASE_PSI = .01
-
-def model1(N,effects,errors,scalehyper,tailhyper): #groups, subgroups, groupsize by trial, options
-    #prior on μ_τ
-    meanEffect = pyro.sample('meanEffect',dist.Normal(ts(0.),ts(20.)))
-
-    #prior on σ_τ
-    scale = pyro.sample('scale',dist.Normal(ts(0.),torch.abs(scalehyper)))
-
-    #prior on (df-1)
-    tail = pyro.sample('tail',dist.LogNormal(ts(2.),tailhyper))
-
-    #Latent true values
-    truth = pyro.sample('truth',dist.StudentT(tail+ts(1.),meanEffect.expand(N),scale).to_event(1))
-
-    #Observations conditional on truth (likelihood)
-    observations = pyro.sample('observations', dist.Normal(truth,errors).to_event(1), obs=effects)
-
-
-def guide1(N,effects,errors,scalehyper=ts(10.),tailhyper=ts(10.)):
-    #For the parameter of primary interest — the true mean — we fit both mean and error
-    meanHat = pyro.param("meanHat",ts(0.)) #mode of the posterior for μ_τ
-    meanSig = pyro.param("meanSig",ts(1.), constraint=constraints.positive)
-
-    #For less-interesting parameters, we start by fitting just a point estimate
-    logScaleHat = pyro.param("logScaleHat",ts(0.))
-    logTailHat = pyro.param("logTailHat",ts(0.))
-
-    #For latent values, we fit global posterior mean; correlation with relevant mean parameters; and variance.
-    #Global mean
-    truthHat = pyro.param("truthHat",effects)
-    #If the mode of the posterior for
-    truthRho = pyro.param("truthRho",ts(.5), constraint=constraints.unit_interval)
-    truthSEmult = pyro.param("truthSEmult",ts(.9), constraint=constraints.unit_interval)
-
-    #sample values
-    meanEffect = pyro.sample('meanEffect',dist.Normal(meanHat,meanSig))
-    scale = pyro.sample('scale',dist.Delta(torch.exp(logScaleHat)))
-    tail = pyro.sample('tail',dist.Delta(torch.exp(logTailHat)))
-
-    truth = pyro.sample('truth',dist.Normal(truthHat + truthRho+(meanEffect-meanHat),truthSEmult * errors).to_event(1))
-
 
 
 def infoToM(Info,psi=None):
@@ -99,14 +61,14 @@ def infoToM(Info,psi=None):
 
 
 
-def model2(N,effects,errors,
+def model(N,effects,errors,
             scalehyper=ts(10.),tailhyper=ts(10.),
             fixedParams = None): #groups, subgroups, groupsize by trial, options
 
     if fixedParams is not None:
-        pass#print("model2 for fake")
+        pass#print("model for fake")
     else:
-        pass#print("model2 for real")
+        pass#print("model for real")
 
     #prior on μ_τ
     modal_effect = pyro.sample('modal_effect',dist.Normal(ts(0.),ts(20.)))
@@ -117,17 +79,17 @@ def model2(N,effects,errors,
     #prior on sd(γ)
     gum_scale = pyro.sample('gum_scale',dist.Normal(ts(0.),torch.abs(scalehyper)))
 
-    if fixedParams is not None:
+    if fixedParams is not None: #allow manually pinning values
         #
         modal_effect = fixedParams['modal_effect']
         norm_scale = fixedParams['norm_scale']
         gum_scale = fixedParams['gum_scale']
 
-    norm_part = pyro.sample('norm_part',dist.Normal(ts(0.).expand(N),ts(1.)).to_event(1))
-    gum_part = pyro.sample('gum_part',dist.Gumbel(ts(0.).expand(N),ts(1.)).to_event(1))
+    norm_part = pyro.sample('norm_part',dist.Normal(ts(0.).expand(N),torch.abs(norm_scale)).to_event(1))
+    gum_part = pyro.sample('gum_part',dist.Normal(ts(0.).expand(N),torch.abs(gum_scale)).to_event(1))
 
     #Latent true values (offset)
-    truth = modal_effect + norm_part * torch.abs(norm_scale) + gum_part * gum_scale
+    truth = modal_effect + norm_part + gum_part 
 
     #Observations conditional on truth (likelihood)
     if fixedParams is not None:
@@ -143,7 +105,7 @@ def model2(N,effects,errors,
 
     if fixedParams is not None:
         return observations
-    #print("end model2",modal_effect,norm_scale,gum_scale,gum_part)
+    #print("end model",modal_effect,norm_scale,gum_scale,gum_part)
 
 
 def laplace(N,effects,errors,scalehyper,tailhyper):
@@ -166,7 +128,7 @@ def laplace(N,effects,errors,scalehyper,tailhyper):
     #Get hessian
     thetaMean = torch.cat([thetaPart.view(-1) for thetaPart in hat_data.values()],0)
 
-    hessCenter = pyro.condition(model2,hat_data)
+    hessCenter = pyro.condition(model,hat_data)
     blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,effects,errors,scalehyper,tailhyper) #*args,**kwargs)
     logPosterior = blockedTrace.log_prob_sum()
     Info = -myhessian.hessian(logPosterior, hat_data.values())#, allow_unused=True)
@@ -212,7 +174,7 @@ def laplace_transparent(N,effects,errors,scalehyper,tailhyper):
     #Get hessian
     thetaMean = torch.cat([thetaPart.view(-1) for thetaPart in hat_data.values()],0)
 
-    hessCenter = pyro.condition(model2,hat_data)
+    hessCenter = pyro.condition(model,hat_data)
     blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,effects,errors,scalehyper,tailhyper) #*args,**kwargs)
     logPosterior = blockedTrace.log_prob_sum()
     Info = -myhessian.hessian(logPosterior, hat_data.values())#, allow_unused=True)
@@ -237,21 +199,9 @@ def laplace_transparent(N,effects,errors,scalehyper,tailhyper):
     #
 
 def getMLE(nscale, gscale, error, obs, tol=1e-5, maxit=100):
-    sigmasq = nscale**2 + error**2
-    varratio = sigmasq/gscale**2
-    w = lambertw(varratio * torch.exp(sigmasq/gscale * (1/gscale-obs/sigmasq))
-                                ,tol=tol, maxit=maxit)
-    gumpart = gscale * (w - varratio) + obs
-    if torch.any(torch.isnan(gumpart)):
-        print("getMLE: replacing nans")
-        newgum = torch.zeros_like(gumpart)
-        for i in range(len(gumpart)):
-            if torch.isnan(gumpart[i]):
-                newgum[i] += obs[i] * torch.abs(gscale) / (torch.abs(nscale) + torch.abs(gscale))
-            else:
-                newgum[i] += gumpart[i]
-        gumpart = newgum
-    normpart = obs-gumpart
+    tot = nscale + gscale + error
+    normpart = nscale / tot
+    gumpart = gscale / tot
     return (normpart, gumpart)
 
 
@@ -330,11 +280,9 @@ def amortized_laplace(N,effects,errors,scalehyper,tailhyper):
     hat_data.update(gum_part=true_g_hat)
 
     #Get hessian
-    #print("mid guide.",mode_hat,nscale_hat,gscale_hat,true_n_hat[:4],true_g_hat[:4])
     thetaMean = torch.cat([thetaPart.view(-1) for thetaPart in hat_data.values()],0)
 
-    #print("Get hessian")
-    hessCenter = pyro.condition(model2,hat_data)
+    hessCenter = pyro.condition(model,hat_data)
     blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,effects,errors,scalehyper,tailhyper) #*args,**kwargs)
     logPosterior = blockedTrace.log_prob_sum()
     theta_names = ["modal_effect", "norm_scale", "gum_scale"]
@@ -357,8 +305,6 @@ def amortized_laplace(N,effects,errors,scalehyper,tailhyper):
             diag_factor_fixed = torch.cat([torch.ones(3),torch.ones(N*2)/(1/dn+1/dg)],0)
             diag_factor_variable = torch.cat([torch.ones(3),torch.ones(N*2)*(1/nscale_hat+1/gscale_hat)],0)
         variable_eye = torch.mm(torch.diag(diag_factor_fixed),torch.diag(diag_factor_variable))
-        #print("sumlog",sum(math.log(mote) for mote in torch.diag(variable_eye)))
-        #print("N",N,effects.size(),errors.size(),thetaMean.size(),Info.size(),variable_eye.size())
         Info = torch.mm(Info, variable_eye)
 
 
@@ -373,13 +319,16 @@ def amortized_laplace(N,effects,errors,scalehyper,tailhyper):
             print("det3:",np.linalg.det(Info[:3,:3].data.numpy()))
             print("det3:",np.linalg.det(Info[:5,:5].data.numpy()))
 
-    #declare global-level psi params
-    #print(f"thetaMean.size():{thetaMean.size()}; Info.size():{Info.size()}")
+    #ensure positive definite
     big_hessian = Info + infoToM(Info)
 
+    #count parameters
     usedup = int(sum(theta_parts[pname].nelement() for pname in theta_names))
+
+    #invert matrix (maybe later, smart)
     theta_cov = get_unconditional_cov(big_hessian,usedup)
 
+    #sample top-level parameters
     theta = pyro.sample('theta',
                     dist.MultivariateNormal(thetaMean[:usedup],
                                 theta_cov),
@@ -396,6 +345,7 @@ def amortized_laplace(N,effects,errors,scalehyper,tailhyper):
 
         pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
 
+    #sample unit-level parameters, conditional on top-level ones
     global_indices = ts(range(usedup))
     base_theta = theta
     base_theta_hat = thetaMean[:usedup]
@@ -498,10 +448,10 @@ f4 = dict(modal_effect=ts(modal_effect),
                             norm_scale=ts(.01*base_scale),
                             gum_scale=ts(-.2*base_scale))
 #
-fake_effects = model2(N,echs_effects,errors,fixedParams = fake_effects_params)
+fake_effects = model(N,echs_effects,errors,fixedParams = fake_effects_params)
 print("Fake:",fake_effects)
 
-autoguide = AutoDiagonalNormal(model2)
+autoguide = AutoDiagonalNormal(model)
 guides = OrderedDict(
                     #meanfield=autoguide,
                     #laplace=laplace,
@@ -532,7 +482,7 @@ def trainGuide(guidename = "laplace",
 
     guide = guides[guidename]
 
-    effects = model2(N,echs_effects,errors,fixedParams = trueparams)
+    effects = model(N,echs_effects,errors,fixedParams = trueparams)
 
     if filename is None:
         file = FakeSink()
@@ -541,14 +491,14 @@ def trainGuide(guidename = "laplace",
     writer = csv.writer(file)
 
     #guide = guide2
-    #svi = SVI(model2, guide, ClippedAdam({'lr': 0.005}), Trace_ELBO(nparticles))
-    #svi = SVI(model2, guide, ClippedAdam({'lr': 0.005, 'betas': (0.99,0.9999)}), Trace_ELBO(nparticles)) #.72
-    svi = SVI(model2, guide, ClippedAdam({'lr': 0.005, 'betas': (0.8,0.9)}), Trace_ELBO(nparticles)) #?
-    #svi = SVI(model2, guide, ClippedAdam({'lr': 0.005, 'clip_norm': 5.0}), Trace_ELBO(nparticles)) #.66
-    #svi = SVI(model2, guide, ClippedAdam({'lr': 0.005, 'weight_decay': ...}), Trace_ELBO(nparticles))
-    #svi = SVI(model2, guide, ClippedAdam({'lr': 0.005, 'eps': 1e-5}), Trace_ELBO(nparticles))
-    #svi = SVI(model2, guide, ClippedAdam({'lr': 0.005, 'eps': 1e-10}), Trace_ELBO(nparticles))
-    #svi = SVI(model2, guide, AdagradRMSProp({}), Trace_ELBO(nparticles))
+    #svi = SVI(model, guide, ClippedAdam({'lr': 0.005}), Trace_ELBO(nparticles))
+    #svi = SVI(model, guide, ClippedAdam({'lr': 0.005, 'betas': (0.99,0.9999)}), Trace_ELBO(nparticles)) #.72
+    svi = SVI(model, guide, ClippedAdam({'lr': 0.005, 'betas': (0.8,0.9)}), Trace_ELBO(nparticles)) #?
+    #svi = SVI(model, guide, ClippedAdam({'lr': 0.005, 'clip_norm': 5.0}), Trace_ELBO(nparticles)) #.66
+    #svi = SVI(model, guide, ClippedAdam({'lr': 0.005, 'weight_decay': ...}), Trace_ELBO(nparticles))
+    #svi = SVI(model, guide, ClippedAdam({'lr': 0.005, 'eps': 1e-5}), Trace_ELBO(nparticles))
+    #svi = SVI(model, guide, ClippedAdam({'lr': 0.005, 'eps': 1e-10}), Trace_ELBO(nparticles))
+    #svi = SVI(model, guide, AdagradRMSProp({}), Trace_ELBO(nparticles))
 
     pyro.clear_param_store()
     losses = []
