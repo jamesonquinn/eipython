@@ -171,7 +171,7 @@ def getMLE(nscale, gscale, error, obs, tol=1e-5, maxit=100):
                 newgum[i] += gumpart_raw[i]
         gumpart_raw = newgum
     normpart = (adjusted_obs-gumpart_raw) * nscale / sigmasq #normpart_raw would have gumpart**2
-    return (normpart, (gumpart_raw-EULER_CONSTANT)/gscale)
+    return (normpart, gumpart_raw/gscale-EULER_CONSTANT)
 
 
 def getdens(nscale,gscale,np,gp):
@@ -422,9 +422,9 @@ neggum_params = dict(modal_effect=ts(modal_effect),
 
 autoguide = AutoDiagonalNormal(model)
 guides = OrderedDict(
-                    #meanfield=autoguide,
-                    #laplace=laplace,
-                    #amortized_meanfield = amortized_meanfield,
+                    meanfield=autoguide,
+                    laplace=laplace,
+                    amortized_meanfield = amortized_meanfield,
                     amortized_laplace = amortized_laplace,
                     )
 
