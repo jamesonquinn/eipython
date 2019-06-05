@@ -261,12 +261,6 @@ def guide(data, scale, include_nuisance=False, do_print=False):
             torch.mean((erchat - recenter_rc(erchat))**2)/torch.exp(logsdrchat))
     pyrosample('param_residual', dist.Delta(recentering_amount))
 
-    global_logit_totals = echat + erchat
-
-    global_probs = []
-    for r in range(R):#pyro.plate('rgroupsm2', R):
-        tmp = torch.exp(global_logit_totals[r])
-        global_probs.append(tmp/torch.sum(tmp,0))
 
     #Amortize hats
     yhat = []
@@ -390,19 +384,19 @@ def guide(data, scale, include_nuisance=False, do_print=False):
         else:
             pyrosample(pname, dist.Delta(pdat.view(phat.size()))
                                 .to_event(len(list(phat.size()))))
-    with all_ps() as p_tensor:
-        for p in p_tensor:
-            for pname, phat in phat_data[p].items():
-                elems = phat.nelement()
-                pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
-                #print(f"adding {pname} from theta ({elems}, {phat.size()}, {tmptheta.size()}, {pdat})" )
-
-                if pname in transformation:
-                    pyrosample(pname, dist.Delta(transformation[pname](pdat.view(phat.size())))
-                                        .to_event(len(list(phat.size())))) #TODO: reshape after transformation, not just before???
-                else:
-                    pyrosample(pname, dist.Delta(pdat.view(phat.size()))
-                                        .to_event(len(list(phat.size()))))
+    # with all_ps() as p_tensor:
+    #     for p in p_tensor:
+    #         for pname, phat in phat_data[p].items():
+    #             elems = phat.nelement()
+    #             pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
+    #             #print(f"adding {pname} from theta ({elems}, {phat.size()}, {tmptheta.size()}, {pdat})" )
+    #
+    #             if pname in transformation:
+    #                 pyrosample(pname, dist.Delta(transformation[pname](pdat.view(phat.size())))
+    #                                     .to_event(len(list(phat.size())))) #TODO: reshape after transformation, not just before???
+    #             else:
+    #                 pyrosample(pname, dist.Delta(pdat.view(phat.size()))
+    #                                     .to_event(len(list(phat.size()))))
     assert list(tmptheta.size())[0] == 0
 
 

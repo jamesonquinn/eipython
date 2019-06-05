@@ -26,9 +26,6 @@ from pyro.contrib.autoguide import AutoDelta
 from pyro.optim import Adam
 from pyro.infer import SVI, TraceEnum_ELBO, config_enumerate, infer_discrete
 
-smoke_test = ('CI' in os.environ)
-assert pyro.__version__.startswith('0.3.0')
-pyro.enable_validation(True)
 
 MIN_DIFF = 1e-2
 
@@ -114,6 +111,14 @@ def depolytopize(R, C, poly, start):
 
     result = fac * diff
     #print("depo",fac, ratio[closest//C,closest%C])
+    if torch.any(torch.isnan(result)):
+        print("depolytopize fail")
+        print(R, C, poly, start)
+        print(diff,ratio,closest)
+        print("2depolytopize fail")
+        print(r,fac,result)
+        print(1-ratio[closest//C,closest%C])
+        print(diff[closest//C,closest%C])
     return result[:(R-1),:(C-1)]
 
 

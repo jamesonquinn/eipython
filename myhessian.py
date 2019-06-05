@@ -81,6 +81,7 @@ def arrowhead_hessian(output, inputs, headsize, blocksize, out=None, allow_unuse
         fullgrad = []
     I = len(inputs)
     for i, inp in enumerate(inputs):
+        #print("graddy",inp.size())
         [grad] = torch.autograd.grad(output, inp, retain_graph=True, create_graph=True, allow_unused=allow_unused)
         grad = torch.zeros_like(inp) if grad is None else grad
         grad = grad.contiguous().view(-1)

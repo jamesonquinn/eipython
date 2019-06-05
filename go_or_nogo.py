@@ -15,12 +15,12 @@ def printstuff(i,loss):
 def demoprintstuff(i,loss):
     if (i % NUM_BETWEEN_PRINT) == 0:
         print(f'epoch {i} loss = {loss};')
-        try:
-            print(f' mode_hat = {pyro.get_param_store()["mode_hat"]};')
-            print(f' nscale_hat = {pyro.get_param_store()["nscale_hat"]}')
-            print(f' gscale_hat = {pyro.get_param_store()["gscale_hat"]}')
-        except:
-            pass
+
+        for item in ("mode_hat","gscale_hat","nscale_hat","narrower"):
+            try:
+                print(item,pyro.get_param_store()[item])
+            except:
+                pass
 
 
 def printstuff2():
