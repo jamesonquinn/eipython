@@ -33,7 +33,10 @@ def optimize_Q(R,C,pi,v,d,tolerance):
    # Some auxiliary matrices
       # M is the matrix of linear constraints on Q (not counting the inequalities)
    M_top = np.eye(C)
-   M_bottom = np.vstack((np.ones((1,C)),np.zeros((R-2,C))))
+   if R>2:
+      M_bottom = np.vstack((np.ones((1,C)),np.zeros((R-2,C))))
+   else:  # if R==2
+      M_bottom = np.ones((1,C))   
    for r in range(1,R):
       M_top = np.hstack((M_top,np.eye(C)))
       bottom_new = np.zeros((R-1,C))
