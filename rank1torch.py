@@ -34,7 +34,10 @@ def optimize_Q(R,C,pi,v,d,tolerance=tolerance,maxiters=30):
     # Some auxiliary matrices
         # M is the matrix of linear constraints on Q (not counting the inequalities)
     M_top = torch.eye(C)
-    M_bottom = torch.cat((torch.ones(1,C),torch.zeros(R-2,C)),0)
+    if R>2:
+      M_bottom = torch.cat((torch.ones(1,C),torch.zeros(R-2,C)),0)
+    else: #i.e. if R=2
+      M_bottom = torch.ones(1,C)
     for r in range(1,R):
         M_top = torch.cat((M_top,torch.eye(C)),1)
         bottom_new = torch.zeros(R-1,C)
