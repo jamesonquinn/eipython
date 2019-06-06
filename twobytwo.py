@@ -288,6 +288,7 @@ def amortized_laplace(data=None, scale=1., include_nuisance=False, do_print=Fals
         logittotals = logittotals.expand(P,R,C)
     pi_raw = torch.exp(logittotals)
     pi = pi_raw / torch.sum(pi_raw,-1).unsqueeze(-1)
+    #print("pi:",pi)
 
 
     #print("guide:pre-p")
