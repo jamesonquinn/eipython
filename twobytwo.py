@@ -31,9 +31,9 @@ import myhessian
 from rank1torch import optimize_Q
 import go_or_nogo
 from cmult import CMult
-import polytopize
-reload(polytopize)
-from polytopize import get_indep, polytopize, depolytopize, to_subspace, process_data
+import linearize
+reload(linearize)
+from linearize import get_indep, linearize, delinearize, process_data
 
 ts = torch.tensor
 
@@ -264,8 +264,8 @@ def amortized_laplace(data=None, scale=1., include_nuisance=False, do_print=Fals
 
 
     #not fully identifiable, so "impose a prior"
-    recentering_amount = torch.abs(torch.sum(echat)) + sum(torch.abs(torch.sum(erchat[r,:])) for r in range(R))
-    pyro.sample('param_residual', dist.Delta(recentering_amount * .05))
+    #recentering_amount = torch.abs(torch.sum(echat)) + sum(torch.abs(torch.sum(erchat[r,:])) for r in range(R))
+    #pyro.sample('param_residual', dist.Delta(recentering_amount * .05))
 
     #get ready to amortize: detach
     detached_hat_data = OrderedDict()
@@ -288,7 +288,7 @@ def amortized_laplace(data=None, scale=1., include_nuisance=False, do_print=Fals
         logittotals = logittotals.expand(P,R,C)
     pi_raw = torch.exp(logittotals)
     pi = pi_raw / torch.sum(pi_raw,-1).unsqueeze(-1)
-    #print("pi:",pi)
+    print("pi:",pi)
 
 
     #print("guide:pre-p")
@@ -301,8 +301,8 @@ def amortized_laplace(data=None, scale=1., include_nuisance=False, do_print=Fals
         #print(f"optimize_Q {p}:{iters}")
         yhat.append(Q*tots[p])
 
-        #depolytopize
-        what.append(depolytopize(R,C,yhat[p],indeps[p]))
+        #delinearize
+        what.append(delinearize(R,C,yhat[p],indeps[p]))
 
         #get ν̂^(0)
         if include_nuisance:
@@ -419,7 +419,7 @@ def amortized_laplace(data=None, scale=1., include_nuisance=False, do_print=Fals
                 print(all_means)
                 raise
 
-    ys = torch.cat([polytopize(R,C,y[:1].view(R-1,C-1),indep).view(1,R,C)
+    ys = torch.cat([linearize(R,C,y[:1].view(R-1,C-1),indep).view(1,R,C)
                         for indep,y in zip(indeps,pparam_list)],0)
     pyro.sample("y", dist.Delta(ys))
     if include_nuisance:
