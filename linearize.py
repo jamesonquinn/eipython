@@ -39,6 +39,8 @@ def approx_eq(a,b):
     #        torch.all(torch.lt(zs(1),1)))
     return(torch.all(torch.lt(torch.abs(torch.add(a, -b)), MIN_DIFF)))
 
+PERTURBATION = torch.tensor([[1., -1.], [-1.,1.]])
+
 def get_indep(R, C, ns, vs): #note, not-voting is a candidate
     assert len(ns)==R
     assert len(vs)==C
@@ -51,9 +53,9 @@ def get_indep(R, C, ns, vs): #note, not-voting is a candidate
     assert approx_eq(tot,sum(vs)), f'#print("sums",{tot},{sum(vs)})'
     indep = ts([[(rnum * cnum / tot) for cnum in vs] for rnum in ns])#TODO: better pytorch
     mindiag = torch.min(torch.diag(indep))
-    zdiag = indep - torch.diag(mindiag.expand(2))
+    zdiag = indep - mindiag * PERTURBATION
     affordance = min(zdiag[0,1],zdiag[1,0]) / 2
-    return (zdiag + torch.diag(affordance.expand(2)),affordance)
+    return (zdiag + affordance * PERTURBATION,affordance)
 
 def process_data(data):
     ns, vs = data
@@ -61,23 +63,24 @@ def process_data(data):
     C = len(vs[0])
     indeps = [get_indep(R,C,n,v) for n, v in zip(ns, vs)]
     tots = [torch.sum(n) for n in ns]
+    print("tots!",tots)
     return (ns, vs, indeps, tots)
 
-def linearize(R, C, raw, start, do_aug=True):
-    midpoint, affordance = start
+def linearize(R, C, raw, preprocessed_data, do_aug=True):
+    midpoint, affordance = preprocessed_data
     correction = affordance * (2 / (1 + torch.exp(-raw[0,0])) - 1)
-    return start + torch.diag(correction.expand(2))
+    return midpoint + correction * PERTURBATION
 
 
-def delinearize(R, C, poly, start):
-    midpoint, affordance = start
+def delinearize(R, C, poly, preprocessed_data):
+    midpoint, affordance = preprocessed_data
     diff = poly[0,0] - midpoint[0,0]
     p = ((diff / affordance) + 1) / 2
     try:
         assert p >= 0
         assert p < 1
     except:
-        print("delinearize",poly,start,diff,p)
+        print("delinearize",poly,preprocessed_data,diff,p)
         raise
     return torch.log(p / (1 - p)).view(1,1)
 

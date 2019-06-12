@@ -84,19 +84,15 @@ def infoToM(Info,psi=None):
 def model(data=None, scale=1., include_nuisance=False, do_print=False,
             fixedParams = None): #groups, subgroups, groupsize by trial, options
 
+    assert include_nuisance #otherwise, errors with arrowhead_hessian...
     if data is None:
-        P, R, C = 30, 2, 2
+        P, R, C = 30, 2, 3
         ns = torch.zeros(P,R)
         for p in range(P):
             for r in range(R):
                 ns[p,r] = 600*(1-r) + ((p+1)**2)*r*10
     else:
-        ns, vs, indeps, tots = data
-        assert len(ns)==len(vs)
-        # Hyperparams.
-        P = len(ns)
-        R = len(ns[0])
-        C = len(vs[0])
+        P, R, C = data.size()
 
 
     sdc = 5
@@ -113,7 +109,7 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False,
             sdc = scrc = sdprc = ts(1.)
 
     #This is NOT used for data, but instead as a way to sneak a "prior" into the guide to improve identification.
-    param_residual=pyro.sample('param_residual', dist.Normal(0.,1.))
+    #param_residual=pyro.sample('param_residual', dist.Normal(0.,1.))
 
 
     ec = pyro.sample('ec', dist.Normal(torch.zeros(C),sdc).to_event(1))
@@ -126,6 +122,8 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False,
     def all_ps():
         with all_ps_plate as p:#, poutine.scale(scale=scale) as pscale:
             yield p
+
+
     if include_nuisance:
         with all_ps() as p_tensor:
             eprc = (
@@ -169,7 +167,8 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False,
                     y[p,r] = tmp
         else:
             y = pyro.sample(f"y",
-                        CMult(1000000,logits=logits).to_event(1))
+                        dist.Multinomial(1000000,logits=logits).to_event(1),
+                        obs=data)
                         #dim P, R, C from plate, to_event, CMult
                         #note that n is totally fake — sums are what matter.
                         #TODO: fix CMult so this fakery isn't necessary.
@@ -182,7 +181,7 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False,
         print(f"y[0]:{y[0]}")
         vs = torch.sum(y,1)
 
-        return (ns,vs)
+        return y
 
 
 
@@ -223,12 +222,8 @@ def amortized_laplace(data=None, scale=1., include_nuisance=False, do_print=Fals
             fixedParams = None):
 
 
-    ns, vs, indeps, tots = data
-    P = len(ns)
-    R = len(ns[1])
-    C = len(vs[1])
-    assert R == 2
-    assert C == 2
+    assert include_nuisance #otherwise, errors with arrowhead_hessian...
+    P, R, C = data.size()
 
 
     prepare_ps = range(P) #for dealing with hatted quantities (no pyro.sample)
@@ -268,53 +263,6 @@ def amortized_laplace(data=None, scale=1., include_nuisance=False, do_print=Fals
     #recentering_amount = torch.abs(torch.sum(echat)) + sum(torch.abs(torch.sum(erchat[r,:])) for r in range(R))
     #pyro.sample('param_residual', dist.Delta(recentering_amount * .05))
 
-    #get ready to amortize: detach
-    detached_hat_data = OrderedDict()
-    for paramname, param in hat_data.items():
-        detached_hat_data[paramname] = param.detach().requires_grad_()
-
-    #Amortize hats
-    yhat = []
-    what = []
-    nuhat = []
-
-
-    logittotals = detached_hat_data["ec"] + detached_hat_data["erc"]
-    #print("sizes1 ",P,R,C,eprc.size(),ec.size(),erc.size(),logittotals.size())
-    if include_nuisance:
-        logittotals = logittotals + eprchat_startingpoint # += doesn't work here because mumble in-place mumble shape
-        #note that startingpoint is currently zero, so this is effectively just unsqueeze
-        #but still healthy to do it like this in case that changes later.
-    else:
-        logittotals = logittotals.expand(P,R,C)
-    pi_raw = torch.exp(logittotals)
-    pi = pi_raw / torch.sum(pi_raw,-1).unsqueeze(-1)
-    #print("pi:",pi)
-
-
-    #print("guide:pre-p")
-    for p in prepare_ps:#pyro.plate('precinctsg2', P):
-        #precalculation - logits to pi
-
-
-        #get ŷ^(0)
-        Q, iters = optimize_Q(R,C,pi[p],vs[p]/torch.sum(vs[p]),ns[p]/torch.sum(ns[p]),tolerance=.01,maxiters=3)
-        #print(f"optimize_Q {p},{iters}:{Q},{tots[p]}")
-        yhat.append(Q*tots[p])
-
-        #delinearize
-        what.append(delinearize(R,C,yhat[p],indeps[p]))
-
-        #get ν̂^(0)
-        if include_nuisance:
-            pi_precision = tots[p] / pi[p] / (torch.ones_like(pi) - pi)
-            Q_precision = torch.exp(-logsdprchat) * R / (R-1) #TODO: check that correction for R
-            pweighted_Q = pi[p] + (Q-pi[p]) * Q_precision / (Q_precision + pi_precision)
-            nuhat.append(torch.log(pweighted_Q/pi[p]))
-
-
-    if include_nuisance:
-        phat_data.update(y=torch.cat(yhat,0))
 
     transformed_hat_data = OrderedDict()
     for k,v in chain(hat_data.items(),phat_data.items()):
@@ -340,15 +288,9 @@ def amortized_laplace(data=None, scale=1., include_nuisance=False, do_print=Fals
     tlen = sum(theta_part.numel() for theta_part in theta_parts)
 
     if include_nuisance:
-        blocksize = 2 #tensors, not elements=(R-1)*(C-1) + R*C
-        precelems = (R-1)*(C-1) + R*C
-        for p in prepare_ps:
-            theta_parts.extend([what[p], hat_data[f"eprc_{p}"]])
-    else:
-        blocksize = 1 #tensors, not elements=(R-1)*(C-1)
-        precelems = (R-1)*(C-1)
-        for p in prepare_ps:
-            theta_parts.extend([what[p]])
+        blocksize = 1 #tensors, not elements=(R-1)*(C-1) + R*C
+        precelems = R*C
+        
     full_len = sum(theta_part.numel() for theta_part in theta_parts)
 
 
@@ -391,40 +333,36 @@ def amortized_laplace(data=None, scale=1., include_nuisance=False, do_print=Fals
                                 .to_event(len(list(phat.size()))))
     assert list(tmptheta.size())[0] == 0
 
-    #sample unit-level parameters, conditional on top-level ones
-    global_indices = ts(range(tlen))
-    pparam_list = []
-    with all_ps() as p_tensor:
-        for p in p_tensor:
-        #
-        #
-            precinct_indices = ts(range(tlen + p*precelems, tlen + (p+1)*precelems))
-
-
-            full_indices = torch.cat([global_indices, precinct_indices],0)
-
-            full_precision = big_hessian.index_select(0,full_indices).index_select(1,full_indices) #TODO: do in-place?
-            full_mean = all_means.index_select(0,full_indices) #TODO: do in-place!
-            new_mean, new_precision = conditional_normal(full_mean, full_precision, tlen, theta)
-
-
-            try:
-                pparam_list.append( pyro.sample(f"p_{p}",
-                                dist.MultivariateNormal(new_mean, precision_matrix=new_precision),
-                                infer={'is_auxiliary': True}))
-            except:
-                print("error conditionally drawing precinct")
-                print(new_mean,new_precision)
-                print(f"det:{np.linalg.det(new_precision.data.numpy())}")
-                print(full_mean)
-                print(all_means)
-                raise
-
-    ys = torch.cat([linearize(R,C,y[:1].view(R-1,C-1),indep).view(1,R,C)
-                        for indep,y in zip(indeps,pparam_list)],0)
-    print("ys.size()",ys.size())
-    pyro.sample("y", VecDelta(ys).to_event(2) )
     if include_nuisance:
+        #sample unit-level parameters, conditional on top-level ones
+        global_indices = ts(range(tlen))
+        pparam_list = []
+        with all_ps() as p_tensor:
+            for p in p_tensor:
+            #
+            #
+                precinct_indices = ts(range(tlen + p*precelems, tlen + (p+1)*precelems))
+
+
+                full_indices = torch.cat([global_indices, precinct_indices],0)
+
+                full_precision = big_hessian.index_select(0,full_indices).index_select(1,full_indices) #TODO: do in-place?
+                full_mean = all_means.index_select(0,full_indices) #TODO: do in-place!
+                new_mean, new_precision = conditional_normal(full_mean, full_precision, tlen, theta)
+
+
+                try:
+                    pparam_list.append( pyro.sample(f"p_{p}",
+                                    dist.MultivariateNormal(new_mean, precision_matrix=new_precision),
+                                    infer={'is_auxiliary': True}))
+                except:
+                    print("error conditionally drawing precinct")
+                    print(new_mean,new_precision)
+                    print(f"det:{np.linalg.det(new_precision.data.numpy())}")
+                    print(full_mean)
+                    print(all_means)
+                    raise
+
         eprc = torch.cat([y[1:].view(1,R,C) for y in pparam_list],0)
         pyro.sample("eprc", dist.Delta(eprc))
     #
@@ -443,7 +381,7 @@ def amortized_laplace(data=None, scale=1., include_nuisance=False, do_print=Fals
     for paramname, param in hat_data.items():
         param.fix_grad = fix_grads
 
-    #
+        #
 
 
 class FakeSink(object):
@@ -459,9 +397,9 @@ def trainGuide(
             filename = None):
 
     guide = amortized_laplace
-    data = model()
+    data = model(include_nuisance=True)
 
-    processed_data = process_data(data)
+    processed_data = data#process_data(data)
     if filename is None:
         file = FakeSink()
     else:
@@ -486,7 +424,7 @@ def trainGuide(
                     # [trueparams[item] for item in ("modal_effect",
                     #                 "norm_scale","gum_scale")]]
     for i in range(3001):
-        loss = svi.step(processed_data)
+        loss = svi.step(processed_data, include_nuisance=True)
         if len(losses)==0:
             mean_losses.append(loss)
         else:
