@@ -290,12 +290,13 @@ def amortized_laplace(data=None, scale=1., include_nuisance=False, do_print=Fals
     if include_nuisance:
         blocksize = 1 #tensors, not elements=(R-1)*(C-1) + R*C
         precelems = R*C
-        
-    full_len = sum(theta_part.numel() for theta_part in theta_parts)
+
+    all_parts = theta_parts + list(phat_data.values())
+    full_len = sum(part.numel() for part in all_parts)
 
 
     if real_hessian:
-        neg_big_hessian, big_grad = myhessian.arrowhead_hessian(log_posterior, theta_parts,
+        neg_big_hessian, big_grad = myhessian.arrowhead_hessian(log_posterior, all_parts,
                     len(hat_data), #tensors, not elements=tlen
                     blocksize,
                     return_grad=True,
@@ -307,7 +308,7 @@ def amortized_laplace(data=None, scale=1., include_nuisance=False, do_print=Fals
     theta_cov = get_unconditional_cov(big_hessian,tlen)
 
 
-    all_means = torch.cat([tpart.view(-1) for tpart in theta_parts],0)
+    all_means = torch.cat([part.view(-1) for part in all_parts],0)
     theta_mean = all_means[:tlen]
 
     #sample top-level parameters
@@ -337,15 +338,15 @@ def amortized_laplace(data=None, scale=1., include_nuisance=False, do_print=Fals
         #sample unit-level parameters, conditional on top-level ones
         global_indices = ts(range(tlen))
         pparam_list = []
-        with all_ps() as p_tensor:
-            for p in p_tensor:
-            #
-            #
+        #with all_ps() as p_tensor:
+        #    for p in p_tensor:
+        for p in prepare_ps:
                 precinct_indices = ts(range(tlen + p*precelems, tlen + (p+1)*precelems))
 
 
                 full_indices = torch.cat([global_indices, precinct_indices],0)
 
+                #print("p hacking:",big_hessian.size(),global_indices, precinct_indices,full_len)
                 full_precision = big_hessian.index_select(0,full_indices).index_select(1,full_indices) #TODO: do in-place?
                 full_mean = all_means.index_select(0,full_indices) #TODO: do in-place!
                 new_mean, new_precision = conditional_normal(full_mean, full_precision, tlen, theta)
@@ -363,7 +364,8 @@ def amortized_laplace(data=None, scale=1., include_nuisance=False, do_print=Fals
                     print(all_means)
                     raise
 
-        eprc = torch.cat([y[1:].view(1,R,C) for y in pparam_list],0)
+        print("p hack2",[pp.size() for pp in pparam_list])
+        eprc = torch.cat([y.view(1,R,C) for y in pparam_list],0)
         pyro.sample("eprc", dist.Delta(eprc))
     #
     #print("end guide.",theta[:3],mode_hat,nscale_hat,gscale_hat,Info[:5,:5],Info[-3:,-3:])
