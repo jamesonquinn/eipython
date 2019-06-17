@@ -71,6 +71,12 @@ def linearize(R, C, raw, preprocessed_data, do_aug=True):
     correction = affordance * (2 / (1 + torch.exp(-raw[0,0])) - 1)
     return midpoint + correction * PERTURBATION
 
+def llinearize(R, C, raw, preprocessed_data, do_aug=True):
+    return raw * 2.
+
+def dellinearize(R, C, poly, preprocessed_data):
+    return poly / 2.
+
 
 def delinearize(R, C, poly, preprocessed_data):
     midpoint, affordance = preprocessed_data

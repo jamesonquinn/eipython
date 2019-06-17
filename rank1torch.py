@@ -70,12 +70,12 @@ def optimize_Q(R,C,pi,v,d,tolerance=tolerance,maxiters=30):
         #adjust alpha based on current beta
         pi_beta =  torch.mm(pi,torch.diag(beta.view(-1)))
         M_alpha = torch.cat((pi_beta.permute(1,0),torch.diag(rowsum(pi_beta))),0)
-        alpha, lu_ = torch.gesv(torch.mm(M_alpha.permute(1,0),v_d), torch.mm(M_alpha.permute(1,0),M_alpha))
+        alpha, lu_ = torch.solve(torch.mm(M_alpha.permute(1,0),v_d), torch.mm(M_alpha.permute(1,0),M_alpha))
 
         #adjust beta based on current alpha
         alpha_pi = torch.mm(torch.diag(alpha.view(-1)),pi)
         M_beta = torch.cat((torch.diag(colsum(alpha_pi)),alpha_pi),0)
-        beta, lu_ = torch.gesv( torch.mm(M_beta.permute(1,0),v_d), torch.mm(M_beta.permute(1,0),M_beta))
+        beta, lu_ = torch.solve( torch.mm(M_beta.permute(1,0),v_d), torch.mm(M_beta.permute(1,0),M_beta))
 
         # figure out error
         Q = torch.mm(torch.diag(alpha.view(-1)), torch.mm(pi,torch.diag(beta.view(-1))))

@@ -81,8 +81,11 @@ def infoToM(Info,psi=None):
 
 
 
-def model(data=None, scale=1., include_nuisance=False, do_print=False,
-            fixedParams = None): #groups, subgroups, groupsize by trial, options
+def model(data=None, scale=1., include_nuisance=False,
+            log_corr=True, #True: corr multiplies log odds of same-race. False: corr multiplies proportion same race - 0.5
+            do_print=False,
+            fixedParams = None,
+            saveParams = OrderedDict()): #groups, subgroups, groupsize by trial, options
 
     assert include_nuisance #otherwise, errors with arrowhead_hessian...
     if data is None:
@@ -90,13 +93,14 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False,
         ns = torch.zeros(P,R)
         for p in range(P):
             for r in range(R):
-                ns[p,r] = 600*(1-r) + ((p+1)**2)*r*10
+                ns[p,r] = 6000*(1-r) + ((p+1)**2)*r*10
     else:
         P, R, C = data.size()
 
 
     sdc = 5
     sdrc = pyro.sample('sdrc', dist.Exponential(.2))
+
     if include_nuisance:
         sdprc = pyro.sample('sdprc', dist.Exponential(.2))
 
@@ -106,7 +110,8 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False,
             sdrc = fixedParams['sdrc']
             sdprc = fixedParams['sdprc']
         else:
-            sdc = scrc = sdprc = ts(1.)
+            sdc = scrc = ts(1.)
+            sdprc = ts(.5)
 
     #This is NOT used for data, but instead as a way to sneak a "prior" into the guide to improve identification.
     #param_residual=pyro.sample('param_residual', dist.Normal(0.,1.))
@@ -115,6 +120,13 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False,
     ec = pyro.sample('ec', dist.Normal(torch.zeros(C),sdc).to_event(1))
     erc = pyro.sample('erc', dist.Normal(torch.zeros(R,C),sdrc).to_event(2))
 
+    if log_corr:
+        sdcorr = ts(.1)
+    else:
+        sdcorr = ts(.4)
+
+    corr = pyro.sample('corr', dist.Normal(torch.zeros(R,C),sdcorr).to_event(2))
+    #for each race r and candidate c, corr[r,c] is the logit bonus that candidate gets for each
 
     prepare_ps = range(P)
     all_ps_plate = pyro.plate('all_ps',P)
@@ -127,7 +139,7 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False,
     if include_nuisance:
         with all_ps() as p_tensor:
             eprc = (
-                pyro.sample(f'eprc', dist.Normal(torch.zeros(P,R,C),sdprc).to_event(3))
+                pyro.sample(f'eprc', dist.Normal(torch.zeros(P,R,C),sdprc).to_event(2))
                 ) #eprc.size() == [P,R,C] because plate dimension happens on left
 
 
@@ -145,15 +157,28 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False,
             erc[1,0] = ts(2.)
             ec = torch.zeros(C)
             ec[1] = .5
-            eprc= torch.zeros(P,R,C)
+            #eprc= torch.zeros(P,R,C)
 
 
     logits = ec+erc
     #print("sizes1 ",P,R,C,eprc.size(),ec.size(),erc.size(),logittotals.size())
     if include_nuisance:
         logits = logits + eprc # += doesn't work here because mumble in-place mumble shape
+
+    if data is not None:
+        ns = torch.sum(data,2)
+    nns = ns.unsqueeze(2)
+
+
+    totals = torch.sum(nns,1).unsqueeze(1)
+    if log_corr:
+        saturations = torch.log(nns / (totals - nns))
     else:
-        logits = logits.expand(P,R,C)
+        saturations = nns / totals - ts(0.5)
+
+    #print("sizs",totals.size(),logits.size(),saturations.size(),corr.size())
+
+    logits = logits + saturations * corr
 
 
     with all_ps() as p_tensor:#pyro.plate('precinctsm2', P):
@@ -181,6 +206,7 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False,
         print(f"y[0]:{y[0]}")
         vs = torch.sum(y,1)
 
+        saveParams.update(ec=ec,erc=erc,eprc=eprc,corr=corr)
         return y
 
 
@@ -218,7 +244,9 @@ def get_unconditional_cov(full_precision, n):
     #TODO: more efficient
     return(torch.inverse(full_precision)[:n,:n])
 
-def amortized_laplace(data=None, scale=1., include_nuisance=False, do_print=False,
+def amortized_laplace(data=None, scale=1., include_nuisance=False,
+            log_corr=True, #True: corr multiplies log odds of same-race. False: corr multiplies proportion same race - 0.5
+            do_print=False,
             fixedParams = None):
 
 
@@ -248,14 +276,16 @@ def amortized_laplace(data=None, scale=1., include_nuisance=False, do_print=Fals
         logsdprchat = pyro.param('logsdprchat',ts(2.))
         hat_data.update(sdprc=logsdprchat)
         transformation.update(sdprc=torch.exp)
-        eprchat_startingpoint = torch.zeros(P,R,C,requires_grad =True) #not a pyro param...
-        #eprchat_startingpoint[p].requires_grad_(True) #...so we have to do this manually
-        phat_data.update(eprc=eprchat_startingpoint)
+        eprchat = pyro.param('eprchat', torch.zeros(P,R,C))
+        # eprchat_startingpoint = torch.zeros(P,R,C,requires_grad =True) #not a pyro param...
+        # #eprchat_startingpoint[p].requires_grad_(True) #...so we have to do this manually
+        phat_data.update(eprc=eprchat)
 
 
     echat = pyro.param('echat', torch.zeros(C))
     erchat = pyro.param('erchat', torch.zeros(R,C))
-    hat_data.update(ec=echat,erc=erchat)
+    corrhat = pyro.param('corrhat', torch.zeros(R,C))
+    hat_data.update(ec=echat,erc=erchat,corr=corrhat)
     #transformation.update(erc=recenter_rc) #not do this.
 
 
@@ -364,24 +394,26 @@ def amortized_laplace(data=None, scale=1., include_nuisance=False, do_print=Fals
                     print(all_means)
                     raise
 
-        print("p hack2",[pp.size() for pp in pparam_list])
+        #print("p hack2",[pp.size() for pp in pparam_list])
         eprc = torch.cat([y.view(1,R,C) for y in pparam_list],0)
-        pyro.sample("eprc", dist.Delta(eprc))
+        with all_ps():
+            pyro.sample("eprc", dist.Delta(eprc).to_event(2))
     #
     #print("end guide.",theta[:3],mode_hat,nscale_hat,gscale_hat,Info[:5,:5],Info[-3:,-3:])
     #
     #print(".....1....",true_g_hat,theta[-6:])
     #print(".....2....",theta[-9:-6])
-    grads_unfixed = True
-    def fix_grads():
-        if grads_unfixed:
-            grads_unfixed = False
-            for paramname, param in hat_data.items():
-                param.grad = param.grad + detached_hat_data[paramname].grad
-
-
-    for paramname, param in hat_data.items():
-        param.fix_grad = fix_grads
+    # grads_unfixed = True
+    # def fix_grads():
+    #     nonlocal grads_unfixed
+    #     if grads_unfixed:
+    #         grads_unfixed = False
+    #         for paramname, param in hat_data.items():
+    #             param.grad = param.grad + detached_hat_data[paramname].grad
+    #
+    #
+    # for paramname, param in hat_data.items():
+    #     param.fix_grad = fix_grads
 
         #
 
@@ -399,7 +431,9 @@ def trainGuide(
             filename = None):
 
     guide = amortized_laplace
-    data = model(include_nuisance=True)
+    trueparams = OrderedDict()
+    data = model(include_nuisance=True,saveParams=trueparams)
+    print("trueparams",trueparams)
 
     processed_data = data#process_data(data)
     if filename is None:
@@ -422,7 +456,7 @@ def trainGuide(
     losses = []
     mean_losses = [] #(moving average)
     runtime = time.time()
-    base_line = [VERSION, runtime,]
+    base_line = [VERSION, runtime,] + list(trueparams.values())
                     # [trueparams[item] for item in ("modal_effect",
                     #                 "norm_scale","gum_scale")]]
     for i in range(3001):
@@ -433,12 +467,12 @@ def trainGuide(
             mean_losses.append((mean_losses[-1] * 49. + loss) / 50.)
         losses.append(loss)
         if i % 10 == 0:
-            try:
-                writer.writerow(base_line + [i, time.time(), loss] + getLaplaceParams())
-            except:
-                writer.writerow(base_line + [i, time.time(), loss] + getMeanfieldParams())
             reload(go_or_nogo)
-            go_or_nogo.demoprintstuff(i,loss)
+            try:
+                writer.writerow(base_line + [i, time.time(), loss] + go_or_nogo.getLaplaceParams())
+            except:
+                writer.writerow(base_line + [i, time.time(), loss] + go_or_nogo.getMeanfieldParams())
+            go_or_nogo.printstuff(i,loss)
             try:
                 if mean_losses[-1] > mean_losses[-500]:
                     break
