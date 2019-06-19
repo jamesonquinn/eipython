@@ -4,7 +4,7 @@ go = True
 # go = False
 
 
-NUM_BETWEEN_PRINT = 1
+NUM_BETWEEN_PRINT = 10
 
 def printstuff(i,loss):
     print(f'epoch {i} loss = {loss};'+
