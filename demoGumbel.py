@@ -914,10 +914,10 @@ def trainGuide(guidename = "laplace",
 
     ##
 
+
     plt.plot(losses)
     plt.xlabel('epoch')
     plt.ylabel('loss')
-
     ##
 
     for (key, val) in sorted(pyro.get_param_store().items()):
