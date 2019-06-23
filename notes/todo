@@ -1,0 +1,7 @@
+check that conditional sampling works (emprirically)
+
+write more unit tests
+
+check optimal transport vs non
+
+do calculus for optimal transport batch size

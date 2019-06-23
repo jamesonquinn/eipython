@@ -28,6 +28,7 @@ def hessian(output, inputs, out=None, allow_unused=False, create_graph=False, re
     if return_grad:
         fullgrad = []
     for i, inp in enumerate(inputs):
+        #print("myhessian",i,inp,output)
         [grad] = torch.autograd.grad(output, inp, create_graph=True, retain_graph=True, allow_unused=allow_unused)
         grad = torch.zeros_like(inp) if grad is None else grad
         grad = grad.contiguous().view(-1)
