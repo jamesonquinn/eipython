@@ -167,7 +167,7 @@ def getMLE(nscale, gscale, error, obs, tol=1e-5, maxit=100):
         full_variance = gscale**2 + sigmasq
         for i in range(len(gumpart_raw)):
             if torch.isnan(gumpart_raw[i]):
-                newgum[i] += adjusted_obs[i] * gscale**2 / full_variance
+                newgum[i] += (adjusted_obs[i] * gscale**2 / full_variance).view(1)
             else:
                 newgum[i] += gumpart_raw[i]
         gumpart_raw = newgum
