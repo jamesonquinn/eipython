@@ -4,7 +4,6 @@ from __future__ import print_function
 
 
 from importlib import reload
-import contextlib
 from itertools import chain
 import cProfile as profile
 import inspect
@@ -20,6 +19,7 @@ import pandas as pd
 
 import torch
 from torch.distributions import constraints
+import contextlib
 import pyro
 import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO

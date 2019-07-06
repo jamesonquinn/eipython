@@ -136,6 +136,16 @@ def laplace(N,effects,errors,totvar,scalehyper,tailhyper):
     #print("det:",np.linalg.det(Info.data.numpy()))
     #print(Info)
 
+    if True: #print determinant
+        det = np.linalg.det(Info.data.numpy())
+        print("det:",det)
+
+        #print("Got hessian")
+        if math.isinf(det):
+            print("Inf:",Info)
+            print("det3:",np.linalg.det(Info[:3,:3].data.numpy()))
+            print("det3:",np.linalg.det(Info[:5,:5].data.numpy()))
+
     #declare global-level psi params
     theta = pyro.sample('theta',
                     dist.MultivariateNormal(thetaMean,

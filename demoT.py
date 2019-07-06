@@ -6,6 +6,7 @@ from importlib import reload
 import csv
 import time
 import math
+import random #Mixing seeds — not reproducible — TODO:fix
 import itertools
 
 from matplotlib import pyplot as plt
@@ -13,6 +14,8 @@ from collections import OrderedDict, defaultdict
 
 import torch
 from torch.distributions import constraints
+import contextlib
+
 import pyro
 import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO
@@ -63,9 +66,17 @@ def infoToM(Info,psi=None):
         M.append( psi[i] * torch.logsumexp(lseterms / psi[i],0))
     return torch.diag(torch.stack(M))
 
-def model(N,effects,errors,totvar,
+def model(N,effects,errors,maxError,weight=1.,
             scalehyper=ts(4.),tailhyper=ts(10.),
             fixedParams = None): #groups, subgroups, groupsize by trial, options
+
+
+    units_plate = pyro.plate('units',N)
+    @contextlib.contextmanager
+    def all_units():
+        with units_plate as n, poutine.scale(scale=weight) as nscale:
+            yield n
+
 
     if fixedParams is not None:
         pass#print("model for fake")
@@ -76,7 +87,7 @@ def model(N,effects,errors,totvar,
     modal_effect = pyro.sample('modal_effect',dist.Normal(ts(0.),ts(20.)))
 
     #prior on sd(τ)
-    t_scale = pyro.sample('t_scale',dist.Exponential(torch.ones(1)/torch.abs(scalehyper)))
+    t_scale = maxError/2+pyro.sample('t_scale_raw',dist.Exponential(torch.ones(1)/torch.abs(scalehyper)))
 
     #prior on df
     df = 2. + pyro.sample('dfraw',dist.Exponential(torch.ones(1)/torch.abs(scalehyper)))
@@ -86,20 +97,23 @@ def model(N,effects,errors,totvar,
         #
         modal_effect = fixedParams['modal_effect']
         t_scale = fixedParams['t_scale']
-        df = torch.tensor([3.],requires_grad = True)
+        df = fixedParams['df'].requires_grad_()
 
-    t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(N),ts(1.)).to_event(1))
+    with all_units():
+        t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(N),ts(1.)))
 
     #Latent true values (offset)
     truth = modal_effect + t_part * t_scale
 
     #Observations conditional on truth (likelihood)
     if fixedParams is not None:
+        print("creating",modal_effect.size(),t_part.size(),t_scale.size(),truth.size(),errors.size())
         observations = pyro.sample('observations', dist.Normal(truth,errors).to_event(1))
         print("Not none.")
     else:
         try:
-            observations = pyro.sample('observations', dist.Normal(truth,errors).to_event(1), obs=effects)
+            with all_units():
+                observations = pyro.sample('observations', dist.Normal(truth,errors), obs=effects)
         except:
             print("ERROR", truth, errors)
             print("ERROR", modal_effect, norm_scale, t_scale)
@@ -110,26 +124,26 @@ def model(N,effects,errors,totvar,
     #print("end model",modal_effect,norm_scale,t_scale,t_part)
 
 
-def xxlaplace(N,effects,errors,totvar,scalehyper,tailhyper):
-    mode_hat = pyro.param("mode_hat",ts(0.))
-
-    print("wwpww")
+def laplace(N,effects,errors,maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
 
 
+    units_plate = pyro.plate('units',N)
+    @contextlib.contextmanager
+    def all_units():
+        with units_plate as n, poutine.scale(scale=weight) as nscale:
+            yield n
 
 
-
-def laplace(N,effects,errors,totvar,scalehyper,tailhyper):
     hat_data = OrderedDict() #
     transformations = defaultdict(lambda: lambda x: x) #factory of identity functions
     mode_hat = pyro.param("mode_hat",ts(0.))
     hat_data.update(modal_effect=mode_hat)
 
-    ltscale_hat = pyro.param("tscale_hat",ts(1.))
-    hat_data.update(t_scale=ltscale_hat)
-    transformations.update(t_scale=torch.exp)
+    ltscale_hat = pyro.param("ltscale_hat",ts(1.))
+    hat_data.update(t_scale_raw=ltscale_hat)
+    transformations.update(t_scale_raw=torch.exp)
 
-    ldfraw_hat = pyro.param("dfraw_hat",ts(1.))
+    ldfraw_hat = pyro.param("ldfraw_hat",ts(1.))
 
     true_t_hat = pyro.param("true_t_hat",(effects/2).detach())
     hat_data.update(t_part=true_t_hat)
@@ -144,7 +158,7 @@ def laplace(N,effects,errors,totvar,scalehyper,tailhyper):
     #print("transformed_hat",transformed_hat)
 
     hessCenter = pyro.condition(model,transformed_hat)
-    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,effects,errors,totvar,scalehyper,tailhyper) #*args,**kwargs)
+    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,effects,errors,maxError,weight,scalehyper,tailhyper) #*args,**kwargs)
     logPosterior = blockedTrace.log_prob_sum()
     #print("lap",logPosterior)
     # for k,value in reversed(list(transformed_hat.items())):#.reverse():
@@ -155,6 +169,16 @@ def laplace(N,effects,errors,totvar,scalehyper,tailhyper):
     Info = -myhessian.hessian(logPosterior, hat_data.values())#, allow_unused=True)
     #print("det:",np.linalg.det(Info.data.numpy()))
     #print(Info)
+
+    if True: #print determinant
+        det = np.linalg.det(Info.data.numpy())
+        print("det:",det)
+
+        #print("Got hessian")
+        if math.isinf(det):
+            print("Inf:",Info)
+            print("det3:",np.linalg.det(Info[:3,:3].data.numpy()))
+            print("det3:",np.linalg.det(Info[:5,:5].data.numpy()))
 
     #declare global-level psi params
     theta = pyro.sample('theta',
@@ -168,9 +192,14 @@ def laplace(N,effects,errors,totvar,scalehyper,tailhyper):
     for pname, phat in hat_data.items():
         elems = phat.nelement()
         pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
+        pdat = transformations[pname](pdat)
         #print(f"adding {pname} from theta ({elems}, {phat.size()})" )
 
-        pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
+        if pname=="t_part":
+            with all_units():
+                pyro.sample(pname, dist.Delta(pdat.view(phat.size())))
+        else:
+            pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
 
     pyro.sample("dfraw", dist.Delta(transformed_hat["dfraw"]))
     #
@@ -287,28 +316,42 @@ def get_unconditional_cov(full_precision, n):
     #TODO: more efficient
     return(torch.inverse(full_precision)[:n,:n])
 
-def amortized_laplace(N,data,errors,totvar,scalehyper,tailhyper):
+def amortized_laplace(N,data,errors,maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
+    #print("amortized_laplace:",N,len(data),len(errors),weight)
+
+
+    units_plate = pyro.plate('units',N)
+    @contextlib.contextmanager
+    def all_units():
+        with units_plate as n, poutine.scale(scale=weight) as nscale:
+            yield n
+
     hat_data = OrderedDict() #
     fhat_data = OrderedDict() #frequentist
     transformations = defaultdict(lambda: lambda x: x) #
     mode_hat = pyro.param("mode_hat",ts(0.))
     hat_data.update(modal_effect=mode_hat)
 
-    ltscale_hat = pyro.param("tscale_hat",ts(1.))
-    hat_data.update(t_scale=ltscale_hat)
-    transformations.update(t_scale=torch.exp)
+    ltscale_hat = pyro.param("ltscale_hat",ts(0.))
+    hat_data.update(t_scale_raw=ltscale_hat)
+    transformations.update(t_scale_raw=torch.exp)
 
-    ldfraw_hat = pyro.param("dfraw_hat",ts(1.))
+    ldfraw_hat = pyro.param("ldfraw_hat",ts(0.))
     fhat_data.update(dfraw=ldfraw_hat)
     transformations.update(dfraw=torch.exp)
 
 
     dm = mode_hat.detach().requires_grad_()
-    dt = ltscale_hat.detach().requires_grad_()
-    ddf = ldfraw_hat.detach().requires_grad_()
+    dtr = ltscale_hat.detach().requires_grad_() #detached... raw
+    ddfr = ldfraw_hat.detach().requires_grad_() #detached... raw
 
+    dt =  maxError/2 + torch.exp(dtr) #detached, cook
+    ddf = 2. + torch.exp(ddfr) #detached, cook
+
+
+    #print("amortized_laplace:",torch.max(errors),maxError,torch.max(errors)/dt)
     tpart = getMLE(errors, dt, data-dm, ddf)
-    print("tpart:",tpart)
+    #print("tpart:",tpart)
 
     true_t_hat = tpart#.detach()
     #true_g_hat.requires_grad = True
@@ -321,7 +364,7 @@ def amortized_laplace(N,data,errors,totvar,scalehyper,tailhyper):
     conditioner = dict()
     conditioner.update((k,transformations[k](v)) for k, v in itertools.chain(hat_data.items(), fhat_data.items()))
     hessCenter = pyro.condition(model,conditioner)
-    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,data,errors,totvar,scalehyper,tailhyper) #*args,**kwargs)
+    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,data,errors,maxError,weight,scalehyper,tailhyper) #*args,**kwargs)
     logPosterior = blockedTrace.log_prob_sum()
     theta_parts = dict((theta_name,hat_data[theta_name]) for theta_name in theta_names)
     Info = -myhessian.hessian(logPosterior, hat_data.values())#, allow_unused=True)
@@ -339,7 +382,7 @@ def amortized_laplace(N,data,errors,totvar,scalehyper,tailhyper):
         print(f"mode_hat.grad:{mode_hat.grad}; dm.grad:{ dm.grad}")
 
 
-    if True: #print determinant
+    if False: #print determinant
         det = np.linalg.det(big_hessian.data.numpy())
         print("det:",det)
 
@@ -368,6 +411,7 @@ def amortized_laplace(N,data,errors,totvar,scalehyper,tailhyper):
         elems = phat.nelement()
         #print(f"pname, phat: {pname}, {phat}")
         pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
+        pdat = transformations[pname](pdat)
         #print(f"adding {pname} from theta ({elems}, {phat.size()})" )
 
         pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
@@ -404,7 +448,8 @@ def amortized_laplace(N,data,errors,totvar,scalehyper,tailhyper):
             print(f"det:{np.linalg.det(new_precision.data.numpy())}")
             raise
     t_part = torch.cat([y.view(-1) for y in ylist],0)
-    pyro.sample("t_part", dist.Delta(t_part).to_event(1))
+    with all_units():
+        pyro.sample("t_part", dist.Delta(t_part))
     #
     #print("end guide.",theta[:3],mode_hat,nscale_hat,tscale_hat,Info[:5,:5],Info[-3:,-3:])
     #
@@ -415,11 +460,11 @@ def amortized_laplace(N,data,errors,totvar,scalehyper,tailhyper):
     mode_hat.fix_grad = fix_m_grad
     #
     def fix_g_grad():
-        ltscale_hat.grad = ltscale_hat.grad + dt.grad
+        ltscale_hat.grad = ltscale_hat.grad + dtr.grad
     ltscale_hat.fix_grad = fix_g_grad
 
     def fix_df_grad():
-        ldfraw_hat.grad = ldfraw_hat.grad + ddf.grad
+        ldfraw_hat.grad = ldfraw_hat.grad + ddfr.grad
     ldfraw_hat.fix_grad = fix_df_grad
     #
 
@@ -427,7 +472,7 @@ def amortized_laplace(N,data,errors,totvar,scalehyper,tailhyper):
 
 
     #
-def amortized_meanfield(N,effects,errors,totvar,scalehyper,tailhyper):
+def amortized_meanfield(N,effects,errors,maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
     #print("guide2 start")
     #
     hat_data = OrderedDict()
@@ -469,29 +514,34 @@ def amortized_meanfield(N,effects,errors,totvar,scalehyper,tailhyper):
         pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
     #
 
-
+SUBSAMPLE_N = 8
 
 data = pd.read_csv('testresults/effects_errors.csv')
 echs_effects = torch.tensor(data.effects)
 errors = torch.tensor(data.errors)
 N = len(echs_effects)
-base_scale = 10
-modal_effect = -.005*base_scale
-gdom_params = dict(modal_effect=ts(modal_effect),
-                            norm_scale=ts(.01*base_scale),
-                            t_scale=ts(.2*base_scale))
+if False: #smaller
+    N = 3
+    assert N > SUBSAMPLE_N
+    echs_effects = echs_effects[:N]
+    errors = errors[:N]
+base_scale = 1.
+modal_effect = 0.*base_scale
+gdom_fat_params = dict(modal_effect=ts(modal_effect),
+                            df=ts(3.),
+                            t_scale=ts(math.e*base_scale))
 #
-ndom_params = dict(modal_effect=ts(modal_effect),
-                            norm_scale=ts(.2*base_scale),
-                            t_scale=ts(.01*base_scale))
+ndom_fat_params = dict(modal_effect=ts(modal_effect),
+                            df=ts(3.),
+                            t_scale=ts(base_scale/math.e))
 #
-even_params = dict(modal_effect=ts(modal_effect),
-                            norm_scale=ts(.1*base_scale),
-                            t_scale=ts(.1*base_scale))
+gdom_norm_params = dict(modal_effect=ts(modal_effect),
+                            df=ts(30.),
+                            t_scale=ts(math.e*base_scale))
 #
-negt_params = dict(modal_effect=ts(modal_effect),
-                            norm_scale=ts(.01*base_scale),
-                            t_scale=ts(-.2*base_scale))
+ndom_norm_params = dict(modal_effect=ts(modal_effect),
+                            df=ts(30.),
+                            t_scale=ts(base_scale/math.e))
 #
 #fake_effects = model(N,echs_effects,errors,fixedParams = gdom_params)
 #print("Fake:",fake_effects)
@@ -515,11 +565,11 @@ class FakeSink(object):
 def getLaplaceParams():
     store = pyro.get_param_store()
     result = []
-    for item in ("mode_hat","nscale_hat","tscale_hat","narrower"):
+    for item in ("mode_hat","ltscale_hat","ldfraw_hat","lpsi",):
         try:
             result.append(store[item])
         except:
-            pass
+            result.append("")
 
     return result
 
@@ -529,12 +579,14 @@ def getMeanfieldParams():
 
 def trainGuide(guidename = "laplace",
             nparticles = 1,
-            trueparams = gdom_params,
+            trueparams = gdom_fat_params,
             filename = None):
 
     guide = guides[guidename]
-    totvar = trueparams["norm_scale"]**2 + trueparams["t_scale"]**2
-    effects = model(N,echs_effects,errors,totvar,fixedParams = trueparams)
+    weight = N * 1. / SUBSAMPLE_N
+    maxError = torch.max(errors)
+    effects = model(N,echs_effects,errors,maxError,weight,fixedParams = trueparams)
+    print("esize",effects.size())
 
     if filename is None:
         file = FakeSink()
@@ -558,9 +610,14 @@ def trainGuide(guidename = "laplace",
     runtime = time.time()
     base_line = [guidename, runtime,
                     [trueparams[item] for item in ("modal_effect",
-                                    "norm_scale","t_scale")]]
+                                    "df","t_scale")]]
     for i in range(3001):
-        loss = svi.step(N,effects,errors,totvar,ts(10.),ts(10.))
+        indices = ts([random.randrange(N) for i in range(SUBSAMPLE_N)])
+        loss = svi.step(SUBSAMPLE_N,
+                        effects.index_select(0,indices),
+                        errors.index_select(0,indices),
+                        maxError,
+                        weight,ts(10.),ts(10.))
         if len(losses)==0:
             mean_losses.append(loss)
         else:

@@ -20,7 +20,7 @@ def demoprintstuff(i,loss):
     if (i % NUM_BETWEEN_PRINT) == 0:
         print(f'epoch {i} loss = {loss};')
 
-        for item in ("mode_hat","gscale_hat","nscale_hat","narrower"):
+        for item in ("mode_hat","gscale_hat","nscale_hat","narrower","ltscale_hat","ldfraw_hat"):
             try:
                 print(item,pyro.get_param_store()[item])
             except:
