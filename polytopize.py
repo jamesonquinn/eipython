@@ -27,7 +27,7 @@ from pyro.optim import Adam
 from pyro.infer import SVI, TraceEnum_ELBO, config_enumerate, infer_discrete
 
 
-MIN_DIFF = 1e-2
+MIN_DIFF = 5e-2
 
 def approx_eq(a,b):
     #print("a",a)
