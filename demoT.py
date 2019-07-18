@@ -99,10 +99,7 @@ def model(N,full_N,indices,effects,full_effects,errors,full_errors,maxError,weig
     if N==full_N:
         full_units = all_units
     else:
-        @contextlib.contextmanager
-        def full_units():
-            with pyro.plate('full_units',full_N) as n:
-                yield n
+        full_units = pyro.plate('full_units',full_N)
 
 
     if fixedParams is not None:
@@ -126,13 +123,16 @@ def model(N,full_N,indices,effects,full_effects,errors,full_errors,maxError,weig
         t_scale = maxError/2+torch.exp(fixedParams['t_scale'])
         df = (2. + torch.exp(fixedParams['df'])).requires_grad_()
 
-    #with full_units:
-    with pyro.plate('2full_units',full_N):
-        t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(full_N),ts(1.)))
+    if N==full_N:
+        with pyro.plate('2full_units',full_N): #I hate you! but this magic works?
+            t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(full_N),ts(1.)))
+    else:
+        with full_units:
+            t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(full_N),ts(1.)))
 
     #Latent true values (offset)
     if indices is not None:
-        print("indices",indices,full_N,t_part.size())
+        #print("indices",indices,full_N,t_part.size())
         good_parts = t_part.index_select(0,indices)
     else:
         good_parts = t_part
@@ -534,17 +534,19 @@ def amortized_laplace(N,full_N,indices,effects,full_effects,errors,full_errors,m
             print(f"det:{np.linalg.det(new_precision.data.numpy())}")
             raise
 
-    if N == full_N
+    if N == full_N:
         t_part = torch.cat([y.view(-1) for y in ylist],0)
     else:
         full_ylist = [None] * full_N
         for i in range(full_N):
             if static_mask[i] > 0:
-                full_ylist[i] = full_tpart
+                full_ylist[i] = full_tpart[i]
         for i in range(N):
             full_ylist[indices[i]] = ylist[i]
 
         t_part = torch.cat([y.view(-1) for y in full_ylist],0)
+
+    #print("t_part",t_part.size())
     with full_units():
         pyro.sample("t_part", dist.Delta(t_part))
     #
