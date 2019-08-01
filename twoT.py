@@ -3,6 +3,7 @@
 from __future__ import print_function
 
 from importlib import reload
+import os
 import csv
 import time
 import math
@@ -20,17 +21,20 @@ from pyro.infer import SVI, Trace_ELBO
 from pyro.optim import ClippedAdam, AdagradRMSProp
 from pyro import poutine
 from pyro.contrib.autoguide import AutoDiagonalNormal
-if True:#False:#
-    import myhessian
-else:
-    import hessian as myhessian
+from pyro.infer.mcmc import NUTS
+from pyro.infer.mcmc.api import MCMC
 import numpy as np
 import pandas as pd
 
-from polytopize import approx_eq
-from lambertw import lambertw
-import go_or_nogo
-from draw_ellipses import confidence_ellipse
+if True:#False:#
+    from utilities import myhessian
+else:
+    import hessian as myhessian
+from utilities.polytopize import approx_eq
+from utilities.lambertw import lambertw
+from utilities import go_or_nogo
+from utilities.draw_ellipses import confidence_ellipse
+from utilities.posdef import *
 ts = torch.tensor
 
 pyro.enable_validation(True)
@@ -38,32 +42,20 @@ pyro.set_rng_seed(2)
 
 
 
-BASE_PSI = .01
 
 EULER_CONSTANT = 0.5772156649015328606065120900824024310421
 GUMBEL_SD = math.pi/math.sqrt(6.)
 
 
+COMPLAINTS_REMAINING = 10
 
-def infoToM(Info,psi=None):
-    tlen = len(Info)
-    if psi is None:
-        psi = torch.ones(tlen) * BASE_PSI
-    try:
-        assert len(Info)==tlen
-    except:
-        print(Info.size(),tlen)
-        raise
-    M = []
-    for i in range(tlen):
-        lseterms = torch.stack([ts(0.),
-                            -Info[i,i] + psi[i],
-                            -abs(Info[i,i]) + psi[i] +
-                                torch.sum(torch.stack([abs(Info[i,j])
-                                    for j in range(tlen) if j != i]))])
-        M.append( psi[i] * torch.logsumexp(lseterms / psi[i],0))
-    return torch.diag(torch.stack(M))
-
+def complain(*args):
+    global COMPLAINTS_REMAINING
+    COMPLAINTS_REMAINING -= 1
+    if COMPLAINTS_REMAINING >= 0:
+        print("complaint",COMPLAINTS_REMAINING,*args)
+    if COMPLAINTS_REMAINING % 20 == 0:
+        print("complaint",COMPLAINTS_REMAINING)
 
 
 def model(obs=ts(0.),df=ts(3.),sig=ts(.4),**kwargs):
@@ -94,27 +86,40 @@ def laplace(*args,assymetry=2.,store=None,**kwargs):
     #print(Info)
 
     #declare global-level psi params
-    cov = torch.inverse(Info + infoToM(Info,psi))
-    theta = pyro.sample('theta',
-                    dist.OMTMultivariateNormal(thetaMean,
-                                torch.cholesky(cov)),#.to_event(1),
-                    infer={'is_auxiliary': True})
+    cov = torch.inverse(rescaledSDD(Info,psi))
+    def doSample(anneal=1.):
+        results = OrderedDict()
+        thetaDist = dist.OMTMultivariateNormal(thetaMean,
+                    torch.cholesky(cov))
+        if anneal > 1:
+            thetaSamplingDist = dist.OMTMultivariateNormal(thetaMean,
+                        torch.cholesky(cov * anneal))
+        else:
+            thetaSamplingDist = thetaDist
+        theta = pyro.sample('theta',
+                        thetaSamplingDist,#.to_event(1),
+                        infer={'is_auxiliary': True})
+        results.update(lpdf=thetaDist.log_prob(theta))
 
-    #decompose theta into specific values
-    tmptheta = theta
-    for pname, phat in hat_data.items():
-        elems = phat.nelement()
-        pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
-        #print(f"adding {pname} from theta ({elems}, {phat.size()})" )
+        #decompose theta into specific values
+        tmptheta = theta
+        for pname, phat in hat_data.items():
+            elems = phat.nelement()
+            pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
+            #print(f"adding {pname} from theta ({elems}, {phat.size()})" )
 
-        pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
+            result = pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
+            results[pname] = result
+            if store is not None:
+                store_row[pname+"_samp"] = pdat
+
         if store is not None:
-            store_row[pname+"_samp"] = pdat
-
-    if store is not None:
-        store_row.update(copy.deepcopy(hat_data))
-        store_row.update(cov=cov)
+            store_row.update(copy.deepcopy(hat_data))
+            store_row.update(cov=cov)
+        return results
     #
+    doSample()
+    return (eff_hat, cov, doSample)
 
 
 def meanfield(*args,assymetry=2.,store=None,**kwargs):
@@ -127,14 +132,27 @@ def meanfield(*args,assymetry=2.,store=None,**kwargs):
         store_row = dict()
         store.append(store_row)
 
-    effects = pyro.sample('effects',
-                    dist.Normal(eff_hat,
-                                hat_data["var"]).to_event(1))
+    def doSample(anneal=1.):
+        results = OrderedDict()
+        effdist = dist.Normal(eff_hat,
+                    hat_data["var"])
+        if anneal > 1:
+            thetaSamplingDist = dist.Normal(eff_hat,
+                        hat_data["var"] * anneal)
+        else:
+            thetaSamplingDist = effdist
+        effects = pyro.sample('effects',
+                        thetaSamplingDist.to_event(1))
+        lpdf = effdist.log_prob(effects)
+        results.update(lpdf=torch.sum(lpdf), effects=effects)
 
 
-    if store is not None:
-        store_row.update([(k,ts(v)) for k,v in hat_data.items()])
+        if store is not None:
+            store_row.update([(k,v.clone().detach()) for k,v in hat_data.items()])
+        return results
     #
+    doSample()
+    return (eff_hat, torch.diag(sig), doSample)
 
 
 def getPosteriorSlice(perp,obs,**kwargs):
@@ -169,7 +187,9 @@ def getPosteriorSlices(cutoff,delta,obs,**kwargs):
         if curLogDens > maxLogDens:
             maxLogDens = curLogDens
         slices.append((perp,pt,curLogDens))
-    return [(perp,pt,logDens-maxLogDens) for perp,pt,logDens in slices]
+    print("max",maxLogDens)
+    return([(perp,pt,logDens-maxLogDens) for perp,pt,logDens in slices],maxLogDens)
+    #return [(perp,pt,logDens) for perp,pt,logDens in slices] #not subtract maxLogDens because it's a nuisance later.
 
 def getMeanDens(densTens):
     return torch.mean(torch.exp(densTens))
@@ -197,7 +217,27 @@ def getMinDens(alpha, slices, sig):
     #print("minDens",minDens)
     return minDens
 
-def getConfBounds(alpha,slices,**kwargs):
+def adjustPoint(minDens,point,**kwargs): #Turns out the impact is epsilon, but whatevs.
+    init = point.clone().detach().requires_grad_(True)
+
+
+    hessCenter = pyro.condition(model,dict(effects=init))
+    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(**kwargs)
+    logPosterior = blockedTrace.log_prob_sum()
+
+    loss = -((logPosterior - minDens) ** 2)[0]
+
+    hess,grad = myhessian.hessian(loss, [init],
+                return_grad=True,)#, allow_unused
+    distance = -torch.mv(torch.inverse(hess),grad)
+    result = init + distance * 0.9
+    #complain("adjusted",result,point,logPosterior,minDens)
+    return result
+
+def adjustConfBounds(minDens,points,**kwargs):
+    return [adjustPoint(minDens,point,**kwargs) for point in points]
+
+def getConfBounds(alpha,slices,maxLogDens,**kwargs):
     sig = kwargs["sig"]
     obs = kwargs["obs"]
     minDens = getMinDens(alpha,slices,sig)
@@ -211,22 +251,28 @@ def getConfBounds(alpha,slices,**kwargs):
 
     #print("getConfBounds",len(northBorder))#,[float(logDens) for perp, (x,y), logDens in slices])
     swap = ts([1,0])
-    upperPart = ([pt for base,pt in northBorder] + #north
-                  [2 * base - pt for base,pt in reversed(northBorder)]) #west
-    lowerPart = ([(2 * base - pt).index_select(0,swap) for base,pt in northBorder] + #south
-                  [pt.index_select(0,swap) for base,pt in reversed(northBorder)]) #east
+    adjustedMinDens = minDens + maxLogDens
+    upperPart = adjustConfBounds(adjustedMinDens,
+                  [pt for base,pt in northBorder] + #north
+                  [2 * base - pt for base,pt in reversed(northBorder)], #west
+                **kwargs)
+    lowerPart = adjustConfBounds(adjustedMinDens,
+                  [(2 * base - pt).index_select(0,swap) for base,pt in northBorder] + #south
+                  [pt.index_select(0,swap) for base,pt in reversed(northBorder)], #east
+                **kwargs)
     if slices[0][2] > minDens: #connected
         fullBorders = [upperPart + lowerPart]
     else: #separate
         fullBorders = [upperPart, lowerPart]
-    return fullBorders
+    return (fullBorders, minDens)
 
 def getTruePosteriors(alphas,cutoff,delta,**kwargs):
-    slices = getPosteriorSlices(cutoff,delta,**kwargs)
+    slices,maxLogDens = getPosteriorSlices(cutoff,delta,**kwargs)
     #print("slices",len(slices))
     curves = []
     for alpha in alphas:
-        curves.extend(getConfBounds(alpha,slices,**kwargs))
+        fullBorders,minDens = getConfBounds(alpha,slices,maxLogDens,**kwargs)
+        curves.extend(fullBorders)
     return curves
 
 #
@@ -316,20 +362,31 @@ class FakeSink(object):
     def close(self, *args):
         pass
 
-def getLaplaceParams():
+
+def getLaplaceParams(names = False):
     store = pyro.get_param_store()
+    return getParams(store,("eff_hat"))
+
+def getMeanfieldParams(names = False):
+    store = pyro.get_param_store()
+    return getParams(store,["auto_loc"],3)
+
+def getParams(store,items,maxSize=1e3):
     result = []
-    for item in ("eff_hat"):
+    for item in items:
         try:
-            result.append(store[item])
+            vs = store[item].view(-1)[:maxSize]
+            if names:
+                for n,v in enumerate(vs):
+                    result.append(item + str(n))
+            else:
+                for n,v in enumerate(vs):
+                    result.append(float(v))
         except:
             pass
 
     return result
 
-def getMeanfieldParams():
-    store = pyro.get_param_store()
-    return list(store["auto_loc"])[:3]
 
 GAP_BETWEEN_STORE = 15
 STORES_BETWEEN_ELLIPSES = 30
@@ -341,21 +398,27 @@ MIDDFP = OrderedDict(obs=ts(4.),df=ts(5.),sig=ts(.4),assymmetry=2.)
 HIDF0 = OrderedDict(obs=ts(0.),df=ts(30.),sig=ts(.4),assymmetry=2.)
 HIDFP = OrderedDict(obs=ts(3.),df=ts(30.),sig=ts(.4),assymmetry=2.)
 
+
+
 def trainGuides(guidenames = ["laplace"],
             nparticles = 1,
             vals = LOWDF0,
-            filename = None):
+            filebase = None):
 
     stores = []
+    if filebase is None:
+        file = FakeSink()
+    else:
+        #
+        filename = filebase + ".fitting.csv"
+        file = open(filename,"a")             #leaking file handles. Who cares.
+    writer = csv.writer(file)
+    needs_header = True
+    fitted_guides = OrderedDict()
     for guidename in guidenames:
         print(guidename,"vals",vals)
         guide = guides[guidename]
 
-        if filename is None:
-            file = FakeSink()
-        else:
-            file = open(filename,"a")
-        writer = csv.writer(file)
 
         #guide = guide2
         #svi = SVI(model, guide, ClippedAdam({'lr': 0.005}), Trace_ELBO(nparticles))
@@ -373,6 +436,7 @@ def trainGuides(guidenames = ["laplace"],
         mean_losses = [] #(moving average)
         runtime = time.time()
         base_line = [guidename, runtime,] + list(vals.values())
+        base_names = ["guidename", "runtime",] + list(vals.keys())
         stores.append([])
         for i in range(3001):
             if i % GAP_BETWEEN_STORE == 0:
@@ -385,11 +449,18 @@ def trainGuides(guidenames = ["laplace"],
             else:
                 mean_losses.append((mean_losses[-1] * 349. + loss) / 350.)
             losses.append(loss)
+            if filebase is None or os.stat(filename).st_size == 0: #header row
+                if needs_header:
+                    needs_header = False
+                    try:
+                        writer.writerow(base_names + ["i", "time", "loss"] + getLaplaceParams(True))
+                    except:
+                        writer.writerow(base_names + ["i", "time", "loss"] + getMeanfieldParams(True))
+
             if i % 10 == 0:
                 try:
                     writer.writerow(base_line + [i, time.time(), loss] + getLaplaceParams())
                 except:
-                    raise
                     writer.writerow(base_line + [i, time.time(), loss] + getMeanfieldParams())
                 reload(go_or_nogo)
                 go_or_nogo.demoprintstuff(i,loss)
@@ -413,6 +484,12 @@ def trainGuides(guidenames = ["laplace"],
         plt.ylabel('loss')
         plt.show()
         plt.close()
+
+        print("mean_loss:",mean_losses[-1] + .005)
+
+        fitted_guides[guidename] = guide()
+        #writer2.writerow(base_names )
+
 
     fig, ax = plt.subplots(figsize=(8, 8))
 
@@ -455,4 +532,44 @@ def trainGuides(guidenames = ["laplace"],
                 label="True posterior (95%, 50% credible)")
     plt.show()
 
+    KLdivs(fitted_guides, vals, filebase)
+    return(fitted_guides, vals, filebase)
     ##
+
+def model_lps(sample,vals):
+    hessCenter = pyro.condition(model,{"effects":sample})
+    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(**vals)
+    logPosterior = blockedTrace.log_prob_sum()
+    return logPosterior
+
+
+def KLdivs(guides, vals, filebase):
+    print("KLdivs")
+    filename = filebase + ".fitted.csv"
+    with open(filename,"a") as file:
+        writer = csv.writer(file)
+        if os.stat(filename).st_size == 0: #header row
+            writer.writerow( list(vals.keys()) + ["modelKL"] + list(guides.keys())) #header row
+
+        def conditioned_model(model, *args, **kwargs):
+            return poutine.condition(model, data={})(*args, **kwargs)
+
+        nuts_kernel = NUTS(conditioned_model, jit_compile=False,)
+        mcmc = MCMC(nuts_kernel,
+                    num_samples=1000,
+                    warmup_steps=50,
+                    num_chains=1)
+        mcmc.run(model, **vals)
+        mcmc.summary(prob=0.5)
+
+        guide_dists = [dist.MultivariateNormal(eff_hat,sig)
+                                    for guidename, (eff_hat,sig,sampler) in guides.items()]
+
+        print("KLdivs", filename, mcmc._samples["effects"].size())
+        for sample in mcmc._samples["effects"]:
+            logPosterior = model_lps(sample,vals)
+            #
+            writer.writerow( [float(x) for x in list(vals.values()) + [logPosterior] +
+                    [guide_dist.log_prob(sample) for guide_dist in guide_dists]])
+            writer.writerow( [float(x) for x in list(vals.values()) + [logPosterior] +
+                    [guide_dist.log_prob(torch.flip(sample,[0])) for guide_dist in guide_dists]])
