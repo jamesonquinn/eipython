@@ -363,16 +363,6 @@ def plotMLE():
 LAMBERT_MAX_ITERS = 10
 LAMBERT_TOL = 1e-2
 
-def conditional_normal(full_mean, full_precision, n, first_draw, full_cov=None):
-    if full_cov is None:
-        full_cov = torch.inverse(full_precision)
-
-    new_precision = full_precision[n:,n:]
-    new_mean = full_mean[n:] + torch.mv(torch.mm(full_cov[n:,:n],
-                                                torch.inverse(full_cov[:n,:n])),
-                                        first_draw - full_mean[:n])
-    return(new_mean,new_precision)
-
 def get_unconditional_cov(full_precision, n):
     #TODO: more efficient
     return(torch.inverse(full_precision)[:n,:n])

@@ -5,3 +5,11 @@ write more unit tests
 check optimal transport vs non
 
 do calculus for optimal transport batch size
+
+
+
+
+
+..................... August
+
+I switched infoToM's default to strong=True for chapter 3. Check to ensure that didn't cause worse results in ch 2.
