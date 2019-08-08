@@ -90,7 +90,7 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
     #print(f"sdprc in model:{sdprc}")
 
     #This is NOT used for data, but instead as a way to sneak a "prior" into the guide to improve identification.
-    param_residual=pyrosample('param_residual', dist.Normal(0.,1.))
+    #param_residual=pyrosample('param_residual', dist.Normal(0.,1.))
 
     ec = pyrosample('ec', dist.Normal(torch.zeros(C),sdc).to_event(1))
     erc = pyrosample('erc', dist.Normal(torch.zeros(R,C),sdrc).to_event(2))
@@ -133,12 +133,22 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
                     #print(f"y_{p}_{r}: {tmp} {y[p,r]}")
                     y[p,r] = tmp
         else:
+            if not torch.all(torch.isfinite(logits)):
+                print("logits!!!")
+                for p in range(P):
+                    if not torch.all(torch.isfinite(logits[p])):
+                        print("nan in logits[p]",p)
+                        print(logits[p])
+                        print(ec)
+                        print(erc)
+                        if include_nuisance:
+                            print("eprc",eprc[p])
             y = pyro.sample(f"y",
                         CMult(1000,logits=logits).to_event(1))
                         #dim P, R, C from plate, to_event, CMult
                         #note that n is totally fake — sums are what matter.
                         #TODO: fix CMult so this fakery isn't necessary.
-            print("ldim",logits.size(),y[0,0,0])
+            #print("ldim",logits.size(),y[0,0,0])
 
     if data is None:
         #
@@ -149,7 +159,7 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
 
         return (ns,vs)
 
-    #print("model:end")
+    print("model:end")
 
 
 
@@ -280,7 +290,8 @@ def guide(data, scale, include_nuisance=False, do_print=False):
         #print(f"optimize_Q {p}:{iters}")
         yhat.append(Q*tots[p])
         if p==0:
-            print("p0", Q,tots[p])
+            pass
+            #print("p0", Q,tots[p])
 
         #depolytopize
         what.append(depolytopize(R,C,yhat[p],indeps[p]))
@@ -313,8 +324,6 @@ def guide(data, scale, include_nuisance=False, do_print=False):
 
     transformed_hat_data = OrderedDict()
     for k,v in chain(theta_hat_data.items(),phat_data.items(),fhat_data.items()):
-        if k=="eprc":
-            print("yup it's there",v[0,0,0],scale)
         if k in transformation:
             transformed_hat_data[k] = transformation[k](v)
         else:
@@ -323,13 +332,13 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     real_hessian = not MINIMAL_DEBUG
     if real_hessian:
         #
-        print("line ",lineno())
+        #print("line ",lineno())
         hess_center = pyro.condition(model,transformed_hat_data)
-        print("line ",lineno())
+        #print("line ",lineno())
         mytrace = poutine.block(poutine.trace(hess_center).get_trace)(data, scale, include_nuisance)
-        print("line ",lineno(),P,R,C)
+        #print("line ",lineno(),P,R,C)
         log_posterior = mytrace.log_prob_sum()
-        print("line ",lineno())
+        #print("line ",lineno())
     theta_part_names = list(theta_hat_data.keys())
     all_hats = []
     for part_name in theta_part_names: #TODO: theta_hat_data redundant with theta_hat_data, now we have phat_data????
@@ -338,7 +347,7 @@ def guide(data, scale, include_nuisance=False, do_print=False):
             all_hats.append(theta_hat_data[part_name]) #fails if missing (ie, eprc)
             theta_hat_data[part_name] = theta_hat_data[part_name]
     tlen = sum(theta_part.numel() for theta_part in theta_hat_data.values())
-    print("len theta",len(all_hats),all_hats)
+    #print("len theta",len(all_hats),all_hats)
 
     #add phat_data to all_hats — but don't get it from phat_data because it comes in wrong format
     if include_nuisance:
@@ -352,7 +361,7 @@ def guide(data, scale, include_nuisance=False, do_print=False):
         all_hats.extend(what)
     #print(all_hats)
     #print([type(el) for el in what],[type(el) for el in nuhats])
-    print([type(el) for el in all_hats])
+    #print([type(el) for el in all_hats])
     full_len = sum(hat.numel() for hat in all_hats)
 
     if real_hessian:
@@ -391,12 +400,12 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     theta_info = big_hessian[:tlen,:tlen]
 
     all_means = torch.cat([tpart.contiguous().view(-1) for tpart in all_hats],0)
-    print("all_means",all_means)
-    print(torch.any(torch.isnan(torch.diag(neg_big_hessian))),torch.any(torch.isnan(torch.diag(big_hessian))))
+    #print("all_means",all_means)
+    #print(torch.any(torch.isnan(torch.diag(neg_big_hessian))),torch.any(torch.isnan(torch.diag(big_hessian))))
     theta_mean = all_means[:tlen]
-    print("detirminants",np.linalg.det(theta_info.detach()),np.linalg.det(big_hessian.detach()))
-    print(theta_info[:3,:3])
-    print(-neg_big_hessian[:6,:3])
+    #print("detirminants",np.linalg.det(theta_info.detach()),np.linalg.det(big_hessian.detach()))
+    #print(theta_info[:3,:3])
+    #print(-neg_big_hessian[:6,:3])
 
     theta = pyrosample('theta',
                     dist.MultivariateNormal(theta_mean, precision_matrix=theta_info),
@@ -519,6 +528,17 @@ def guide(data, scale, include_nuisance=False, do_print=False):
 
         if include_nuisance:
             nus = torch.cat(nusamps,0)
+            if not torch.all(torch.isfinite(nus)):
+                print("nus!!")
+                for p in range(P):
+                    if not torch.all(torch.isfinite(nus[p,:,:])):
+                        print("nan in nus for precinct",p)
+                        print(nusamps[p])
+                        print(ysamps[p])
+                        print("ns",ns[p])
+                        print("vs",vs[p])
+                        print("echat",echat)
+                        print("erchat",erchat)
             pyro.sample("eprc", dist.Delta(nus).to_event(2))
 
 

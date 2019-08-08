@@ -194,6 +194,10 @@ class CMult(TorchDistribution): #like the above, but without the gamma normalizi
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
+        l = len
+        #value = torch.cat([(self.total_count - torch.sum(value[1:])).view(-1),value[1:]],0)
+            #TODO: ensure sum is exact — because without a normalizing constant, numerical error in the sum could have drastic impact
+
         logits, value = broadcast_all(self.logits.clone(), value)
         logits[(value == 0) & (logits == -inf)] = 0
         log_powers = (logits * value).sum(-1)

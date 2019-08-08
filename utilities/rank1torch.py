@@ -28,6 +28,7 @@ def colsum(array):
 def rowsum(array):
     return torch.sum(array, 1)
 
+SHRINK_FAC = .99
 # main function: returns [Q,i], where i is the number of iterations required
 def optimize_Q(R,C,pi,v,d,tolerance=tolerance,maxiters=30):
 
@@ -88,7 +89,22 @@ def optimize_Q(R,C,pi,v,d,tolerance=tolerance,maxiters=30):
         print("2optimize_Q error: nan")
         print(M_beta,beta,Q,errorQ)
         raise Exception("optimize_Q error: nan")
-    return [Q-errorQ,i]
+
+
+    Q = Q - errorQ
+    for j in range(10):
+        if torch.any(Q <= 0):
+            print("optimize_Q SHRINK_FAC", j, Q)
+            print(ind)
+            min_index = Q.view(-1).argmin(0)
+            indymin = ind.view(-1)[min_index]
+            fac = SHRINK_FAC * indymin / (indymin - Q.view(-1)[min_index])
+            print(fac)
+            Q = (Q - ind) * fac.detach() + ind
+        else:
+            break
+
+    return [Q, i]
 
 def test_solver(numtests=numtests):
     ##################################################################
