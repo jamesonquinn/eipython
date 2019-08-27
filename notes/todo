@@ -13,3 +13,31 @@ do calculus for optimal transport batch size
 ..................... August
 
 I switched infoToM's default to strong=True for chapter 3. Check to ensure that didn't cause worse results in ch 2.
+
+
+....
+Writing:
+
+ch2:
+#Foreground marginal/conditional graph
+  make graph
+
+Explain SDD thing better
+  #-in 2T
+  #in multisite
+  #-more parameters is a tradeoff; partly good as long as it's not quadratic
+  #-explain renormalization: teaser
+    #-in appendix
+  #-talk about saddle points and point out how it's actually good in theory
+    #-in the example
+    in the appendix
+
+Results
+
+
+ch3:
+prior work
+
+explain NC model and procedure
+
+results

@@ -6,6 +6,7 @@ from importlib import reload
 import csv
 import time
 import math
+import os
 import random #Mixing seeds — not reproducible — TODO:fix
 import itertools
 
@@ -22,6 +23,8 @@ from pyro.infer import SVI, Trace_ELBO
 from pyro.optim import ClippedAdam, AdagradRMSProp
 from pyro import poutine
 from pyro.contrib.autoguide import AutoDiagonalNormal
+from pyro.infer.mcmc import NUTS
+from pyro.infer.mcmc.api import MCMC
 import numpy as np
 import pandas as pd
 
@@ -58,7 +61,7 @@ def complain(*args):
     if COMPLAINTS_REMAINING % 20 == 0:
         print("complaint",COMPLAINTS_REMAINING)
 
-def model(N,full_N,indices,effects,full_effects,errors,full_errors,maxError,weight=1.,
+def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,weight=1.,
             scalehyper=ts(4.),tailhyper=ts(10.),
             fixedParams = None): #groups, subgroups, groupsize by trial, options
     """
@@ -125,7 +128,7 @@ def model(N,full_N,indices,effects,full_effects,errors,full_errors,maxError,weig
     else:
         try:
             with chosen_units():
-                observations = pyro.sample('observations', dist.Normal(truth,errors), obs=effects)
+                observations = pyro.sample('observations', dist.Normal(truth,errors), obs=x)
         except:
             print("ERROR", truth, errors)
             print("ERROR", modal_effect, norm_scale, t_scale)
@@ -136,7 +139,7 @@ def model(N,full_N,indices,effects,full_effects,errors,full_errors,maxError,weig
     #print("end model",modal_effect,norm_scale,t_scale,t_part)
 
 
-def laplace(N,full_N,indices,effects,full_effects,errors,full_errors,maxError,
+def laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
             weight=1.,scalehyper=ts(4.),tailhyper=ts(10.),
             deterministic=False):
 
@@ -159,7 +162,7 @@ def laplace(N,full_N,indices,effects,full_effects,errors,full_errors,maxError,
 
     ldfraw_hat = pyro.param("ldfraw_hat",ts(1.))
 
-    true_t_hat = pyro.param("true_t_hat",(full_effects/2).detach())
+    true_t_hat = pyro.param("true_t_hat",(full_x/2).detach())
     if N == full_N:
         sub_t_hat = true_t_hat
     else:
@@ -182,7 +185,7 @@ def laplace(N,full_N,indices,effects,full_effects,errors,full_errors,maxError,
     #print("transformed_hat",transformed_hat)
 
     hessCenter = pyro.condition(model,transformed_hat)
-    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,full_N,indices,effects,full_effects,errors,maxError,weight,scalehyper,tailhyper) #*args,**kwargs)
+    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,full_N,indices,x,full_x,errors,maxError,weight,scalehyper,tailhyper) #*args,**kwargs)
     logPosterior = blockedTrace.log_prob_sum()
     #print("lap",logPosterior)
     # for k,value in reversed(list(transformed_hat.items())):#.reverse():
@@ -367,10 +370,10 @@ def get_unconditional_cov(full_precision, n):
     #TODO: more efficient
     return(torch.inverse(full_precision)[:n,:n])
 
-def amortized_laplace(N,full_N,indices,effects,full_effects,errors,full_errors,maxError,
+def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                         weight=1.,scalehyper=ts(4.),tailhyper=ts(10.),
                         deterministic=False):
-    #print("amortized_laplace:",N,len(effects),len(errors),weight)
+    #print("amortized_laplace:",N,len(x),len(errors),weight)
 
 
     units_plate = pyro.plate('units',N)
@@ -411,7 +414,7 @@ def amortized_laplace(N,full_N,indices,effects,full_effects,errors,full_errors,m
 
 
     #print("amortized_laplace:",torch.max(errors),maxError,torch.max(errors)/dt)
-    full_tpart = getMLE(full_errors, dt, full_effects-dm, ddf) / dt
+    full_tpart = getMLE(full_errors, dt, full_x-dm, ddf) / dt
     if N == full_N:
         sub_tpart = full_tpart
     else:
@@ -430,7 +433,7 @@ def amortized_laplace(N,full_N,indices,effects,full_effects,errors,full_errors,m
     conditioner = dict()
     conditioner.update((k,transformations[k](v)) for k, v in itertools.chain(hat_data.items(), fhat_data.items()))
     hessCenter = pyro.condition(model,conditioner)
-    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,N,None,effects,effects,errors,errors,maxError,weight,scalehyper,tailhyper) #*args,**kwargs)
+    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,N,None,x,x,errors,errors,maxError,weight,scalehyper,tailhyper) #*args,**kwargs)
     logPosterior = blockedTrace.log_prob_sum()
     theta_parts = dict((theta_name,hat_data[theta_name]) for theta_name in theta_names)
     Info = -myhessian.hessian(logPosterior, hat_data.values())#, allow_unused=True)
@@ -576,8 +579,8 @@ def amortized_laplace(N,full_N,indices,effects,full_effects,errors,full_errors,m
     ldfraw_hat.fix_grad = fix_df_grad
     #
 
-def amortized_deterministic_laplace(N,full_N,indices,effects,full_effects,errors,full_errors,maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
-    #print("amortized_laplace:",N,len(effects),len(errors),weight)
+def amortized_deterministic_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
+    #print("amortized_laplace:",N,len(x),len(errors),weight)
 
 
     units_plate = pyro.plate('units',N)
@@ -618,7 +621,7 @@ def amortized_deterministic_laplace(N,full_N,indices,effects,full_effects,errors
 
 
     #print("amortized_laplace:",torch.max(errors),maxError,torch.max(errors)/dt)
-    full_tpart = getMLE(full_errors, dt, full_effects-dm, ddf) / dt
+    full_tpart = getMLE(full_errors, dt, full_x-dm, ddf) / dt
     tpart = full_tpart.index_select(0,indices)
     #print("tpart:",tpart)
 
@@ -634,7 +637,7 @@ def amortized_deterministic_laplace(N,full_N,indices,effects,full_effects,errors
     conditioner = dict()
     conditioner.update((k,transformations[k](v)) for k, v in itertools.chain(hat_data.items(), fhat_data.items()))
     hessCenter = pyro.condition(model,conditioner)
-    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,N,None,effects,effects,errors,errors,maxError,weight,scalehyper,tailhyper) #*args,**kwargs)
+    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,N,None,x,x,errors,errors,maxError,weight,scalehyper,tailhyper) #*args,**kwargs)
     logPosterior = blockedTrace.log_prob_sum()
     theta_parts = dict((theta_name,hat_data[theta_name]) for theta_name in theta_names)
     Info = -myhessian.hessian(logPosterior, hat_data.values())#, allow_unused=True)
@@ -737,7 +740,7 @@ def amortized_deterministic_laplace(N,full_N,indices,effects,full_effects,errors
 
 
     #
-def amortized_meanfield(N,full_N,indices,effects,full_effects,errors,full_errors,maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
+def amortized_meanfield(N,full_N,indices,x,full_x,errors,full_errors,maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
     #print("guide2 start")
     #
     hat_data = OrderedDict()
@@ -750,7 +753,7 @@ def amortized_meanfield(N,full_N,indices,effects,full_effects,errors,full_errors
     tscale_hat = pyro.param("tscale_hat",ts(1.))
     hat_data.update(t_scale=tscale_hat)
 
-    normpart, tpart = getMLE(nscale_hat, tscale_hat, errors, effects)
+    normpart, tpart = getMLE(nscale_hat, tscale_hat, errors, x)
 
     true_n_hat = normpart * nscale_hat / (nscale_hat + errors)
     hat_data.update(norm_part=true_n_hat)
@@ -782,13 +785,13 @@ def amortized_meanfield(N,full_N,indices,effects,full_effects,errors,full_errors
 SUBSAMPLE_N = 8
 
 data = pd.read_csv('testresults/effects_errors.csv')
-echs_effects = torch.tensor(data.effects)
+echs_x = torch.tensor(data.effects)
 errors = torch.tensor(data.errors)
-N = len(echs_effects)
+N = len(echs_x)
 if False: #smaller
     N = 3
     assert N > SUBSAMPLE_N
-    echs_effects = echs_effects[:N]
+    echs_x = echs_x[:N]
     errors = errors[:N]
 base_scale = 1.
 modal_effect = 1.*base_scale
@@ -808,8 +811,8 @@ ndom_norm_params = dict(modal_effect=ts(modal_effect),
                             df=ts(3.),
                             t_scale=ts(-2.))
 #
-#fake_effects = model(N,full_N,indices,echs_effects,errors,fixedParams = tdom_params)
-#print("Fake:",fake_effects)
+#fake_x = model(N,full_N,indices,echs_x,errors,fixedParams = tdom_params)
+#print("Fake:",fake_x)
 
 autoguide = AutoDiagonalNormal(model)
 guides = OrderedDict(
@@ -851,11 +854,11 @@ def trainGuide(guidename = "laplace",
     guide = guides[guidename]
     weight = N * 1. / SUBSAMPLE_N
     maxError = torch.max(errors)
-    effects = model(N,N,  None,   echs_effects,echs_effects,errors,errors,     maxError,weight,fixedParams = trueparams)
-                #N,full_N,indices,effects,     full_effects,errors,full_errors,maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
+    x = model(N,N,  None,   echs_x,echs_x,errors,errors,     maxError,weight,fixedParams = trueparams)
+                #N,full_N,indices,x,     full_x,errors,full_errors,maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
     print("guidename",guidename)
     print("trueparams",trueparams)
-    print("esize",effects.size())
+    print("esize",x.size())
 
     if filename is None:
         file = FakeSink()
@@ -883,12 +886,12 @@ def trainGuide(guidename = "laplace",
     for i in range(3001):
         indices = torch.randperm(N)[:SUBSAMPLE_N]
         loss = svi.step(SUBSAMPLE_N,N,indices,
-                        effects.index_select(0,indices),effects,
+                        x.index_select(0,indices),x,
                         errors.index_select(0,indices),errors,
                         maxError,
                         weight,ts(10.),ts(10.))
                     #N,full_N,indices,
-                    #effects,     full_effects,
+                    #x,     full_x,
                     #errors,full_errors,
                     #maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
 
@@ -926,3 +929,39 @@ def trainGuide(guidename = "laplace",
     print("trueparams",trueparams)
     for (key, val) in sorted(pyro.get_param_store().items()):
         print(f"{key}:\n{val}")
+
+
+def MCMCit( filebase):
+    print("KLdivs")
+    trueparams = tdom_fat_params
+
+
+    guide = laplace
+    weight = N * 1. / SUBSAMPLE_N
+    maxError = torch.max(errors)
+    x = model(N,N,  None,   echs_x,echs_x,errors,errors,     maxError,weight,fixedParams = trueparams)
+
+
+    filename = filebase + ".fitted.csv"
+    with open(filename,"a") as file:
+        #writer = csv.writer(file)
+        #if os.stat(filename).st_size == 0: #header row
+        #    writer.writerow( list(vals.keys()) + ["modelKL"] + list(guides.keys())) #header row
+
+        def conditioned_model(model, *args, **kwargs):
+            return poutine.condition(model, data={})(*args, **kwargs)
+
+        nuts_kernel = NUTS(conditioned_model, jit_compile=False,)
+        mcmc = MCMC(nuts_kernel,
+                    num_samples=500,
+                    warmup_steps=50,
+                    num_chains=1)
+        mcmc.run(model,
+                N,N,None,
+                                x,x,
+                                errors,errors,
+                                maxError,
+                                1.,ts(10.),ts(10.))
+        print("MCMC done")
+        print(mcmc.summary(prob=0.5))
+    return mcmc
