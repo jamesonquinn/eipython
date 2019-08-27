@@ -24,7 +24,7 @@ from pyro.optim import ClippedAdam, AdagradRMSProp
 from pyro import poutine
 from pyro.contrib.autoguide import AutoDiagonalNormal
 from pyro.infer.mcmc import NUTS
-from pyro.infer.mcmc.api import MCMC
+#from pyro.infer.mcmc.api import MCMC
 import numpy as np
 import pandas as pd
 
