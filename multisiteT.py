@@ -37,6 +37,7 @@ from utilities.polytopize import approx_eq
 from utilities import go_or_nogo
 from utilities.deltamvn import DeltaMVN
 from utilities.posdef import *
+from utilities.stanCache import StanModel_cache
 ts = torch.tensor
 
 pyro.enable_validation(True)
