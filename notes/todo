@@ -41,3 +41,19 @@ prior work
 explain NC model and procedure
 
 results
+
+
+....... September
+
+Get numbers for multisite
+
+4 solutions:
+laplace: record or reconstruct Hessian
+ideal laplace: iterate between find mode, find Hessian
+meanfield: run it. (Unamortized, for now)
+  amortize it later
+ideal meanfield: get mean and covariance, then precision, then drop non-diagonal precision.
+
+get KL divergences
+
+get coverages

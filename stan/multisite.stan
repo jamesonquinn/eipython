@@ -4,10 +4,10 @@ data {
   vector[N] x; // observations
 }
 parameters {
-  vector[N] T; // true site difference from mean
+  real mu;
   real<lower=0> sigma; // t scale
   real<lower=1> df;
-  real mu;
+  vector[N] T; // true site difference from mean
 }
 model {
   //priors

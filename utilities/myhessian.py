@@ -5,6 +5,28 @@ Computes the Hessian
 import torch
 from hessian.gradient import gradient
 
+def mygradient(output, inputs, allow_unused=False):
+    '''
+    Compute the gradient of `output` with respect to `inputs`
+    '''
+    assert output.ndimension() == 0
+
+    if torch.is_tensor(inputs):
+        inputs = [inputs]
+    else:
+        inputs = list(inputs)
+
+
+    fullgrad = []
+    for i, inp in enumerate(inputs):
+        #print("myhessian",i,inp,output)
+        [grad] = torch.autograd.grad(output, inp, create_graph=True, retain_graph=True, allow_unused=allow_unused)
+        grad = torch.zeros_like(inp) if grad is None else grad
+
+        fullgrad.append(grad.contiguous().view(-1))
+
+    return torch.cat(fullgrad,0)
+
 
 def hessian(output, inputs, out=None, allow_unused=False, create_graph=False, return_grad=False):
     '''

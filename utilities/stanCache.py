@@ -18,7 +18,7 @@ def StanModel_cache(model_name, extension=".stan", basepath="stan/", **kwargs):
         sm = None
     if sm is  None:
         print("compiling")
-        sm = pystan.StanModel(model_code=model_code)
+        sm = pystan.StanModel(file=fullname)
         print("compiled", cache_fn)
         with open(cache_fn, 'wb') as f:
             pickle.dump(sm, f)
