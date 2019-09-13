@@ -2,6 +2,8 @@ data {
   int<lower=1> N; // number of observations
   vector[N] se; // known standard errors
   vector[N] x; // observations
+  real maxError;
+  real mindf;
 }
 parameters {
   real mu;
@@ -11,8 +13,8 @@ parameters {
 }
 model {
   //priors
-  df - 1 ~ exponential(.2);
-  sigma ~ exponential(.2);
+  df - mindf ~ exponential(.2);
+  sigma - (maxError/2) ~ exponential(.2);
   mu ~ normal(0,20);
 
   //model

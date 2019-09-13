@@ -7,8 +7,14 @@ BASE_PSI = .01
 LOG_BASE_PSI = math.log(BASE_PSI)
 
 
-def infoToM(Info,psi=None,debug=False,strong=True):
+def infoToM(Info,psi=None,head=None,block_size=1,debug=False,strong=True):
     tlen = len(Info)
+    if not head:
+        head = tlen
+
+    blocks_in_shaft = (tlen - head) / block_size
+    shaft_max_base = math.log(blocks_in_shaft)
+
     if psi is None:
         psi = torch.ones(tlen) * BASE_PSI
     try:
@@ -19,17 +25,25 @@ def infoToM(Info,psi=None,debug=False,strong=True):
     M = []
     for i in range(tlen):
         if strong:
+            if i >= head:
+                block_bound = head + (((i - head + 1) // block_size) - 1) * block_size
+            else:
+                block_bound = tlen + 1
             lseterms = torch.stack([ts(0.),
                                 -Info[i,i] + psi[i],
                                 -Info[i,i] + psi[i] + #was: -abs(Info[i,i]) + psi[i] +
-                                    torch.sum(torch.stack([abs(Info[i,j])
-                                        for j in range(tlen) if j != i]))])
+                                    torch.sum(torch.abs(Info[i,:head])) +
+                                    torch.sum(torch.abs(Info[i,block_bound:block_bound + block_size]))
+                                    - torch.abs(Info[i,i])
+                            ])
         else:
             lseterms = torch.stack([ts(0.),
                                 -Info[i,i] + psi[i],
                                 -abs(Info[i,i]) + psi[i] +
-                                    torch.sum(torch.stack([abs(Info[i,j])
-                                        for j in range(tlen) if j != i]))])
+                                    torch.sum(torch.abs(Info[i,:head])) +
+                                    torch.sum(torch.abs(Info[i,block_bound:block_bound + block_size]))
+                                    - torch.abs(Info[i,i])
+                            ])
         if debug:
             print("infoToM",i,torch.logsumexp(lseterms / psi[i],0))
             print(lseterms)

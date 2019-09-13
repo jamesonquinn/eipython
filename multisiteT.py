@@ -54,6 +54,7 @@ GUMBEL_SD = math.pi/math.sqrt(6.)
 
 
 COMPLAINTS_REMAINING = 10
+YAYS_REMAINING = 10
 
 
 DF_ADJ_QUANTUM = 0.02
@@ -64,10 +65,12 @@ SUBSAMPLE_N = 8
 LAMBERT_MAX_ITERS = 10
 LAMBERT_TOL = 1e-2
 
-MAX_OPTIM_STEPS = 31
+MAX_OPTIM_STEPS = 3001
 
 
 FUCKING_TENSOR_TYPE = type(torch.tensor(1.))
+
+MIN_DF = math.e #completely arbitrary. 2 is too small because infinite variance, this is the smallest number that's greater than that.
 
 def complain(*args):
     global COMPLAINTS_REMAINING
@@ -76,6 +79,15 @@ def complain(*args):
         print("complaint",COMPLAINTS_REMAINING,*args)
     if COMPLAINTS_REMAINING % 20 == 0:
         print("complaint",COMPLAINTS_REMAINING)
+
+
+def yay(*args):
+    global YAYS_REMAINING
+    YAYS_REMAINING -= 3
+    if YAYS_REMAINING >= 0:
+        print("yay",YAYS_REMAINING,*args)
+    if YAYS_REMAINING % 20 == 0:
+        print("yay",YAYS_REMAINING)
 
 def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                         save_data=None,
@@ -125,10 +137,10 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
     if N==full_N:
         with pyro.plate('2full_units',full_N): #I hate you! but this magic works?
-            t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(full_N),ts(1.)))
+            t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(full_N),ts(1.) * t_scale))
     else:
         with full_units:
-            t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(full_N),ts(1.)))
+            t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(full_N),ts(1.) * t_scale))
 
     #Latent true values (offset)
     if indices is not None:
@@ -136,7 +148,7 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
         good_parts = t_part.index_select(0,indices)
     else:
         good_parts = t_part
-    truth = modal_effect + good_parts * t_scale
+    truth = modal_effect + good_parts
 
     #Observations conditional on truth (likelihood)
     if fixedParams is not None:
@@ -314,7 +326,7 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
 
     #print("amortized_laplace:",torch.max(errors),maxError,torch.max(errors)/dt)
-    full_tpart = getMLE(full_errors, dt, full_x-dm, ddf) / dt
+    full_tpart = getMLE(full_errors, dt, full_x-dm, ddf)
     if N == full_N:
         sub_tpart = full_tpart
     else:
@@ -451,11 +463,13 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     #print(".....1....",true_g_hat,theta[-6:])
     #print(".....2....",theta[-9:-6])
     def fix_m_grad():
+        #print("fix_m_grad")
         if torch.any(torch.isnan(mode_hat.grad)):
             complain( "mode_hat.grad")
         if torch.any(torch.isnan(dm.grad)):
             complain("dm.grad")
         else:
+            yay("fix_m_grad")
             mode_hat.grad = mode_hat.grad + dm.grad
         mode_hat.grad[mode_hat.grad == float("Inf")] = 1e10
         mode_hat.grad[mode_hat.grad == float("-Inf")] = -1e10
@@ -490,7 +504,11 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
         save_data.update(hat_data)
         save_data.update(logPosterior=logPosterior,
                         hessian=big_precision,
-                        grad=grad)
+                        raw_hessian_upper = hess[:3,:3],
+                        grad=grad,
+                        df = ddf,
+                        thetapsi=thetapsi,
+                        latentpsi=latentpsi)
     return(save_data)
     #
 
@@ -551,7 +569,7 @@ if False: #smaller
     echs_x = echs_x[:N]
     errors = errors[:N]
 base_scale = 1.
-modal_effect = 1.*base_scale
+modal_effect = .5*base_scale
 tdom_fat_params = dict(modal_effect=ts(modal_effect),
                             df=ts(-1.),
                             t_scale=ts(2.))
@@ -605,7 +623,7 @@ def floaty(l):
 
 def nameWithParams(filebase, trueparams, errors):
     filename = (f"{filebase}_N{len(errors)}_mu{trueparams['modal_effect']}"+
-        f"_sigma{trueparams['t_scale']}_nu{trueparams['df']}.csv")
+        f"_sigma{trueparams['t_scale']}_nu{round(MIN_DF,1)}+exp{trueparams['df']}.csv")
     return filename
 
 def createScenario(trueparams,
@@ -658,7 +676,7 @@ def jsonize(thing):
     t = jsonizable(thing)
 
     #print("jsonizing 2", t)
-    return(json.dumps(t))
+    return(json.dumps(t, indent=2, sort_keys=True))
 
     #print("jsonized")
 
@@ -689,8 +707,8 @@ def addNumericalHessianRow(ctr, sides, where): #`where` is number of columns bef
     diff = torch.tensor(0.)
     for (delta, side) in sides.items():
         diff -= (side["logPosterior"] - ctr["logPosterior"]) / delta**2 #kinda magic but it works
-    if diff[0]<0:
-        diff[0] = .1 #Utterly arbitrary. TODO: something principled????
+    if diff<0:
+        diff = .1 #Utterly arbitrary. TODO: something principled????
     new_hess[where,where] = diff
     #TODO: grads
 
@@ -698,6 +716,15 @@ def addNumericalHessianRow(ctr, sides, where): #`where` is number of columns bef
     new_result.update(hessian = new_hess)
     return new_result
 
+
+tctr = {"hessian":torch.ones(2,2), "logPosterior":0}
+tside = {"logPosterior":-.125}
+tsides = {-.5:tside,.5:tside}
+tnewhess = addNumericalHessianRow(tctr,tsides,1)["hessian"]
+for i in range(3):
+    for j in range(3):
+        assert tnewhess[i,j] == (1+i+j) % 2
+#print("addNumericalHessianRow tested")
 
 def trainGuide(guidename = "laplace",
             nparticles = 1,
