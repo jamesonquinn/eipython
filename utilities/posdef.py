@@ -7,13 +7,9 @@ BASE_PSI = .01
 LOG_BASE_PSI = math.log(BASE_PSI)
 
 
-def infoToM(Info,psi=None,head=None,block_size=1,debug=False,strong=True):
+def infoToM(Info,psi=None,ignore_head=0,debug=False):
     tlen = len(Info)
-    if not head:
-        head = tlen
 
-    blocks_in_shaft = (tlen - head) / block_size
-    shaft_max_base = math.log(blocks_in_shaft)
 
     if psi is None:
         psi = torch.ones(tlen) * BASE_PSI
@@ -23,37 +19,25 @@ def infoToM(Info,psi=None,head=None,block_size=1,debug=False,strong=True):
         print(Info.size(),tlen)
         raise
     M = []
-    for i in range(tlen):
-        if strong:
-            if i >= head:
-                block_bound = head + (((i - head + 1) // block_size) - 1) * block_size
-            else:
-                block_bound = tlen + 1
-            lseterms = torch.stack([ts(0.),
-                                -Info[i,i] + psi[i],
-                                -Info[i,i] + psi[i] + #was: -abs(Info[i,i]) + psi[i] +
-                                    torch.sum(torch.abs(Info[i,:head])) +
-                                    torch.sum(torch.abs(Info[i,block_bound:block_bound + block_size]))
-                                    - torch.abs(Info[i,i])
-                            ])
-        else:
-            lseterms = torch.stack([ts(0.),
-                                -Info[i,i] + psi[i],
-                                -abs(Info[i,i]) + psi[i] +
-                                    torch.sum(torch.abs(Info[i,:head])) +
-                                    torch.sum(torch.abs(Info[i,block_bound:block_bound + block_size]))
-                                    - torch.abs(Info[i,i])
-                            ])
+    for i in range(ignore_head,tlen):
+        ii = i-ignore_head
+        lseterms = torch.stack([ts(0.),
+                            -Info[i,i] + psi[ii],
+                            -Info[i,i] + psi[ii] + #was: -abs(Info[i,i]) + psi[i] +
+                                torch.sum(torch.abs(Info[i,:])) +
+                                - torch.abs(Info[i,i])
+                        ])
         if debug:
-            print("infoToM",i,torch.logsumexp(lseterms / psi[i],0))
+            print("infoToM",i,torch.logsumexp(lseterms / psi[ii],0))
             print(lseterms)
             print(Info[i,])
-        m = psi[i] * torch.logsumexp(lseterms / psi[i],0)
+        #print("m",lseterms)
+        m = psi[ii] * torch.logsumexp(lseterms / psi[ii],0)
         if torch.isnan(m):
-            print("infoToM nan", lseterms)
+            #print("infoToM nan", lseterms)
             print([j
                 for j in range(tlen) if torch.isnan(Info[i,j])])
-            print(psi[i])
+            print(psi[ii])
         M.append(m)
     return torch.diag(SAFETY_MULT * torch.stack(M))
 
@@ -64,16 +48,24 @@ def nan_to_num(t,mynan=0.):
         return torch.tensor(mynan)
     return torch.cat([nan_to_num(l).unsqueeze(0) for l in t],0)
 
-def rescaledSDD(Info,*args,**kwargs):
+def rescaledSDDD(Info,*args,**kwargs):
+    #print("rescaledSDDD",Info.size())
     d1 = torch.diag(Info)
     if torch.any(d1 <= 0):#set to 1, without ruining grads... hack
-        adjustment = torch.zeros_like(d1)
-        adjustment[d1 <= 0] = d1[d1 <= 0] -1.
-        d1 = d1 - adjustment
+        adjustment1 = torch.zeros_like(d1)
+        adjustment2 = torch.zeros_like(d1)
+        adjustment1[d1 <= 0] = d1[d1 <= 0]
+        adjustment2[d1 <= 0] = 1.
+        #print("d11",d1)
+        d1 = d1 - adjustment1
+        #print("d12",d1)
+        d1 = d1 + adjustment2
+        #print("d13",d1)
 
     d2 = torch.sqrt(d1)
 
     d3 = nan_to_num(d2,1.)
+    #print("d3",d3,d2,d1,)
     rescaler = torch.mm(d3.unsqueeze(1),d3.unsqueeze(0))
     if torch.any(rescaler <= 0):
         print("Rescaler fail",rescaler)
@@ -87,14 +79,20 @@ def rescaledSDD(Info,*args,**kwargs):
                 print(d3[i])
                 print("badrow")
                 print(torch.sqrt(torch.diag(Info))[i])
-                print(adjustment[i])
+                print(adjustment1[i], adjustment2[i])
                 break
         raise Exception("that's bad.")
     rescaled = Info / rescaler
     rescaled = nan_to_num(rescaled)
-    fixed = rescaled + infoToM(rescaled,*args,**kwargs)
-    return(fixed * rescaler)
+    delta = infoToM(rescaled,*args,**kwargs)
+    #print("ddd",rescaled, delta, rescaled+delta)
+    fixed = rescaled + delta
+    return(fixed * rescaler, delta*rescaler) #elementwise multiplication
 
+
+def rescaledSDD(Info,*args,**kwargs):
+    result, delta = rescaledSDDD(Info,*args,**kwargs)
+    return(result)
 
 def conditional_normal(full_mean, full_precision, n, first_draw, full_cov=None):
     if full_cov is None:

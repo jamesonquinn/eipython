@@ -275,6 +275,22 @@ def get_unconditional_cov(full_precision, n):
     #TODO: more efficient
     return(torch.inverse(full_precision)[:n,:n])
 
+def getMarginalPrecision(fullprec,nhead,nsub):
+    result = fullprec[:nhead,:nhead]
+    I = (len(fullprec) - nhead) // nsub
+    for i in range(I):
+        result = result - torch.mm(torch.mm(fullprec[:nhead,nhead+i*nsub:nhead+(i+1)*nsub],
+                        torch.inverse(fullprec[nhead+i*nsub:nhead+(i+1)*nsub,nhead+i*nsub:nhead+(i+1)*nsub])),
+                        fullprec[nhead+i*nsub:nhead+(i+1)*nsub,:nhead])
+
+    return(result)
+
+def getMpD(fullprec,nhead,nsub,psi):
+    result1 = getMarginalPrecision(fullprec,nhead,nsub)
+    result, delta = rescaledSDDD(result1,psi)
+    return(result,delta)
+
+
 def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                         save_data=None,
                         weight=1.,scalehyper=ts(4.),tailhyper=ts(10.),
@@ -349,43 +365,46 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     logPosterior = blockedTrace.log_prob_sum()
 
     theta_parts = dict((theta_name,hat_data[theta_name]) for theta_name in theta_names)
+    #count parameters
+    usedup = int(sum(theta_parts[pname].nelement() for pname in theta_names))
 
     if save_data and "df_adj" in save_data: #just running to get logPosterior; stop and return
         grad = myhessian.mygradient(logPosterior, hat_data.values())
         save_data.update(logPosterior=logPosterior, grad=grad)
         return(save_data)
-    (hess, grad) = myhessian.hessian(logPosterior, hat_data.values(), return_grad=True)#, allow_unused=True)
-    thetapsi = pyro.param("thetapsi",torch.zeros(3) + LOG_BASE_PSI)
-    latentpsi = pyro.param("latentpsi",torch.zeros(1) + LOG_BASE_PSI)
-    lpsi = torch.cat([thetapsi,latentpsi*torch.ones(len(hess)-len(thetapsi))],0)
+    (hess, grad) = myhessian.arrowhead_hessian(logPosterior, hat_data.values(), headsize=usedup, blocksize=1, return_grad=True)#, allow_unused=True)
+    hess = -hess
+    thetapsiraw = pyro.param("thetapsi",torch.zeros(usedup) + LOG_BASE_PSI)
+    latentpsiraw = pyro.param("latentpsi",torch.zeros(1) + LOG_BASE_PSI)
+    thetapsi = torch.exp(thetapsiraw)
     #ensure positive definite
     if N==full_N: #debugging wrap-up
-        print("size etc",hess.size(), grad.size(), lpsi.size())
-    big_precision = rescaledSDD(-hess, torch.exp(lpsi))
+        print("size etc",hess.size(), grad.size())
+    #print("hess11",hess[0,0])
+    head_precision, head_adjustment = getMpD(hess,usedup,1,thetapsi)
+    #big_precision = rescaledSDD(hess, torch.exp(lpsi), head=3, weight=weight)
 
 
     if False: #code for testing hessian grads
-        dumb_loss = torch.sum(big_precision)
+        dumb_loss = torch.sum(head_precision)
         print(f"mode_hat.grad:{mode_hat.grad}; dm.grad:{ dm.grad}")
         dumb_loss.backward(retain_graph=True)
         print(f"mode_hat.grad:{mode_hat.grad}; dm.grad:{ dm.grad}")
 
 
     if False: #print determinant
-        det = np.linalg.det(big_precision.data.numpy())
+        det = np.linalg.det(head_precision.data.numpy())
         print("det:",det)
 
         #print("Got hessian")
         if math.isinf(det):
-            print("Inf:",big_precision)
+            print("Inf:",head_precision)
             print("det3:",np.linalg.det(hess[:3,:3].data.numpy()))
             print("det3:",np.linalg.det(hess[:5,:5].data.numpy()))
 
-    #count parameters
-    usedup = int(sum(theta_parts[pname].nelement() for pname in theta_names))
 
     #invert matrix (maybe later, smart)
-    theta_cov = get_unconditional_cov(big_precision,usedup)
+    theta_cov = torch.inverse(head_precision)
 
     if False:#deterministic: #TODO: why is this ever true?
         MVN = deltaMVN
@@ -426,7 +445,17 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
         full_indices = torch.cat([global_indices, precinct_indices],0)
 
-        full_precision = big_precision.index_select(0,full_indices).index_select(1,full_indices) #TODO: do in-place?
+        ll = hess.index_select(0,precinct_indices).index_select(1,global_indices)#lower left
+        ur = hess.index_select(0,global_indices).index_select(1,precinct_indices)#upper right
+        lr = hess.index_select(0,precinct_indices).index_select(1,precinct_indices)#lower right
+        ul = head_precision + torch.mm(torch.mm(ur,torch.inverse(lr)),ll)
+        full_precision_raw = (
+                torch.cat([
+                    torch.cat([ul,ll],0),
+                    torch.cat([ur,lr],0)
+                ],1)
+            )
+        full_precision = rescaledSDD(full_precision_raw,torch.exp(latentpsiraw),ignore_head=usedup)
         full_mean = thetaMean.index_select(0,full_indices) #TODO: do in-place!
         new_mean, new_precision = conditional_normal(full_mean, full_precision, usedup, theta)
 
@@ -503,12 +532,13 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     if save_data is not None:
         save_data.update(hat_data)
         save_data.update(logPosterior=logPosterior,
-                        hessian=big_precision,
-                        raw_hessian_upper = hess[:3,:3],
+                        raw_hessian=hess,
+                        fixed_hessian_upper = head_precision,
+                        head_adjustment=head_adjustment,
                         grad=grad,
                         df = ddf,
-                        thetapsi=thetapsi,
-                        latentpsi=latentpsi)
+                        thetapsiraw=thetapsiraw,
+                        latentpsiraw=latentpsiraw)
     return(save_data)
     #
 
@@ -696,7 +726,7 @@ def saveFit(guidename, save_data,
     #print("saveFit", filename)
 
 def addNumericalHessianRow(ctr, sides, where): #`where` is number of columns before new elem
-    old_hess = ctr["hessian"]
+    old_hess = ctr["raw_hessian"]
     dims = len(old_hess) + 1
     new_hess = torch.zeros(dims, dims)
     new_hess[:where,:where] = old_hess[:where,:where]
@@ -713,14 +743,14 @@ def addNumericalHessianRow(ctr, sides, where): #`where` is number of columns bef
     #TODO: grads
 
     new_result = dict(ctr)
-    new_result.update(hessian = new_hess)
+    new_result.update(raw_hessian = new_hess)
     return new_result
 
 
-tctr = {"hessian":torch.ones(2,2), "logPosterior":0}
+tctr = {"raw_hessian":torch.ones(2,2), "logPosterior":0}
 tside = {"logPosterior":-.125}
 tsides = {-.5:tside,.5:tside}
-tnewhess = addNumericalHessianRow(tctr,tsides,1)["hessian"]
+tnewhess = addNumericalHessianRow(tctr,tsides,1)["raw_hessian"]
 for i in range(3):
     for j in range(3):
         assert tnewhess[i,j] == (1+i+j) % 2

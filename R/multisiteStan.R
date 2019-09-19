@@ -114,3 +114,22 @@ getMCMCfor = function(params) {
   return(cbind(amat,dmvnorm(amat[,1:d],mean,solve(hess),log=TRUE)))
   #guide = "meanfield"
 }
+
+arrowhead = function(a,b,c,n) {
+  result = matrix(0,n,n)
+  result[1,1] = a - 2 * b[1] - c[1]
+  result[1,] = result[,1] + b
+  result[,1] = result[,1] + b
+  result = result + diag(c,n)
+  return(result)
+}
+
+
+arrowblockhead = function(a,b,c,n,p) {
+  result = matrix(0,n,n)
+  result[1:p,1:p] = a - 2 * b[1:p,] - c[1]
+  result[1,] = result[,1] + b
+  result[,1] = result[,1] + b
+  result = result + diag(c,n)
+  return(result)
+}
