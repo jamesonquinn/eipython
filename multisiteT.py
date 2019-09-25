@@ -10,6 +10,7 @@ import os
 import random #Mixing seeds — not reproducible — TODO:fix
 import itertools
 import json
+from collections import Mapping
 
 from matplotlib import pyplot as plt
 from collections import OrderedDict, defaultdict
@@ -136,10 +137,10 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
         df = (2. + torch.exp(fixedParams['df'])).requires_grad_()
 
     if N==full_N:
-        with pyro.plate('2full_units',full_N): #I hate you! but this magic works?
+        with chosen_units:#pyro.plate('2full_units',full_N): #I hate you! but this magic works?
             t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(full_N),ts(1.) * t_scale))
     else:
-        with full_units:
+        with chosen_units:#full_units:
             t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(full_N),ts(1.) * t_scale))
 
     #Latent true values (offset)
@@ -165,7 +166,7 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
             raise
 
     if fixedParams is not None:
-        return observations.detach()
+        return (t_part.detach(),observations.detach())
     #print("end model",modal_effect,norm_scale,t_scale,t_part)
 
 def cuberoot(x):
@@ -275,26 +276,29 @@ def get_unconditional_cov(full_precision, n):
     #TODO: more efficient
     return(torch.inverse(full_precision)[:n,:n])
 
-def getMarginalPrecision(fullprec,nhead,nsub):
+def getMarginalPrecision(fullprec,nhead,nsub,weight,latentpsi):
     result = fullprec[:nhead,:nhead]
     I = (len(fullprec) - nhead) // nsub
+    lowerblocks = [None] * I
     for i in range(I):
+        rawlower = fullprec[nhead+i*nsub:nhead+(i+1)*nsub,nhead+i*nsub:nhead+(i+1)*nsub] / weight**2
+        lowerblock[i] = lower = (weight**2 * rescaledSDD(rawlower,latentpsi))
         result = result - torch.mm(torch.mm(fullprec[:nhead,nhead+i*nsub:nhead+(i+1)*nsub],
-                        torch.inverse(fullprec[nhead+i*nsub:nhead+(i+1)*nsub,nhead+i*nsub:nhead+(i+1)*nsub])),
+                        torch.inverse(lower)),
                         fullprec[nhead+i*nsub:nhead+(i+1)*nsub,:nhead])
 
-    return(result)
+    return(result,lowerblocks)
 
 def getMpD(fullprec,nhead,nsub,psi):
-    result1 = getMarginalPrecision(fullprec,nhead,nsub)
+    result1, lowerblocks = getMarginalPrecision(fullprec,nhead,nsub)
     result, delta = rescaledSDDD(result1,psi)
-    return(result,delta)
+    return(result,delta,lowerblocs)
 
 
 def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                         save_data=None,
                         weight=1.,scalehyper=ts(4.),tailhyper=ts(10.),
-                        deterministic=False):
+                        amortize=True):
     #print("amortized_laplace:",N,len(x),len(errors),weight)
 
 
@@ -338,11 +342,15 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     ddfr = ldfraw_hat.detach().requires_grad_() #detached... raw
 
     dt =  maxError/2 + torch.exp(dtr) #detached, cook
-    ddf = 2. + torch.exp(ddfr) #detached, cook
+    ddf = MIN_DF + torch.exp(ddfr) #detached, cook
 
 
     #print("amortized_laplace:",torch.max(errors),maxError,torch.max(errors)/dt)
-    full_tpart = getMLE(full_errors, dt, full_x-dm, ddf)
+    if amortize:
+        full_tpart = getMLE(full_errors, dt, full_x-dm, ddf)
+    else:
+        full_tpart = pyro.param("full_tmode", full_x - torch.ones(full_N) * torch.mean(full_x))
+
     if N == full_N:
         sub_tpart = full_tpart
     else:
@@ -378,38 +386,14 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     latentpsiraw = pyro.param("latentpsi",torch.zeros(1) + LOG_BASE_PSI)
     thetapsi = torch.exp(thetapsiraw)
     #ensure positive definite
-    if N==full_N: #debugging wrap-up
-        print("size etc",hess.size(), grad.size())
-    #print("hess11",hess[0,0])
-    head_precision, head_adjustment = getMpD(hess,usedup,1,thetapsi)
+    head_precision, head_adjustment, lowerblocks = getMpD(hess,usedup,1,thetapsi)
     #big_precision = rescaledSDD(hess, torch.exp(lpsi), head=3, weight=weight)
-
-
-    if False: #code for testing hessian grads
-        dumb_loss = torch.sum(head_precision)
-        print(f"mode_hat.grad:{mode_hat.grad}; dm.grad:{ dm.grad}")
-        dumb_loss.backward(retain_graph=True)
-        print(f"mode_hat.grad:{mode_hat.grad}; dm.grad:{ dm.grad}")
-
-
-    if False: #print determinant
-        det = np.linalg.det(head_precision.data.numpy())
-        print("det:",det)
-
-        #print("Got hessian")
-        if math.isinf(det):
-            print("Inf:",head_precision)
-            print("det3:",np.linalg.det(hess[:3,:3].data.numpy()))
-            print("det3:",np.linalg.det(hess[:5,:5].data.numpy()))
 
 
     #invert matrix (maybe later, smart)
     theta_cov = torch.inverse(head_precision)
 
-    if False:#deterministic: #TODO: why is this ever true?
-        MVN = deltaMVN
-    else:
-        MVN = dist.MultivariateNormal
+    MVN = dist.MultivariateNormal #for deterministic: MVN = deltaMVN
     #sample top-level parameters
     theta = pyro.sample('theta',
                     MVN(thetaMean[:usedup],
@@ -445,7 +429,7 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
         full_indices = torch.cat([global_indices, precinct_indices],0)
 
-        ll = hess.index_select(0,precinct_indices).index_select(1,global_indices)#lower left
+        ll = lowerblock[i]#lower left
         ur = hess.index_select(0,global_indices).index_select(1,precinct_indices)#upper right
         lr = hess.index_select(0,precinct_indices).index_select(1,precinct_indices)#lower right
         ul = head_precision + torch.mm(torch.mm(ur,torch.inverse(lr)),ll)
@@ -455,7 +439,7 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                     torch.cat([ur,lr],0)
                 ],1)
             )
-        full_precision = rescaledSDD(full_precision_raw,torch.exp(latentpsiraw),ignore_head=usedup)
+        #full_precision = rescaledSDD(full_precision_raw,torch.exp(latentpsiraw),ignore_head=usedup)
         full_mean = thetaMean.index_select(0,full_indices) #TODO: do in-place!
         new_mean, new_precision = conditional_normal(full_mean, full_precision, usedup, theta)
 
@@ -491,47 +475,49 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     #
     #print(".....1....",true_g_hat,theta[-6:])
     #print(".....2....",theta[-9:-6])
-    def fix_m_grad():
-        #print("fix_m_grad")
-        if torch.any(torch.isnan(mode_hat.grad)):
-            complain( "mode_hat.grad")
-        if torch.any(torch.isnan(dm.grad)):
-            complain("dm.grad")
-        else:
-            yay("fix_m_grad")
-            mode_hat.grad = mode_hat.grad + dm.grad
-        mode_hat.grad[mode_hat.grad == float("Inf")] = 1e10
-        mode_hat.grad[mode_hat.grad == float("-Inf")] = -1e10
-        #print("mode_hat.grad",mode_hat.grad)
-    mode_hat.fix_grad = fix_m_grad
-    #
-    def fix_t_grad():
-        if torch.any(torch.isnan(ltscale_hat.grad)):
-            complain( "ltscale_hat.grad")
-        if torch.any(torch.isnan(dtr.grad)):
-            complain( "dtr.grad")
-        else:
-            ltscale_hat.grad = ltscale_hat.grad + dtr.grad
-        ltscale_hat.grad[ltscale_hat.grad == float("Inf")] = 1e10
-        ltscale_hat.grad[ltscale_hat.grad == float("-Inf")] = -1e10
-        #print("ltscale_hat.grad",ltscale_hat.grad)
-    ltscale_hat.fix_grad = fix_t_grad
 
-    def fix_df_grad():
-        if torch.any(torch.isnan(ldfraw_hat.grad)):
-            complain( "ldfraw_hat.grad")
-        if torch.any(torch.isnan(ddfr.grad)):
-            complain( "ddfr.grad")
-        else:
-            ldfraw_hat.grad = ldfraw_hat.grad + ddfr.grad
-        ldfraw_hat.grad[ldfraw_hat.grad == float("Inf")] = 1e10
-        ldfraw_hat.grad[ldfraw_hat.grad == float("-Inf")] = -1e10
-        #print("ldfraw_hat.grad",ldfraw_hat.grad)
-    ldfraw_hat.fix_grad = fix_df_grad
+    if amortize:
+        def fix_m_grad():
+            #print("fix_m_grad")
+            if torch.any(torch.isnan(mode_hat.grad)):
+                complain( "mode_hat.grad")
+            if torch.any(torch.isnan(dm.grad)):
+                complain("dm.grad")
+            else:
+                yay("fix_m_grad")
+                mode_hat.grad = mode_hat.grad + dm.grad
+            mode_hat.grad[mode_hat.grad == float("Inf")] = 1e10
+            mode_hat.grad[mode_hat.grad == float("-Inf")] = -1e10
+            #print("mode_hat.grad",mode_hat.grad)
+        mode_hat.fix_grad = fix_m_grad
+        #
+        def fix_t_grad():
+            if torch.any(torch.isnan(ltscale_hat.grad)):
+                complain( "ltscale_hat.grad")
+            if torch.any(torch.isnan(dtr.grad)):
+                complain( "dtr.grad")
+            else:
+                ltscale_hat.grad = ltscale_hat.grad + dtr.grad
+            ltscale_hat.grad[ltscale_hat.grad == float("Inf")] = 1e10
+            ltscale_hat.grad[ltscale_hat.grad == float("-Inf")] = -1e10
+            #print("ltscale_hat.grad",ltscale_hat.grad)
+        ltscale_hat.fix_grad = fix_t_grad
+
+        def fix_df_grad():
+            if torch.any(torch.isnan(ldfraw_hat.grad)):
+                complain( "ldfraw_hat.grad")
+            if torch.any(torch.isnan(ddfr.grad)):
+                complain( "ddfr.grad")
+            else:
+                ldfraw_hat.grad = ldfraw_hat.grad + ddfr.grad
+            ldfraw_hat.grad[ldfraw_hat.grad == float("Inf")] = 1e10
+            ldfraw_hat.grad[ldfraw_hat.grad == float("-Inf")] = -1e10
+            #print("ldfraw_hat.grad",ldfraw_hat.grad)
+        ldfraw_hat.fix_grad = fix_df_grad
 
     if save_data is not None:
-        save_data.update(hat_data)
-        save_data.update(logPosterior=logPosterior,
+        save_data.update(ahat_data=hat_data,
+                        logPosterior=logPosterior,
                         raw_hessian=hess,
                         fixed_hessian_upper = head_precision,
                         head_adjustment=head_adjustment,
@@ -542,7 +528,8 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     return(save_data)
     #
 
-
+def unamortized_laplace(*args,**kwargs):
+    return(amortized_laplace(*args,amortize=False,**kwargs))
 
 
 #     #
@@ -623,6 +610,7 @@ autoguide = AutoDiagonalNormal(model)
 guides = OrderedDict(
                     meanfield=autoguide,
                     amortized_laplace = amortized_laplace,
+                    unamortized_laplace = unamortized_laplace,
                     )
 
 class FakeSink(object):
@@ -651,9 +639,13 @@ def getMeanfieldParams():
 def floaty(l):
     return ts([float(i) for i in l])
 
-def nameWithParams(filebase, trueparams, errors):
-    filename = (f"{filebase}_N{len(errors)}_mu{trueparams['modal_effect']}"+
-        f"_sigma{trueparams['t_scale']}_nu{round(MIN_DF,1)}+exp{trueparams['df']}.csv")
+def nameWithParams(filebase, trueparams, errors, S = None):
+    if S is None:
+        filename = (f"{filebase}_N{len(errors)}_mu{trueparams['modal_effect']}"+
+            f"_sigma{trueparams['t_scale']}_nu{round(MIN_DF,1)}+exp{trueparams['df']}.csv")
+    else:
+        filename = (f"{filebase}_N{len(errors)}_S{S}_mu{trueparams['modal_effect']}"+
+            f"_sigma{trueparams['t_scale']}_nu{round(MIN_DF,1)}+exp{trueparams['df']}.csv")
     return filename
 
 def createScenario(trueparams,
@@ -667,14 +659,14 @@ def createScenario(trueparams,
             reader = csv.reader(file)
             header = next(reader)
             lines = list(reader)
-            s,x = zip(*lines)
+            s,t,x = zip(*lines)
         s,x = (floaty(s), floaty(x))
         print(filename, "from file")
     except Exception as e:
         print("exception:",e)
         maxError = torch.max(errors)
         save_data = dict()
-        x = model(N,N,  None,   junkData,junkData,
+        t,x = model(N,N,  None,   junkData,junkData,
                     errors,errors,
                     maxError,save_data,1.,
                     fixedParams = trueparams)
@@ -683,8 +675,8 @@ def createScenario(trueparams,
         with open(filename,"w") as file:
             writer = csv.writer(file)
             writer.writerow([u"s",u"x"])
-            for an_s,an_x in zip(errors,x):
-                writer.writerow([float(an_s),float(an_x)])
+            for an_s,a_t,an_x in zip(errors,t,x):
+                writer.writerow([float(an_s),float(a_t),float(an_x)])
         print(filename, "created")
     print(len(x))
     print(x[:4])
@@ -693,7 +685,7 @@ def createScenario(trueparams,
 def jsonizable(thing):
     #print("jsonizable...",thing)
     #print("type",type(thing), type(thing) is FUCKING_TENSOR_TYPE, type(thing) == type(torch.tensor(1.)))
-    if type(thing) is dict:
+    if isinstance(thing, Mapping):
         return dict([(key, jsonizable(val)) for (key, val) in thing.items()])
     elif type(thing) is FUCKING_TENSOR_TYPE:
         t = thing.tolist()
@@ -711,12 +703,12 @@ def jsonize(thing):
     #print("jsonized")
 
 def saveFit(guidename, save_data,
-        trueparams, errors,
+        trueparams, errors, S,
         filebase="testresults/fit_"):
     i = 0
     while True:
         filename = nameWithParams(filebase+guidename+"_"+str(i),
-                trueparams, errors)
+                trueparams, errors, S)
         if not os.path.exists(filename):
             break
         print("file exists:",filename)
@@ -795,112 +787,77 @@ def trainGuide(guidename = "laplace",
     base_line = [guidename, runtime,
                     [trueparams[item] for item in ("modal_effect",
                                     "df","t_scale")]]
-    for i in range(MAX_OPTIM_STEPS):
-        indices = torch.randperm(N)[:SUBSAMPLE_N]
-        save_data = dict()
-        loss = svi.step(SUBSAMPLE_N,N,indices,
-                        x.index_select(0,indices),x,
-                        errors.index_select(0,indices),errors,
-                        maxError,
-                        save_data,weight,ts(10.),ts(10.))
-                    #N,full_N,indices,
-                    #x,     full_x,
-                    #errors,full_errors,
-                    #maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
 
-        if len(losses)==0:
-            mean_losses.append(loss)
-        else:
-            mean_losses.append((mean_losses[-1] * 49. + loss) / 50.)
-        losses.append(loss)
-        if i % 10 == 0:
-            try:
-                writer.writerow(base_line + [i, time.time(), loss] + getLaplaceParams())
-            except:
-                writer.writerow(base_line + [i, time.time(), loss] + getMeanfieldParams())
-            reload(go_or_nogo)
-            go_or_nogo.demoprintstuff(i,loss)
-            try:
-                if mean_losses[-1] > mean_losses[-500]:
-                    break
-            except:
-                pass
-            if go_or_nogo.go:
-                pass
+    for subsample_n in [N, SUBSAMPLE_N]:
+        for i in range(MAX_OPTIM_STEPS):
+            indices = torch.randperm(N)[:subsample_n]
+            save_data = dict()
+            loss = svi.step(subsample_n,N,indices,
+                            x.index_select(0,indices),x,
+                            errors.index_select(0,indices),errors,
+                            maxError,
+                            save_data,weight,ts(10.),ts(10.))
+                        #N,full_N,indices,
+                        #x,     full_x,
+                        #errors,full_errors,
+                        #maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
+
+            if len(losses)==0:
+                mean_losses.append(loss)
             else:
-                break
+                mean_losses.append((mean_losses[-1] * 49. + loss) / 50.)
+            losses.append(loss)
+            if i % 10 == 0:
+                try:
+                    writer.writerow(base_line + [i, time.time(), loss] + getLaplaceParams())
+                except:
+                    writer.writerow(base_line + [i, time.time(), loss] + getMeanfieldParams())
+                reload(go_or_nogo)
+                go_or_nogo.demoprintstuff(i,loss)
+                try:
+                    if mean_losses[-1] > mean_losses[-500]:
+                        break
+                except:
+                    pass
+                if go_or_nogo.go:
+                    pass
+                else:
+                    break
 
-    ##
+        ##
 
-    print("Final mean_losses:",mean_losses[-1])
-    plt.plot(losses)
-    plt.xlabel('epoch')
-    plt.ylabel('loss')
+        print("Final mean_losses:",mean_losses[-1])
+        plt.plot(losses)
+        plt.xlabel('epoch')
+        plt.ylabel('loss')
 
-    print("save_data",save_data)
-    if not save_data:
-        #meanfield
-        save_data = dict(pyro.get_param_store())
-    else:
-        all_indices = torch.tensor(range(N))
-        #once more, without subsampling
-        tmp_data = dict()
-        fitted_model_info = guide(N,N,all_indices,
-                        x,x,
-                        errors,errors,
-                        maxError,
-                        tmp_data,1.,ts(10.),ts(10.))
-        perturbed_datas = dict() #"data" is singular, deal with it
-        for adj in [DF_ADJ_QUANTUM, -DF_ADJ_QUANTUM]:
-
-            tmp_data = dict(df_adj=adj)
-            perturbed_datas[adj] = guide(N,N,all_indices,
+        print("save_data",save_data)
+        if not save_data:
+            #meanfield
+            save_data = dict(pyro.get_param_store())
+        else:
+            all_indices = torch.tensor(range(N))
+            #once more, without subsampling
+            tmp_data = dict()
+            fitted_model_info = guide(N,N,all_indices,
                             x,x,
                             errors,errors,
                             maxError,
                             tmp_data,1.,ts(10.),ts(10.))
-        save_data = addNumericalHessianRow(fitted_model_info, perturbed_datas, 2)
-    saveFit(guidename, save_data, trueparams, errors)
-    ##
+            perturbed_datas = dict() #"data" is singular, deal with it
+            for adj in [DF_ADJ_QUANTUM, -DF_ADJ_QUANTUM]:
 
-    print("guidename",guidename)
-    print("trueparams",trueparams)
-    for (key, val) in sorted(pyro.get_param_store().items()):
-        print(f"{key}:\n{val}")
-
-
-def MCMCit( filebase):
-    print("KLdivs")
-    trueparams = tdom_fat_params
-
-
-    guide = laplace
-    weight = N * 1. / SUBSAMPLE_N
-    maxError = torch.max(errors)
-    save_data=dict()
-    x = model(N,N,  None,   echs_x,echs_x,errors,errors,     maxError,save_data,weight,fixedParams = trueparams)
-
-
-    filename = filebase + ".fitted.csv"
-    with open(filename,"a") as file:
-        #writer = csv.writer(file)
-        #if os.stat(filename).st_size == 0: #header row
-        #    writer.writerow( list(vals.keys()) + ["modelKL"] + list(guides.keys())) #header row
-
-        def conditioned_model(model, *args, **kwargs):
-            return poutine.condition(model, data={})(*args, **kwargs)
-
-        nuts_kernel = NUTS(conditioned_model, jit_compile=False,)
-        mcmc = MCMC(nuts_kernel,
-                    num_samples=500,
-                    warmup_steps=50,
-                    num_chains=1)
-        mcmc.run(model,
-                N,N,None,
+                tmp_data = dict(df_adj=adj)
+                perturbed_datas[adj] = guide(N,N,all_indices,
                                 x,x,
                                 errors,errors,
                                 maxError,
-                                1.,ts(10.),ts(10.))
-        print("MCMC done")
-        print(mcmc.summary(prob=0.5))
-    return mcmc
+                                tmp_data,1.,ts(10.),ts(10.))
+            save_data = addNumericalHessianRow(fitted_model_info, perturbed_datas, 2)
+        saveFit(guidename, save_data, trueparams, errors, S)
+        ##
+
+        print("guidename",guidename)
+        print("trueparams",trueparams)
+        for (key, val) in sorted(pyro.get_param_store().items()):
+            print(f"{key}:\n{val}")

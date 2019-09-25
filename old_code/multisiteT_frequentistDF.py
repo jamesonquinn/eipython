@@ -891,7 +891,7 @@ def createScenario(trueparams,
 
         with open(filename,"w") as file:
             writer = csv.writer(file)
-            writer.writerow([u"s",u"x"])
+            writer.writerow([u"s",u"t",u"x"])
             for an_s,an_x in zip(errors,x):
                 writer.writerow([float(an_s),float(an_x)])
         print(filename, "created")
