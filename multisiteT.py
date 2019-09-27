@@ -54,24 +54,29 @@ EULER_CONSTANT = 0.5772156649015328606065120900824024310421
 GUMBEL_SD = math.pi/math.sqrt(6.)
 
 
-COMPLAINTS_REMAINING = 10
-YAYS_REMAINING = 10
+BASE_COMPLAINTS_REMAINING = 10
+BASE_YAYS_REMAINING = 10
+COMPLAINTS_REMAINING = BASE_COMPLAINTS_REMAINING
+YAYS_REMAINING = BASE_YAYS_REMAINING
 
 
 DF_ADJ_QUANTUM = 0.02
 
 
-SUBSAMPLE_N = 8
+SUBSAMPLE_N = 22
 
 LAMBERT_MAX_ITERS = 10
 LAMBERT_TOL = 1e-2
 
 MAX_OPTIM_STEPS = 3001
+MIN_DF = 2.5
+SMEAN = 0. #ie, 1
+SSCALE = 1.
+DMEAN = 1. #ie, 2.7
+DSCALE = 1.5
 
 
 FUCKING_TENSOR_TYPE = type(torch.tensor(1.))
-
-MIN_DF = math.e #completely arbitrary. 2 is too small because infinite variance, this is the smallest number that's greater than that.
 
 def complain(*args):
     global COMPLAINTS_REMAINING
@@ -93,7 +98,7 @@ def yay(*args):
 def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                         save_data=None,
                         weight=1.,
-            scalehyper=ts(4.),tailhyper=ts(10.),
+            smean=ts(SMEAN),sscale=ts(SSCALE),dmean = ts(DMEAN),dscale=ts(DSCALE),
             fixedParams = None): #groups, subgroups, groupsize by trial, options
     """
     Notes:
@@ -124,10 +129,10 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     modal_effect = pyro.sample('modal_effect',dist.Normal(ts(0.),ts(20.)))
 
     #prior on sd(τ)
-    t_scale = maxError/2+pyro.sample('t_scale_raw',dist.Exponential(torch.ones(1)/torch.abs(scalehyper)))
+    t_scale = maxError/2+pyro.sample('t_scale_raw',dist.LogNormal(smean,sscale))
 
     #prior on df
-    df = 2. + pyro.sample('dfraw',dist.Exponential(torch.ones(1)/torch.abs(scalehyper)))
+    df = MIN_DF + pyro.sample('dfraw',dist.LogNormal(dmean,dscale))
 
     if fixedParams is not None:
         print("generating data",fixedParams)
@@ -137,11 +142,12 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
         df = (2. + torch.exp(fixedParams['df'])).requires_grad_()
 
     if N==full_N:
-        with chosen_units:#pyro.plate('2full_units',full_N): #I hate you! but this magic works?
+        with pyro.plate('2full_units',full_N): #I hate you! but this magic works? #chosen_units:#
             t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(full_N),ts(1.) * t_scale))
     else:
-        with chosen_units:#full_units:
-            t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(full_N),ts(1.) * t_scale))
+        with pyro.plate('2full_units',full_N):
+            with poutine.scale(scale=weight):#chosen_units:#full_units:
+                t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(full_N),ts(1.) * t_scale))
 
     #Latent true values (offset)
     if indices is not None:
@@ -276,23 +282,23 @@ def get_unconditional_cov(full_precision, n):
     #TODO: more efficient
     return(torch.inverse(full_precision)[:n,:n])
 
-def getMarginalPrecision(fullprec,nhead,nsub,weight,latentpsi):
+def getMarginalPrecision(fullprec,nhead,nsub,latentpsi,weight):
     result = fullprec[:nhead,:nhead]
     I = (len(fullprec) - nhead) // nsub
     lowerblocks = [None] * I
     for i in range(I):
         rawlower = fullprec[nhead+i*nsub:nhead+(i+1)*nsub,nhead+i*nsub:nhead+(i+1)*nsub] / weight**2
-        lowerblock[i] = lower = (weight**2 * rescaledSDD(rawlower,latentpsi))
+        lowerblocks[i] = lower = (weight**2 * rescaledSDD(rawlower,latentpsi))
         result = result - torch.mm(torch.mm(fullprec[:nhead,nhead+i*nsub:nhead+(i+1)*nsub],
                         torch.inverse(lower)),
                         fullprec[nhead+i*nsub:nhead+(i+1)*nsub,:nhead])
 
     return(result,lowerblocks)
 
-def getMpD(fullprec,nhead,nsub,psi):
-    result1, lowerblocks = getMarginalPrecision(fullprec,nhead,nsub)
-    result, delta = rescaledSDDD(result1,psi)
-    return(result,delta,lowerblocs)
+def getMpD(fullprec,nhead,nsub,globalpsi,latentpsi,weight):
+    result1, lowerblocks = getMarginalPrecision(fullprec,nhead,nsub,latentpsi,weight)
+    result, delta = rescaledSDDD(result1,globalpsi)
+    return(result,delta,lowerblocks)
 
 
 def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
@@ -386,7 +392,7 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     latentpsiraw = pyro.param("latentpsi",torch.zeros(1) + LOG_BASE_PSI)
     thetapsi = torch.exp(thetapsiraw)
     #ensure positive definite
-    head_precision, head_adjustment, lowerblocks = getMpD(hess,usedup,1,thetapsi)
+    head_precision, head_adjustment, lowerblocks = getMpD(hess,usedup,1,thetapsi,torch.exp(latentpsiraw),weight)
     #big_precision = rescaledSDD(hess, torch.exp(lpsi), head=3, weight=weight)
 
 
@@ -429,17 +435,21 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
         full_indices = torch.cat([global_indices, precinct_indices],0)
 
-        ll = lowerblock[i]#lower left
-        ur = hess.index_select(0,global_indices).index_select(1,precinct_indices)#upper right
-        lr = hess.index_select(0,precinct_indices).index_select(1,precinct_indices)#lower right
-        ul = head_precision + torch.mm(torch.mm(ur,torch.inverse(lr)),ll)
-        full_precision_raw = (
+        #off-diagonals
+        ll = hess.index_select(0,precinct_indices).index_select(1,global_indices)#lower left
+        ur = hess.index_select(0,global_indices).index_select(1,precinct_indices)#upper right; could have just used transpose
+
+        #diagonals
+        lr = lowerblocks[i]#hess.index_select(0,precinct_indices).index_select(1,precinct_indices)#lower right
+        ul = head_precision + torch.mm(torch.mm(ur,torch.inverse(lr)),ll) #upper left
+
+        #print("dimensions",ll.size(),ur.size(),ul.size(),lr.size())
+        full_precision = (
                 torch.cat([
                     torch.cat([ul,ll],0),
                     torch.cat([ur,lr],0)
                 ],1)
             )
-        #full_precision = rescaledSDD(full_precision_raw,torch.exp(latentpsiraw),ignore_head=usedup)
         full_mean = thetaMean.index_select(0,full_indices) #TODO: do in-place!
         new_mean, new_precision = conditional_normal(full_mean, full_precision, usedup, theta)
 
@@ -589,19 +599,19 @@ base_scale = 1.
 modal_effect = .5*base_scale
 tdom_fat_params = dict(modal_effect=ts(modal_effect),
                             df=ts(-1.),
-                            t_scale=ts(2.))
+                            t_scale=ts(1.))
 #
 ndom_fat_params = dict(modal_effect=ts(modal_effect),
                             df=ts(-1.),
-                            t_scale=ts(-2.))
+                            t_scale=ts(-1.))
 #
 tdom_norm_params = dict(modal_effect=ts(modal_effect),
                             df=ts(3.),
-                            t_scale=ts(2.))
+                            t_scale=ts(1.))
 #
 ndom_norm_params = dict(modal_effect=ts(modal_effect),
                             df=ts(3.),
-                            t_scale=ts(-2.))
+                            t_scale=ts(-1.))
 #
 #fake_x = model(N,full_N,indices,echs_x,errors,fixedParams = tdom_params)
 #print("Fake:",fake_x)
@@ -674,7 +684,7 @@ def createScenario(trueparams,
 
         with open(filename,"w") as file:
             writer = csv.writer(file)
-            writer.writerow([u"s",u"x"])
+            writer.writerow([u"s",u"t",u"x"])
             for an_s,a_t,an_x in zip(errors,t,x):
                 writer.writerow([float(an_s),float(a_t),float(an_x)])
         print(filename, "created")
@@ -831,7 +841,7 @@ def trainGuide(guidename = "laplace",
         plt.xlabel('epoch')
         plt.ylabel('loss')
 
-        print("save_data",save_data)
+        #print("save_data",save_data)
         if not save_data:
             #meanfield
             save_data = dict(pyro.get_param_store())
@@ -854,7 +864,16 @@ def trainGuide(guidename = "laplace",
                                 maxError,
                                 tmp_data,1.,ts(10.),ts(10.))
             save_data = addNumericalHessianRow(fitted_model_info, perturbed_datas, 2)
-        saveFit(guidename, save_data, trueparams, errors, S)
+
+        global COMPLAINTS_REMAINING
+        global YAYS_REMAINING
+        save_data.update(ycomplaints = (BASE_COMPLAINTS_REMAINING - COMPLAINTS_REMAINING) / 3,
+                        yays = (BASE_YAYS_REMAINING - YAYS_REMAINING) / 3,)
+
+        COMPLAINTS_REMAINING = BASE_COMPLAINTS_REMAINING
+        YAYS_REMAINING = BASE_YAYS_REMAINING
+
+        saveFit(guidename, save_data, trueparams, errors, subsample_n)
         ##
 
         print("guidename",guidename)

@@ -4,20 +4,24 @@ data {
   vector[N] x; // observations
   real maxError;
   real mindf;
+  real dmean;
+  real smean;
+  real dscale;
+  real sscale;
 }
 parameters {
   real mu;
-  real<lower=0> sigma; // t scale
-  real<lower=1> df;
+  real varsigma; // t scale
+  real d;
   vector[N] T; // true site difference from mean
 }
 model {
   //priors
-  df - mindf ~ exponential(.2);
-  sigma - (maxError/2) ~ exponential(.2);
-  mu ~ normal(0,20);
+  d ~ normal(dmean,dscale);
+  varsigma ~ normal(smean,sscale);
+  mu ~ normal(0,20.0);
 
   //model
-  T ~ student_t(df, mu, sigma);
+  T ~ student_t(exp(d) + mindf, 0., exp(varsigma) + maxError/2);
   x ~ normal(T + mu, se);
 }

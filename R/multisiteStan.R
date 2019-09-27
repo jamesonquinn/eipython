@@ -15,9 +15,21 @@ rstan_options(auto_write = TRUE)
 
 
 maxError = 0.27889007329940796
-min_DF = 2.7
+DEFAULT_N = 44
+SMALL_S = 22
 
+#globals copied from python
+MIN_DF = 2.5
+SMEAN = 0 #ie, 1
+SSCALE = 1
+DMEAN = 1 #ie, 2.7
+DSCALE = 1.5
 
+var_names = c("mu","sigma","df","T[1]")
+
+all_guides = c("amortized_laplace",
+               "unamortized_laplace",
+               "meanfield")
 
 
 model = stan_model("../stan/multisite.stan")
@@ -85,13 +97,18 @@ ndom_norm_params = list(modal_effect=ts(modal_effect),
 
 specify_decimal = function(x, k=1) trimws(format(round(x, k), nsmall=k))
 
-nameWithParams = function(filebase, trueparams, N=44){
-  qq("@{filebase}_N@{N}_mu@{specify_decimal(trueparams$modal_effect)}_sigma@{specify_decimal(trueparams$t_scale)}_nu@{specify_decimal(min_DF)}+exp@{specify_decimal(trueparams$df)}.csv")
+nameWithParams = function(filebase, trueparams, S=NA, N=DEFAULT_N){
+  if (is.na(S)) {
+    qq("@{filebase}_N@{N}_mu@{specify_decimal(trueparams$modal_effect)}_sigma@{specify_decimal(trueparams$t_scale)}_nu@{specify_decimal(MIN_DF)}+exp@{specify_decimal(trueparams$df)}.csv")
+  } else {
+    qq("@{filebase}_N@{N}_S@{S}_mu@{specify_decimal(trueparams$modal_effect)}_sigma@{specify_decimal(trueparams$t_scale)}_nu@{specify_decimal(MIN_DF)}+exp@{specify_decimal(trueparams$df)}.csv")
+  }
 }
 
 getScenario = function(params) {
   fread(nameWithParams("../testresults/scenario",params))
 }
+
 
 
 getMCMCfor = function(params) {
@@ -102,14 +119,18 @@ getMCMCfor = function(params) {
                                      se=scenario[,s], 
                                      x=scenario[,x],
                                      maxError=maxError,
-                                     mindf=min_DF))
+                                     mindf=MIN_DF,
+                                     smean=SMEAN,
+                                     dmean=dMEAN,
+                                     dscale=DSCALE,
+                                     sscale=SSCALE))
   amat = as.matrix(afit)
   return(amat)
 }
 
-getFitFor = function(params,guide ="amortized_laplace"){
+getRawFitFor = function(params,S,guide ="amortized_laplace"){
   
-  jsonName = nameWithParams(qq("../testresults/fit_@{guide}_0"),params)
+  jsonName = nameWithParams(qq("../testresults/fit_@{guide}_0"),params,S)
   print(jsonName)
   fittedGuide = fromJSON(file=jsonName)
   if (guide=="meanfield") {
@@ -122,39 +143,103 @@ getFitFor = function(params,guide ="amortized_laplace"){
     d = sqrt(length(rawhess))
     hess = matrix(rawhess,d,d)
     mean = c(fittedGuide$ahat_data$modal_effect, 
-             maxError/2+exp(fittedGuide$ahat_data$t_scale_raw),
-             fittedGuide$df,
+             fittedGuide$ahat_data$t_scale_raw,
+             log(fittedGuide$df - MIN_DF),
              fittedGuide$ahat_data$t_part)
     
   }
   return(list(mean=mean,hess=hess,d=d))
 }
 
-all_guides = c("amortized_laplace",
-           "unamortized_laplace",
-           "meanfield")
 
-get_kls_for = function(params,guides = all_guides) {
+
+getFitFor = function(params,S,guide ="amortized_laplace"){
+  
+  jsonName = nameWithParams(qq("../testresults/fit_@{guide}_0"),params,S)
+  print(jsonName)
+  fittedGuide = fromJSON(file=jsonName)
+  if (guide=="meanfield") {
+    hess = diag(fittedGuide$auto_scale**2)
+    mean = fittedGuide$auto_loc
+    d = length(mean)
+  } else {
+    rawhess = unlist(fittedGuide$raw_hessian)
+    
+    d = sqrt(length(rawhess))
+    hess = matrix(rawhess,d,d)
+    mean = c(fittedGuide$ahat_data$modal_effect, 
+             fittedGuide$ahat_data$t_scale_raw,
+             log(fittedGuide$df - MIN_DF),
+             fittedGuide$ahat_data$t_part)
+    
+  }
+  return(list(mean=mean,hess=hess,d=d))
+}
+
+get_coverages = function(samples, mymean, mycovar, alpha=c(0.05,.5)) {
+  z_interval = qnorm(1-alpha/2)
+  raw_result = matrix(NA,length(mymean),length(alpha))
+  for (i in 1:length(mymean)) {
+    for (j in 1:length(alpha)) {
+      raw_result[i,j] = mean(mymean[i] - z_interval[j] * sqrt(mycovar[i,i]) < samples[,i] &
+                               samples[,i] < mymean[i] + z_interval[j] * sqrt(mycovar[i,i]))
+    }
+  }
+  result = raw_result[1:4,]
+  result[4,] = colMeans(raw_result[4:length(mymean),])
+  return(result)
+}
+
+
+graph_coverages = function(samples, mymean, mycovar, guide, S) {
+  print(colnames(samples))
+  for (i in 1:4) {
+      print(ggplot(data.table(mcmc=c(samples[,i],
+                                     mymean[i])), aes(x=mcmc)) + #cheating to force axis
+              geom_histogram(aes(y=..density..)) +
+              stat_function(fun=dnorm, args = list(mean=mymean[i], sd = sqrt(mycovar[i,i]))) +
+              labs(title=qq("@{guide}; @{S} subsamples"),
+                   x = var_names[i]))
+            
+  }
+}
+
+get_metrics_for = function(params,guides = all_guides, dographs=all_guides) {
   amat = getMCMCfor(params)
-  results = list()
+  leftelbows = list()
+  coverages = list()
   print(paste("guides:",guides))
   for (guide in guides) {
-    print(paste("guide:",guide))
-    meanhess = getFitFor(params,guide)
-    mean = meanhess$mean
-    hess = meanhess$hess
-    d = meanhess$d
-    covar = solve(hess)
-    #print("mean")
-    #print(mean)
-    dens = dmvnorm(amat[,1:d],mean,covar,log=TRUE)
-    #print(rbind(amat[99:100,1:d],mean,sqrt(1/diag(hess))))
-    #print(paste(guide,head(dens)))
-    results[[guide]] = klOfLogdensities(amat[,48],dens)
-    #guide = "meanfield"
+    for (S in c(DEFAULT_N,SMALL_S) ) {
+      print(paste("guide:",guide))
+      meanhess = getRawFitFor(params,S,guide)
+      mean = meanhess$mean
+      hess = meanhess$hess
+      d = meanhess$d
+      covar = solve(hess)
+      #print("mean")
+      #print(mean)
+      dens = dmvnorm(amat[,1:d],mean,covar,log=TRUE)
+      #print(rbind(amat[99:100,1:d],mean,sqrt(1/diag(hess))))
+      #print(paste(guide,head(dens)))
+      if (!(guide %in% names(leftelbows))) {
+        leftelbows[[guide]] = list()
+        coverages[[guide]] = list()
+        
+      }
+      leftelbows[[guide]][[toString(S)]] = klOfLogdensities(amat[,48],dens)
+      coverages[[guide]][[toString(S)]] = get_coverages(amat,mean,covar)
+      if (guide %in% dographs) {
+        graph_coverages(amat,mean,covar,guide,S)
+      }
+      #guide = "meanfield"
+    }
   }
-  return(results)
+  return(list(leftelbows=leftelbows,coverages=coverages))
 }
+
+fat_metrics = get_metrics_for(ndom_fat_params)
+norm_metrics = get_metrics_for(ndom_norm_params,dographs=c())
 
 klOfLogdensities = function(a,b) {
   return(mean(a) - mean(b))

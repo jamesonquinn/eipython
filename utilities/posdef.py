@@ -18,6 +18,7 @@ def infoToM(Info,psi=None,ignore_head=0,debug=False):
     except:
         print(Info.size(),tlen)
         raise
+    assert torch.all(psi>0)
     M = []
     for i in range(ignore_head,tlen):
         ii = i-ignore_head
