@@ -25,11 +25,35 @@ SSCALE = 1
 DMEAN = 1 #ie, 2.7
 DSCALE = 1.5
 
-var_names = c("mu","sigma","df","T[1]")
+var_names = c("mu","sigma","df","T1")
 
 all_guides = c("amortized_laplace",
                "unamortized_laplace",
                "meanfield")
+
+
+ts = function(x){x}
+dict = function(...){list(...)}
+
+base_scale = 1.
+modal_effect = .5*base_scale
+tdom_fat_params = dict(modal_effect=ts(modal_effect),
+                       df=ts(-1.),
+                       t_scale=ts(1.))
+#
+ndom_fat_params = dict(modal_effect=ts(modal_effect),
+                       df=ts(-1.),
+                       t_scale=ts(-1.))
+#
+tdom_norm_params = dict(modal_effect=ts(modal_effect),
+                        df=ts(3.),
+                        t_scale=ts(1.))
+#
+ndom_norm_params = dict(modal_effect=ts(modal_effect),
+                        df=ts(3.),
+                        t_scale=ts(-1.))
+
+
 
 
 model = stan_model("../stan/multisite.stan")
@@ -74,25 +98,6 @@ if (FALSE) { #old noodling-around code
   #getDensity(vec, )
 }
 
-ts = function(x){x}
-
-base_scale = 1.
-modal_effect = .5*base_scale
-tdom_fat_params = list(modal_effect=ts(modal_effect),
-                       df=ts(-1.),
-                       t_scale=ts(2.))
-#
-ndom_fat_params = list(modal_effect=ts(modal_effect),
-                       df=ts(-1.),
-                       t_scale=ts(-2.))
-#
-tdom_norm_params = list(modal_effect=ts(modal_effect),
-                        df=ts(3.),
-                        t_scale=ts(2.))
-#
-ndom_norm_params = list(modal_effect=ts(modal_effect),
-                        df=ts(3.),
-                        t_scale=ts(-2.))
 
 
 specify_decimal = function(x, k=1) trimws(format(round(x, k), nsmall=k))
@@ -121,7 +126,7 @@ getMCMCfor = function(params) {
                                      maxError=maxError,
                                      mindf=MIN_DF,
                                      smean=SMEAN,
-                                     dmean=dMEAN,
+                                     dmean=DMEAN,
                                      dscale=DSCALE,
                                      sscale=SSCALE))
   amat = as.matrix(afit)
@@ -238,12 +243,13 @@ get_metrics_for = function(params,guides = all_guides, dographs=all_guides) {
   return(list(leftelbows=leftelbows,coverages=coverages))
 }
 
-fat_metrics = get_metrics_for(ndom_fat_params)
-norm_metrics = get_metrics_for(ndom_norm_params,dographs=c())
 
 klOfLogdensities = function(a,b) {
   return(mean(a) - mean(b))
 }
+
+fat_metrics = get_metrics_for(ndom_fat_params)
+norm_metrics = get_metrics_for(ndom_norm_params,dographs=c())
 
 arrowhead = function(a,b,c,n) {
   result = matrix(0,n,n)
