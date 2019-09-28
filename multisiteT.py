@@ -287,8 +287,8 @@ def getMarginalPrecision(fullprec,nhead,nsub,latentpsi,weight):
     I = (len(fullprec) - nhead) // nsub
     lowerblocks = [None] * I
     for i in range(I):
-        rawlower = fullprec[nhead+i*nsub:nhead+(i+1)*nsub,nhead+i*nsub:nhead+(i+1)*nsub] / weight**2
-        lowerblocks[i] = lower = (weight**2 * rescaledSDD(rawlower,latentpsi))
+        rawlower = fullprec[nhead+i*nsub:nhead+(i+1)*nsub,nhead+i*nsub:nhead+(i+1)*nsub] / weight
+        lowerblocks[i] = lower = (weight * rescaledSDD(rawlower,latentpsi))
         result = result - torch.mm(torch.mm(fullprec[:nhead,nhead+i*nsub:nhead+(i+1)*nsub],
                         torch.inverse(lower)),
                         fullprec[nhead+i*nsub:nhead+(i+1)*nsub,:nhead])
@@ -783,22 +783,22 @@ def trainGuide(guidename = "laplace",
     #guide = guide2
     #svi = SVI(model, guide, ClippedAdam({'lr': 0.005}), Trace_ELBO(nparticles))
     #svi = SVI(model, guide, ClippedAdam({'lr': 0.005, 'betas': (0.99,0.9999)}), Trace_ELBO(nparticles)) #.72
-    svi = SVI(model, guide, ClippedAdam({'lr': 0.005, 'betas': (0.8,0.9)}), Trace_ELBO(nparticles)) #?
     #svi = SVI(model, guide, ClippedAdam({'lr': 0.005, 'clip_norm': 5.0}), Trace_ELBO(nparticles)) #.66
     #svi = SVI(model, guide, ClippedAdam({'lr': 0.005, 'weight_decay': ...}), Trace_ELBO(nparticles))
     #svi = SVI(model, guide, ClippedAdam({'lr': 0.005, 'eps': 1e-5}), Trace_ELBO(nparticles))
     #svi = SVI(model, guide, ClippedAdam({'lr': 0.005, 'eps': 1e-10}), Trace_ELBO(nparticles))
     #svi = SVI(model, guide, AdagradRMSProp({}), Trace_ELBO(nparticles))
 
-    pyro.clear_param_store()
-    losses = []
-    mean_losses = [] #(moving average)
-    runtime = time.time()
-    base_line = [guidename, runtime,
-                    [trueparams[item] for item in ("modal_effect",
-                                    "df","t_scale")]]
 
     for subsample_n in [N, SUBSAMPLE_N]:
+        svi = SVI(model, guide, ClippedAdam({'lr': 0.005, 'betas': (0.8,0.9)}), Trace_ELBO(nparticles)) #?
+        pyro.clear_param_store()
+        losses = []
+        mean_losses = [] #(moving average)
+        runtime = time.time()
+        base_line = [guidename, runtime,
+                        [trueparams[item] for item in ("modal_effect",
+                                        "df","t_scale")]]
         for i in range(MAX_OPTIM_STEPS):
             indices = torch.randperm(N)[:subsample_n]
             save_data = dict()

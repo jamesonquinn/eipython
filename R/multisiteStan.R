@@ -3,6 +3,7 @@ setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
 library(ggplot2)
 library(gridExtra)
+library(ggpubr)
 library(reshape2)
 library(data.table)
 library(rstan)
@@ -22,7 +23,7 @@ SMALL_S = 11
 SUBSAMPLE_NS = c(DEFAULT_N, SMALL_S) 
 
 VARS_TO_PLOT = c(1:4,20,45)
-VARS_TO_PLOT = c(1,45)
+#VARS_TO_PLOT = c(1,45)
 
 #globals copied from python
 MIN_DF = 2.5
@@ -262,8 +263,8 @@ add_base_formatting = function(rawgraph, guides=all_guides, subsamples=SUBSAMPLE
      scale_colour_manual(name="Guide family",
                       values=guide_colors,
                       labels=guide_labels) +
-     scale_linetype(name="Subsampling?",
-                #  values =subsample_line_types,
+     scale_linetype_manual(name="Subsampling?",
+                  values =subsample_line_types,
                   labels = subsample_labels))
 }
 
@@ -312,7 +313,6 @@ graph_coverages = function(samples, mymean, mycovar, guide, S) {
 
 
 
-
 ###########################################################################################
 #Bring it all together!
 ###########################################################################################
@@ -353,12 +353,19 @@ get_metrics_for = function(params,guides = all_guides, dographs=all_guides, subs
     }
   }
   print(names(graphs))
-  for (name in names(graphs)) {
+  g2 = list()
+  for (i in 1:length(names(graphs))) {
+    name = names(graphs)[i]
     print(name)
-    print(graphs[[name]])
+    g2[[i]] = graphs[[name]]
+    #print(graphs[[name]])
   }
-  print("Did they print?")
-  #print(grid.arrange(graphs))
+  print("gonna print")
+  #print(ggarrange(grobs=graphs,ncol=3, nrow=2, common.legend = TRUE, legend="bottom"))
+  p = do.call(ggarrange,c(g2, list(ncol=3, nrow=2, common.legend = TRUE, legend="bottom")))
+  print(length(p))
+  print(p)
+  print(" printed")
   return(list(leftelbows=leftelbows,coverages=coverages))
 }
 
