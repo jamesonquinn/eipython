@@ -9,6 +9,9 @@ import numpy as np
 np.random.seed(1234)
 import torch
 
+print("torch version",torch.__version__)
+print("torch.solve",torch.solve)
+
 ############################
 
 # Global parameters set by user

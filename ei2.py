@@ -40,11 +40,31 @@ torch.manual_seed(478301986) #Gingles
 pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
-# Suppose we have aggregate level counts of two classes of voters and of votes in each of P precincts. Let's generate some fake data.
 
-#...
 
-# Now suppose precinct-level behavior follows a Beta distribution with class-dependent parameters, so that individual level behavior is Bernoulli distributed. We can write this as a generative model that we'll use both for data generation and inference.
+init_narrow = 10  # Numerically stabilize initialization.
+
+
+BUNCHFAC = 35
+#P=10, BUNCHFAC = 9999: 61/31
+#P=10, BUNCHFAC = 1: 110/31
+#P=30, BUNCHFAC = 1: 785/31; 2490..1799..1213
+#P=30, BUNCHFAC = 1: 675/31; 2490..1799..1213
+#P=30, BUNCHFAC = 2: 339/31
+#P=30, BUNCHFAC = 3: 96/11
+#P=30, BUNCHFAC = 9999: 42/11
+#P=30, BUNCHFAC = 9999: 189/51 2346..1708..1175..864..746
+
+ADJUST_SCALE = .05
+MAX_NEWTON_STEP = .7 #currently, just taking this much of a step, hard-coded
+EPRCHAT_HESSIAN_POINT_FRACTION = .5
+RECENTER_PRIOR_STRENGTH = 2.
+
+
+
+NSTEPS = 5001
+SUBSET_SIZE = 5
+BIG_PRIME = 73 #Wow, that's big!
 
 MINIMAL_DEBUG = False
 if MINIMAL_DEBUG:
@@ -53,13 +73,15 @@ else:
     pyrosample = pyro.sample
 
 def model(data=None, scale=1., include_nuisance=False, do_print=False):
-    print("model:begin")
+    print("model:begin",scale,include_nuisance)
     if data is None:
         P, R, C = 30, 4, 3
+        P, R, C = 30, 3, 2
         ns = torch.zeros(P,R)
         for p in range(P):
             for r in range(R):
                 ns[p,r] = 20 * (p*r - 5*(r+1-R) + 6) + ((p-15)*(r-1))^2
+                ns[p,r] = 20 * (p*r - 5*(r+1-R) + 6) + ((p-1)*(r-1))^2
 
                     # pyrosample('precinctSizes',
                     #         dist.NegativeBinomial(p*r - 5*(r+1-R) + 6, .95))
@@ -96,12 +118,12 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
     erc = pyrosample('erc', dist.Normal(torch.zeros(R,C),sdrc).to_event(2))
     if include_nuisance:
         with all_sampled_ps() as p_tensor:
-            eprc = (
-                pyrosample(f'eprc', dist.Normal(torch.zeros(R,C),sdprc).to_event(2))
+            logits = (
+                pyrosample(f'logits', dist.Normal((ec + erc).expand(P,R,C), sdprc).to_event(2))
                 ) #eprc.size() == [P,R,C] because plate dimension happens on left
         #print("Model: sampling eprc",eprc[0,0,0])
     else:
-        eprc = ts(0.) #dummy for print statements. TODO:remove
+        logits = torch.zeros(P,R,C) #dummy for print statements. TODO:remove
 
     if data is None:
         erc = torch.zeros([R,C])
@@ -118,13 +140,7 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
     #             with pyro.plate('precinctsm', P):
     #                 eprc = pyrosample('eprc', dist.Normal(0,sdprc))
 
-    if include_nuisance:
-        logits = ec + erc + eprc
-        #print("using eprc",(logits-ec-erc)[0,0,0])
-    else:
-        logits = (ec + erc).expand(P,R,C)#P,R,C
     with all_sampled_ps() as p_tensor:#pyro.plate('precinctsm2', P):
-        #with poutine.scale(scale=scale): #TODO: insert!
         if data is None:
             y = torch.zeros(P,R,C)
             for p in p_tensor:
@@ -141,13 +157,12 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
                         print(logits[p])
                         print(ec)
                         print(erc)
-                        if include_nuisance:
-                            print("eprc",eprc[p])
             y = pyro.sample(f"y",
                         CMult(1000,logits=logits).to_event(1))
                         #dim P, R, C from plate, to_event, CMult
                         #note that n is totally fake — sums are what matter.
                         #TODO: fix CMult so this fakery isn't necessary.
+            print("model y",scale,y.size(),y[0,:2,:2])
             #print("ldim",logits.size(),y[0,0,0])
 
     if data is None:
@@ -163,25 +178,6 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
 
 
 
-# Let's now write a variational approximation.
-
-init_narrow = 10  # Numerically stabilize initialization.
-
-
-BUNCHFAC = 35
-#P=10, BUNCHFAC = 9999: 61/31
-#P=10, BUNCHFAC = 1: 110/31
-#P=30, BUNCHFAC = 1: 785/31; 2490..1799..1213
-#P=30, BUNCHFAC = 1: 675/31; 2490..1799..1213
-#P=30, BUNCHFAC = 2: 339/31
-#P=30, BUNCHFAC = 3: 96/11
-#P=30, BUNCHFAC = 9999: 42/11
-#P=30, BUNCHFAC = 9999: 189/51 2346..1708..1175..864..746
-
-ADJUST_SCALE = .05
-MAX_NEWTON_STEP = .5
-RECENTER_PRIOR_STRENGTH = 2.
-
 def recenter_rc(rc):
     rowcentered= (rc - torch.mean(rc,0))
     colcentered = rowcentered - torch.mean(rowcentered,0)
@@ -192,21 +188,24 @@ def lineno():
     """Returns the current line number in our program."""
     return inspect.currentframe().f_back.f_lineno
 
+
+# This function is to guess a good starting point for eprchat. But removing for now because:
+# 1. SIMPLIFY!
+# 2. We're doing 1 (partial) step of Newton's Method anyway so this is mostly redundant.
+
+
+# def initial_eprc_hat_guess(totsp,pi_p,Q2,Q_precision,pi_precision):
+#     pi_precision = totsp / pi_p / (torch.ones_like(pi_p) - pi_p)
+#     pweighted_Q = pi_p + (Q2-pi_p) * Q_precision / (Q_precision + pi_precision)
+#     return (torch.log(pweighted_Q/pi_p))
+
 def guide(data, scale, include_nuisance=False, do_print=False):
-    print("guide:begin",scale)
+    print("guide:begin",scale,include_nuisance)
 
     ns, vs, indeps, tots = data
     P = len(ns)
     R = len(ns[1])
     C = len(vs[1])
-
-    if include_nuisance:
-        precinctpsi_len = (R-1)*(C-1) + R*C
-    else:
-        precinctpsi_len = (R-1)*(C-1)
-    #declare precinct-level psi params
-    precinctpsi = pyro.param('precinctpsi',BASE_PSI * torch.ones(precinctpsi_len),
-                constraint=constraints.positive)
 
     prepare_ps = range(P) #for dealing with hatted quantities (no pyro.sample)
     ps_plate = pyro.plate('all_sampled_ps',P)
@@ -222,11 +221,11 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     phat_data = OrderedDict()
     transformation = defaultdict(lambda: lambda x: x) #factory of identity functions
 
-    logsdrchat = pyro.param('logsdrchat',ts(2.))
+    logsdrchat = pyro.param('logsdrchat',ts(-1.))
     fhat_data.update(sdrc=logsdrchat)
     transformation.update(sdrc=torch.exp)
     if include_nuisance:
-        logsdprchat = pyro.param('logsdprchat',ts(2.))
+        logsdprchat = pyro.param('logsdprchat',ts(-1.))
         fhat_data.update(sdprc=logsdprchat)
         transformation.update(sdprc=torch.exp)
         eprchat_startingpoint = torch.zeros(P,R,C,requires_grad =True) #not a pyro param...
@@ -236,6 +235,8 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     erchat = pyro.param('erchat', torch.zeros(R,C))
     theta_hat_data.update(ec=echat,erc=erchat)
     transformation.update(erc=recenter_rc)
+
+    eprchat_hessian_point_fraction = EPRCHAT_HESSIAN_POINT_FRACTION #pyro.param("eprchat_fraction",ts(0.5),constraint=constraints.interval(0.0, 1.0))
     # with pyro.plate('candidatesg', C):
     #     echat = pyro.param('echat', ts(0.))
     #     with pyro.plate('rgroupsg', R):
@@ -263,19 +264,19 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     yhat = []
     what = [] #P  * ((R-1) * (C-1)
     yhat2 = [] #reconstituted as a function of what
-    nuhats = [] #P  * (R * C)
+    eprchats = [] #P  * (R * C)
 
     logittotals = ec2 + erc2
     #print("sizes1 ",P,R,C,eprc.size(),ec.size(),erc.size(),logittotals.size())
     if include_nuisance:
         #print("adding starting point")
         logittotals = logittotals + eprchat_startingpoint # += doesn't work here because mumble in-place mumble shape
-        #note that startingpoint is currently zero, so this is effectively just unsqueeze
-        #but still healthy to do it like this in case that changes later.
     else:
         logittotals = logittotals.expand(P,R,C)
     pi_raw = torch.exp(logittotals)
     pi = pi_raw / torch.sum(pi_raw,-1).unsqueeze(-1)
+
+
 
     #print("guide:pre-p")
     if include_nuisance:
@@ -298,27 +299,32 @@ def guide(data, scale, include_nuisance=False, do_print=False):
 
         yhat2.append(polytopize(R,C,what[p],indeps[p]))
 
-        Q2 = yhat2[-1] * tots[p]
+        QbyR = Q/torch.sum(Q,-1).unsqueeze(-1)
+        logresidual = torch.log(QbyR / pi[p])
+        eprchat = logresidual * eprchat_hessian_point_fraction
 
         #get ν̂^(0)
         if include_nuisance:
-            pi_precision = tots[p] / pi[p] / (torch.ones_like(pi[p]) - pi[p])
-            pweighted_Q = pi[p] + (Q2-pi[p]) * Q_precision / (Q_precision + pi_precision)
-            nuhats.append(torch.log(pweighted_Q/pi[p]))
+            eprchats.append(eprchat)
+            #was: initial_eprc_hat_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
 
 
     phat_data.update(y=torch.cat([y.unsqueeze(0) for y in yhat2],0))
     #print("y is",phat_data["y"].size(),yhat[-1].size(),yhat[0][0,0],yhat2[0][0,0])
     if include_nuisance:
-        nuhat = torch.cat([nu.unsqueeze(0) for nu in nuhats],0)
-        #print("nuhat size",nuhat.size(),nuhats[0].size(),pweighted_Q.size(),pi[p].size())
-        #print("nuhat size2",Q2.size(),Q_precision.size(),pi_precision.size())
-        phat_data.update(eprc=nuhat)
+        if False: #dummy eprchats — testing
+            eprchats = [torch.zeros(R,C,requires_grad=True) for i in range(P)]
+        eprchat = torch.cat([eprc.unsqueeze(0) for eprc in eprchats],0)
+        logits = echat + erchat + eprchat
+        phat_data.update(logits=logits)
 
 
     #print("guide:post-p")
 
-    #Get hessians and sample params
+
+    ################################################################################
+    #Get hessians
+    ################################################################################
 
     #Start with theta
 
@@ -329,87 +335,121 @@ def guide(data, scale, include_nuisance=False, do_print=False):
         else:
             transformed_hat_data[k] = v
 
-    real_hessian = not MINIMAL_DEBUG
-    if real_hessian:
-        #
-        #print("line ",lineno())
-        hess_center = pyro.condition(model,transformed_hat_data)
-        #print("line ",lineno())
-        mytrace = poutine.block(poutine.trace(hess_center).get_trace)(data, scale, include_nuisance)
-        #print("line ",lineno(),P,R,C)
-        log_posterior = mytrace.log_prob_sum()
-        #print("line ",lineno())
-    theta_part_names = list(theta_hat_data.keys())
-    all_hats = []
-    for part_name in theta_part_names: #TODO: theta_hat_data redundant with theta_hat_data, now we have phat_data????
-        if part_name in theta_hat_data:
-            #print(f"adding {part_name} to all_hats")
-            all_hats.append(theta_hat_data[part_name]) #fails if missing (ie, eprc)
-            theta_hat_data[part_name] = theta_hat_data[part_name]
-    tlen = sum(theta_part.numel() for theta_part in theta_hat_data.values())
-    #print("len theta",len(all_hats),all_hats)
+    #
+    #print("line ",lineno())
+    hess_center = pyro.condition(model,transformed_hat_data)
+    #print("line ",lineno())
+    mytrace = poutine.block(poutine.trace(hess_center).get_trace)(data, scale, include_nuisance)
+    #print("line ",lineno(),P,R,C)
+    log_posterior = mytrace.log_prob_sum()
+    print("lp: ",log_posterior,lineno())
 
-    #add phat_data to all_hats — but don't get it from phat_data because it comes in wrong format
+    if True:
+        yyy = transformed_hat_data["y"]
+
+        print("guide y",yyy.size(),yyy[0,:2,:2])
+        yhess = myhessian.hessian(log_posterior, yyy)
+        print("yhess",yhess[:4,:4])
+        whess = myhessian.hessian(log_posterior, what)
+        print("whess", whess)
+
+    if False: #test perturbing y and logits
+        second_transformed_hat_data = dict(transformed_hat_data)
+        for vartochange in ["y","y","logits","logits"]:
+            second_transformed_hat_data = dict(second_transformed_hat_data)
+
+            second_hess_center = pyro.condition(model,second_transformed_hat_data)
+            #print("line ",lineno())
+            second_mytrace = poutine.block(poutine.trace(second_hess_center).get_trace)(data, scale, include_nuisance)
+            #print("line ",lineno(),P,R,C)
+            second_log_posterior = second_mytrace.log_prob_sum()
+            print("re-lp: ",second_log_posterior,lineno())
+
+            new_logits = second_transformed_hat_data[vartochange]
+            new_logits[0,0,0].add_(torch.ones([]))
+            new_logits[0,-1,-1].add_(-torch.ones([]))
+            second_transformed_hat_data[vartochange] = new_logits
+
+            second_hess_center = pyro.condition(model,second_transformed_hat_data)
+            #print("line ",lineno())
+            second_mytrace = poutine.block(poutine.trace(second_hess_center).get_trace)(data, scale, include_nuisance)
+            #print("line ",lineno(),P,R,C)
+            second_log_posterior = second_mytrace.log_prob_sum()
+            print("lp2: ",second_log_posterior,lineno())
+
+
+
+    hessian_hats_in_sampling_order = [] #this will have eprchats — good for taking hessian but wrong for mean
+    mean_hats_in_sampling_order = [] #this will have logits — right mean, but not upstream, so can't use for hessian
+    for part_name in list(theta_hat_data.keys()):
+        #print(f"adding {part_name} to hats_in_sampling_order")
+        hessian_hats_in_sampling_order.append(theta_hat_data[part_name])
+        mean_hats_in_sampling_order.append(theta_hat_data[part_name])
+    theta_dims = sum(theta_part.numel() for theta_part in theta_hat_data.values())
+    #print("len theta",len(hats_in_sampling_order),hats_in_sampling_order)
+
+    #add phat_data to hats_in_sampling_order — but don't get it from phat_data because it comes in wrong format
     if include_nuisance:
-        blocksize = 2 #tensors, not elements=(R-1)*(C-1) + R*C
-        precelems = (R-1)*(C-1) + R*C
-        for pair in zip(what,nuhats):
-            all_hats.extend(pair)
+        tensors_per_unit = 2 #tensors, not elements=(R-1)*(C-1) + R*C
+        dims_per_unit = (R-1)*(C-1) + R*C
+        for w,eprc,logit in zip(what,
+                        eprchats, #This is NOT the center of the distribution; that's `logits`
+                                #However, the Hessian wrt `eprchats` should equal that wrt `logits`
+                                #And using `logits` here wouldn't work because it's not upstream on the autodiff graph
+                        logits):
+            hessian_hats_in_sampling_order.extend([w,eprc])
+            mean_hats_in_sampling_order.extend([w,logit])
     else:
-        blocksize = 1 #tensors, not elements=(R-1)*(C-1)
-        precelems = (R-1)*(C-1)
-        all_hats.extend(what)
-    #print(all_hats)
-    #print([type(el) for el in what],[type(el) for el in nuhats])
-    #print([type(el) for el in all_hats])
-    full_len = sum(hat.numel() for hat in all_hats)
+        tensors_per_unit = 1 #tensors, not elements=(R-1)*(C-1)
+        dims_per_unit = (R-1)*(C-1)
+        hessian_hats_in_sampling_order.extend(what) #`what` is already a list, not a tensor, so this works
+        mean_hats_in_sampling_order.extend(what) #`what` is already a list, not a tensor, so this works
+    full_dims = sum(hat.numel() for hat in mean_hats_in_sampling_order) #doesn't matter which one, hessian_... would be fine
 
-    if real_hessian:
-        print("lp:::",log_posterior)
-        if False: #use arrowhead
-            neg_big_hessian, big_grad = myhessian.arrowhead_hessian(log_posterior, all_hats,
-                        len(theta_hat_data), #tensors, not elements=tlen
-                        blocksize,
-                        return_grad=True)
-        else:
-            neg_big_hessian, big_grad = myhessian.hessian(log_posterior, all_hats,
-                        return_grad=True)
-    else:
-        neg_big_hessian, big_grad = -torch.eye(full_len), torch.zeros(full_len)
+    #print("lp:::",log_posterior)
+    big_arrow, big_grad = myhessian.arrowhead_hessian_precision(log_posterior,
+                    hessian_hats_in_sampling_order, #This is NOT the center of the distribution; that's `logits`
+                            #However, the Hessian wrt `eprchats` should equal that wrt `logits`
+                            #And using `logits` here wouldn't work because it's not upstream on the autodiff graph
+                    len(theta_hat_data), #tensors, not elements=theta_dims
+                    tensors_per_unit,
+                    return_grad=True)
+
+
+    if False: #debug arrowhead_hessian_precision
+        raw_hess = myhessian.hessian(log_posterior,
+                        hessian_hats_in_sampling_order)
+        print("raw_hess",raw_hess[:4,:4])
+        print(raw_hess[theta_dims:theta_dims+4,theta_dims:theta_dims+4])
 
 
     #declare global-level psi params
-    globalpsi = pyro.param('globalpsi',torch.ones(tlen)*BASE_PSI,
+    globalpsi = pyro.param('globalpsi',torch.ones(theta_dims)*BASE_PSI,
+                constraint=constraints.positive)
+    #declare precinct-level psi params
+    precinctpsi = pyro.param('precinctpsi',BASE_PSI * torch.ones(dims_per_unit),
                 constraint=constraints.positive)
 
-    combinedpsi = torch.cat([globalpsi] + [precinctpsi]*P,0)
-    big_hessian = rescaledSDD(-neg_big_hessian,combinedpsi) #TODO: in-place
+    big_arrow.setpsis(globalpsi,precinctpsi)
+    big_arrow.weights = [scale] * P
 
-    if torch.any(torch.diag(big_hessian) == 0.):
-        print("zeros on diagonal")
-        bad_ix = [(i,neg_big_hessian[i,i]) for i in range(len(torch.diag(big_hessian))) if big_hessian[i,i] == 0]
-        print(bad_ix)
-        print(neg_big_hessian[bad_ix[0][0],:])
-        print(big_hessian[bad_ix[0][0],:])
-        print(big_hessian)
-        print("diff")
-        print(big_hessian+neg_big_hessian)
-        print(torch.diag(big_hessian+neg_big_hessian))
-        raise Exception("I give up.")
+    #head_precision, head_adjustment,  = rescaledSDD(-neg_big_hessian,combinedpsi) #TODO: in-place
 
-    theta_info = big_hessian[:tlen,:tlen]
 
-    all_means = torch.cat([tpart.contiguous().view(-1) for tpart in all_hats],0)
+    #theta_info = big_hessian[:theta_dims,:theta_dims]
+
+    all_means = torch.cat([tpart.contiguous().view(-1) for tpart in mean_hats_in_sampling_order],0)
     #print("all_means",all_means)
     #print(torch.any(torch.isnan(torch.diag(neg_big_hessian))),torch.any(torch.isnan(torch.diag(big_hessian))))
-    theta_mean = all_means[:tlen]
+    theta_mean = all_means[:theta_dims]
     #print("detirminants",np.linalg.det(theta_info.detach()),np.linalg.det(big_hessian.detach()))
     #print(theta_info[:3,:3])
     #print(-neg_big_hessian[:6,:3])
 
     theta = pyrosample('theta',
-                    dist.MultivariateNormal(theta_mean, precision_matrix=theta_info),
+                    dist.MultivariateNormal(theta_mean, precision_matrix=big_arrow.marginal_gg()),
                     infer={'is_auxiliary': True})
+    g_delta = theta - theta_mean
 
     #decompose theta into specific values
     tmptheta = theta
@@ -445,70 +485,60 @@ def guide(data, scale, include_nuisance=False, do_print=False):
 
 
 
+    #TODO: uncomment the following, which is fancy logic for learning what fraction of a Newton's method step to take
 
-    precinct_newton_step_multiplier_logit = pyro.param(
-            'precinct_newton_step_multiplier_logit',ts(0.))
-    epnsml = torch.exp(precinct_newton_step_multiplier_logit)
-    step_mult = MAX_NEWTON_STEP * epnsml / (1 + epnsml)
+    #precinct_newton_step_multiplier_logit = pyro.param(
+    #        'precinct_newton_step_multiplier_logit',ts(0.))
+    #epnsml = torch.exp(precinct_newton_step_multiplier_logit)
+    step_mult = MAX_NEWTON_STEP #* epnsml / (1 + epnsml)
     ysamps = []
-    nusamps = []
-    global_indices = ts(range(tlen))
+    logit_samps = []
+    global_indices = ts(range(theta_dims))
     for p in range(P):
 
 
-        precinct_indices = ts(range(tlen + p*precelems, tlen + (p+1)*precelems))
-
-        full_indices = torch.cat([global_indices,precinct_indices],0)
+        precinct_indices = ts(range(theta_dims + p*dims_per_unit, theta_dims + (p+1)*dims_per_unit))
 
         #print(f"theta_1p_hess:{P},{p},{B},{P//B},{len(big_HWs)},{big_HWs[p//B].size()},")
         #print(f"HW2:{big_HWs[p//B].size()},{list(full_indices)}")
-        theta_1p_hess = big_hessian.index_select(0,full_indices).index_select(1,full_indices)
-        theta_1p_mean = all_means.index_select(0,full_indices)
+        conditional_mean, conditional_cov = big_arrow.conditional_ll_mcov(p,g_delta,
+                                all_means.index_select(0,precinct_indices))
 
+        precinct_cov = big_arrow.llinvs[p] #for Newton's method, not for sampling
 
-        #Get ready to apply one step of Newton's method on the Ws
-        precinct_precision = theta_1p_hess[tlen:tlen+(R-1)*(C-1),tlen:tlen+(R-1)*(C-1)]
-        try:
-            precinct_cov = torch.inverse(precinct_precision)
-        except:
-            print("singular precinct_precision",precinct_precision[:2,:4], precinct_precision[-3:,-5:],precinct_precision.size()) #"RuntimeError" not caught???
-            raise
-
-        precinct_grad = big_grad.index_select(0,precinct_indices)[:(R-1)*(C-1)] #[tlen + pp*(R-1)*(C-1): tlen + (pp+1)*(R-1)*(C-1)]
+        precinct_grad = big_grad.index_select(0,precinct_indices) #[theta_dims + pp*(R-1)*(C-1): theta_dims + (pp+1)*(R-1)*(C-1)]
 
         #print("precinct:::",theta_1p_hess.size(),precinct_cov.size(),big_grad.size(),precinct_grad.size(),)
-        precinct_adj = step_mult * torch.mv(precinct_cov, precinct_grad)
+        adjusted_mean = conditional_mean + step_mult * torch.mv(precinct_cov, precinct_grad)
+                                 #one (partial, as defined by step_mult) step of Newton's method
+                                 #Note: this applies to both ws and nus (eprcs). I was worried about whether that was circular logic but I talked with Mira and we both think it's actually principled.
 
 
-
-        new_mean, new_precision = conditional_normal(theta_1p_mean, theta_1p_hess, tlen, theta)
-        # print("no nans???",torch.all(torch.isfinite(theta_1p_hess)),#F
-        #         torch.all(torch.isfinite(precinct_cov)),#F
-        #         torch.all(torch.isfinite(big_grad)),#T
-        #         torch.all(torch.isfinite(precinct_grad)),#T
-        #         torch.all(torch.isfinite(precinct_adj)),#F
-        #         torch.all(torch.isfinite(new_mean)),#F
-        #         torch.all(torch.isfinite(new_precision)),)#F
 
 
         try:
-            with poutine.scale(scale=scale):
-                pstuff = pyrosample(f"pstuff_{p}",
-                                dist.MultivariateNormal(new_mean, new_precision),
-                                infer={'is_auxiliary': True})
+            pstuff = pyrosample(f"pstuff_{p}",
+                            dist.MultivariateNormal(adjusted_mean, conditional_cov),
+                            infer={'is_auxiliary': True})
 
         except:
-            print(new_precision)
-            print(f"det:{np.linalg.det(new_precision.data.numpy())}")
+            print("error sampling pstuff",p,conditional_cov.size())
+            print(conditional_cov)
+            rawp = big_arrow.raw_lls[p]
+            print(rawp)
+            print(f"""dets:{np.linalg.det(conditional_cov.data.numpy())},
+                    {np.linalg.det(rawp.data.numpy())},
+                    {np.linalg.det(big_arrow.gg.data.numpy())},
+                    {np.linalg.det(big_arrow._mgg.data.numpy())},""")
+            print("mean",adjusted_mean.size())
             raise
         w_raw = pstuff[:(R-1)*(C-1)]
-        w_adjusted = (w_raw + precinct_adj).view(R-1,C-1)
-        y = polytopize(R,C,w_adjusted.view(R-1,C-1),indeps[p])
+        y = polytopize(R,C,w_raw.view(R-1,C-1),indeps[p])
         ysamps.append(y.view(1,R,C))
 
         if include_nuisance:
-            nu = pstuff[(R-1)*(C-1):].view(1,R,C)
-            nusamps.append(nu)
+            logit = pstuff[(R-1)*(C-1):].view(1,R,C)
+            logit_samps.append(logit)
 
     with all_sampled_ps():
         ys = torch.cat(ysamps,0)
@@ -518,7 +548,7 @@ def guide(data, scale, include_nuisance=False, do_print=False):
                     print("nan in ys for precinct",p)
                     print(ys[p,:,:])
                     if include_nuisance:
-                        print(nusamps[p])
+                        print(logit_samps[p])
                     #
                     print("ns",ns[p])
                     print("vs",vs[p])
@@ -527,19 +557,19 @@ def guide(data, scale, include_nuisance=False, do_print=False):
         pyro.sample("y", dist.Delta(ys).to_event(2))
 
         if include_nuisance:
-            nus = torch.cat(nusamps,0)
-            if not torch.all(torch.isfinite(nus)):
-                print("nus!!")
+            logit_samp_tensor = torch.cat(logit_samps,0)
+            if not torch.all(torch.isfinite(logit_samp_tensor)):
+                print("logits!!")
                 for p in range(P):
-                    if not torch.all(torch.isfinite(nus[p,:,:])):
+                    if not torch.all(torch.isfinite(logit_samp_tensor[p,:,:])):
                         print("nan in nus for precinct",p)
-                        print(nusamps[p])
+                        print(logit_samp_tensor[p])
                         print(ysamps[p])
                         print("ns",ns[p])
                         print("vs",vs[p])
                         print("echat",echat)
                         print("erchat",erchat)
-            pyro.sample("eprc", dist.Delta(nus).to_event(2))
+            pyro.sample("logits", dist.Delta(logit_samp_tensor).to_event(2))
 
 
 
@@ -559,6 +589,22 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     #no sdprc2 fix_grad. That's deliberate; the use of sdprc is an ugly hack and that error shouldn't bias the estimate of sdprc
 
 
+    #TODO:
+        #TODO:
+            #TODO:
+                #TODO: return value!
+    #TODO:
+        #TODO:
+            #TODO:
+                #TODO:  return value!
+                    #TODO:
+                        #TODO:
+                            #TODO:
+                                #TODO: return value!
+                    #TODO:
+                        #TODO:
+                            #TODO:
+                                #TODO:  return value!
 
 
 
@@ -572,16 +618,13 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     print("guide:end")
 
 
-nsteps = 5001
-subset_size = 5
-bigprime = 73 #Wow, that's big!
 
 
 def get_subset(data,size,i):
 
     ns, vs, indeps, tots = data
     P = len(ns)
-    indices = ts([((i*size + j)* bigprime) % P for j in range(size)])
+    indices = ts([((i*size + j)* BIG_PRIME) % P for j in range(size)])
     subset = (ns.index_select(0,indices) , vs.index_select(0,indices),
                 [indeps[p] for p in indices], [tots[p] for p in indices])
     scale = torch.sum(ns) / torch.sum(subset[0]) #likelihood impact of a precinct proportional to n
@@ -603,8 +646,8 @@ def trainGuide():
 
     pyro.clear_param_store()
     losses = []
-    for i in range(nsteps):
-        subset, scale = get_subset(processed_data,subset_size,i)
+    for i in range(NSTEPS):
+        subset, scale = get_subset(processed_data,SUBSET_SIZE,i)
         print("svi.step(...",i,scale)
         loss = svi.step(subset,scale,True,do_print=(i % 10 == 0))
         losses.append(loss)

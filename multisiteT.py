@@ -62,7 +62,7 @@ YAYS_REMAINING = BASE_YAYS_REMAINING
 
 DF_ADJ_QUANTUM = 0.02
 
-
+N_SAMPLES = 400
 SUBSAMPLE_N = 11
 
 LAMBERT_MAX_ITERS = 10
@@ -145,9 +145,9 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
         with pyro.plate('2full_units',full_N): #I hate you! but this magic works? #chosen_units:#
             t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(full_N),ts(1.) * t_scale))
     else:
-        with pyro.plate('2full_units',full_N):
+        with pyro.plate('2full_units',N):
             with poutine.scale(scale=weight):#chosen_units:#full_units:
-                t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(full_N),ts(1.) * t_scale))
+                t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(N),ts(1.) * t_scale))
 
     #Latent true values (offset)
     if indices is not None:
@@ -276,30 +276,9 @@ def plotMLE():
     plt.show()
     plt.clf()
 
-
-
 def get_unconditional_cov(full_precision, n):
     #TODO: more efficient
     return(torch.inverse(full_precision)[:n,:n])
-
-def getMarginalPrecision(fullprec,nhead,nsub,latentpsi,weight):
-    result = fullprec[:nhead,:nhead]
-    I = (len(fullprec) - nhead) // nsub
-    lowerblocks = [None] * I
-    for i in range(I):
-        rawlower = fullprec[nhead+i*nsub:nhead+(i+1)*nsub,nhead+i*nsub:nhead+(i+1)*nsub] / weight
-        lowerblocks[i] = lower = (weight * rescaledSDD(rawlower,latentpsi))
-        result = result - torch.mm(torch.mm(fullprec[:nhead,nhead+i*nsub:nhead+(i+1)*nsub],
-                        torch.inverse(lower)),
-                        fullprec[nhead+i*nsub:nhead+(i+1)*nsub,:nhead])
-
-    return(result,lowerblocks)
-
-def getMpD(fullprec,nhead,nsub,globalpsi,latentpsi,weight):
-    result1, lowerblocks = getMarginalPrecision(fullprec,nhead,nsub,latentpsi,weight)
-    result, delta = rescaledSDDD(result1,globalpsi)
-    return(result,delta,lowerblocks)
-
 
 def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                         save_data=None,
@@ -658,7 +637,7 @@ def nameWithParams(filebase, trueparams, errors, S = None):
             f"_sigma{trueparams['t_scale']}_nu{round(MIN_DF,1)}+exp{trueparams['df']}.csv")
     return filename
 
-def createScenario(trueparams,
+def createECHSScenario(trueparams,
             errors=errors,
             junkData=echs_x,
             filebase="testresults/scenario"):
@@ -691,6 +670,79 @@ def createScenario(trueparams,
     print(len(x))
     print(x[:4])
     return x
+
+
+def createScenario(trueparams,
+            junkData=echs_x,
+            nSites = N_SAMPLES,
+            errorDistribution = torch.distributions.Gamma(2,4),
+            filebase="testresults/scenario"):
+    errors = errorDistribution.sample(nSites)
+    filename = nameWithParams(filebase, trueparams, errors)
+    try:
+        print("1")
+        with open(filename,"r") as file:
+            reader = csv.reader(file)
+            header = next(reader)
+            lines = list(reader)
+            s,t,x = zip(*lines)
+        s,x = (floaty(s), floaty(x))
+        print(filename, "from file")
+    except Exception as e:
+        print("exception:",e)
+        maxError = torch.max(errors)
+        save_data = dict()
+        t,x = model(N,N,  None,   junkData,junkData,
+                    errors,errors,
+                    maxError,save_data,1.,
+                    fixedParams = trueparams)
+                    #N,full_N,indices,x,     full_x,errors,full_errors,maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
+
+        with open(filename,"w") as file:
+            writer = csv.writer(file)
+            writer.writerow([u"s",u"t",u"x"])
+            for an_s,a_t,an_x in zip(errors,t,x):
+                writer.writerow([float(an_s),float(a_t),float(an_x)])
+        print(filename, "created")
+    print(len(x))
+    print(x[:4])
+    return (x,errors)
+
+
+def createECHSScenario(trueparams,
+            errors=errors,
+            junkData=echs_x,
+            filebase="testresults/scenario"):
+    filename = nameWithParams(filebase, trueparams, errors)
+    try:
+        print("1")
+        with open(filename,"r") as file:
+            reader = csv.reader(file)
+            header = next(reader)
+            lines = list(reader)
+            s,t,x = zip(*lines)
+        s,x = (floaty(s), floaty(x))
+        print(filename, "from file")
+    except Exception as e:
+        print("exception:",e)
+        maxError = torch.max(errors)
+        save_data = dict()
+        t,x = model(N,N,  None,   junkData,junkData,
+                    errors,errors,
+                    maxError,save_data,1.,
+                    fixedParams = trueparams)
+                    #N,full_N,indices,x,     full_x,errors,full_errors,maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
+
+        with open(filename,"w") as file:
+            writer = csv.writer(file)
+            writer.writerow([u"s",u"t",u"x"])
+            for an_s,a_t,an_x in zip(errors,t,x):
+                writer.writerow([float(an_s),float(a_t),float(an_x)])
+        print(filename, "created")
+    print(len(x))
+    print(x[:4])
+    return x
+
 
 def jsonizable(thing):
     #print("jsonizable...",thing)
@@ -763,12 +815,14 @@ def trainGuide(guidename = "laplace",
             trueparams = tdom_fat_params,
             filename = None,
             errors=errors,
+            subsample_N=SUBSAMPLE_N,
             junkData=echs_x):
 
     guide = guides[guidename]
-    weight = N * 1. / SUBSAMPLE_N
+    weight = N * 1. / subsample_N
+    (x,errors) = createScenario(trueparams, None, N_SAMPLES)
+
     maxError = torch.max(errors)
-    x = createScenario(trueparams, errors, junkData)
 
     print("guidename",guidename)
     print("trueparams",trueparams)
