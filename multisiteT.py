@@ -68,7 +68,7 @@ SUBSAMPLE_N = 11
 LAMBERT_MAX_ITERS = 10
 LAMBERT_TOL = 1e-2
 
-MAX_OPTIM_STEPS = 3001
+MAX_OPTIM_STEPS = 5#3001
 MIN_DF = 2.5
 SMEAN = 0. #ie, 1
 SSCALE = 1.
@@ -115,8 +115,10 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
             yield n
 
     if N==full_N:
+        #print("model fu",N)
         full_units = chosen_units
     else:
+        #print("model fu",full_N)
         full_units = pyro.plate('full_units',full_N)
 
 
@@ -141,6 +143,7 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
         t_scale = maxError/2+torch.exp(fixedParams['t_scale'])
         df = (2. + torch.exp(fixedParams['df'])).requires_grad_()
 
+    #print("model t_part",N,full_N)
     if N==full_N:
         with pyro.plate('2full_units',full_N): #I hate you! but this magic works? #chosen_units:#
             t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(full_N),ts(1.) * t_scale))
@@ -150,7 +153,7 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                 t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(N),ts(1.) * t_scale))
 
     #Latent true values (offset)
-    if indices is not None:
+    if False:#indices is not None:
         #print("indices",indices,full_N,t_part.size())
         good_parts = t_part.index_select(0,indices)
     else:
@@ -210,9 +213,9 @@ def getMLE(nscale, tscale, obs, df):
         assert approx_eq(x**3 + b * x**2 + c * x + d,torch.zeros(1))
     except:
         complain(
-                "assert approx_eq(",x**3, b * x**2, c * x, d)
+                "assert approx_eq(",(x**3)[:10], (b * x**2)[:10], (c * x)[:10], (d)[:10])
         complain(
-                "assert2 approx_eq(",x**3 + b * x**2 + c * x + d)
+                "assert2 approx_eq(",(x**3 + b * x**2 + c * x + d)[:10])
         # raise
     # print("getMLE(",nscale, tscale, obs, df)
     # print("getMLE2(",b, c, d)
@@ -294,8 +297,10 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
             yield n
 
     if N==full_N:
+        #print("guide fu",N)
         full_units = chosen_units
     else:
+        #print("guide fu",full_N)
         @contextlib.contextmanager
         def full_units():
             with pyro.plate('full_units',full_N) as n:
@@ -346,6 +351,7 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
     #true_g_hat.requires_grad = True
     theta_names = list(hat_data.keys())
+    #print("guide t_part",N,full_N,sub_tpart.size(),full_tpart.size())
     hat_data.update(t_part=sub_tpart)
 
     #Get hessian
@@ -354,7 +360,9 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     conditioner = dict()
     conditioner.update((k,transformations[k](v)) for k, v in itertools.chain(hat_data.items(), fhat_data.items()))
     hessCenter = pyro.condition(model,conditioner)
-    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,N,None,x,x,errors,errors,maxError,save_data,weight,scalehyper,tailhyper) #*args,**kwargs)
+    blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,full_N,#None,x,x,errors,errors,
+                                indices,x,full_x,errors,full_errors,
+                                maxError,save_data,weight,scalehyper,tailhyper) #*args,**kwargs)
     logPosterior = blockedTrace.log_prob_sum()
 
     theta_parts = dict((theta_name,hat_data[theta_name]) for theta_name in theta_names)
@@ -445,19 +453,28 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
             raise
 
     if N == full_N:
-        t_part = torch.cat([y.view(-1) for y in ylist],0)
+        full_ylist = ylist
+        t_units = full_units
     else:
-        full_ylist = [None] * full_N
-        for i in range(full_N):
-            if static_mask[i] > 0:
-                full_ylist[i] = full_tpart[i]
-        for i in range(N):
-            full_ylist[indices[i]] = ylist[i]
+        FULL_DIMENSIONAL_TPART = False
+        if FULL_DIMENSIONAL_TPART:
+            full_ylist = [None] * full_N
+            for i in range(full_N):
+                if static_mask[i] > 0:
+                    full_ylist[i] = full_tpart[i]
+            for i in range(N):
+                full_ylist[indices[i]] = ylist[i]
+            t_units = full_units
+        else:
+            full_ylist = ylist
+            t_units = chosen_units
 
-        t_part = torch.cat([y.view(-1) for y in full_ylist],0)
+    #print("guide t_part 2:",len(full_ylist))
+    t_part = torch.cat([y.view(-1) for y in full_ylist],0)
 
     #print("t_part",t_part.size())
-    with full_units():
+
+    with t_units():
         pyro.sample("t_part", dist.Delta(t_part))
     #
     #print("end guide.",theta[:3],mode_hat,nscale_hat,tscale_hat,hess[:5,:5],hess[-3:,-3:])
@@ -564,6 +581,39 @@ def unamortized_laplace(*args,**kwargs):
 #         pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
 #     #
 
+def meanfield(N,full_N,indices,x,full_x,errors,full_errors,maxError,
+                        save_data=None,
+                        weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
+
+    mode_hat = pyro.param("mode_hat",ts(0.))
+    mode_sigma = pyro.param("mode_sigma",torch.ones([]),constraint=constraints.positive)
+    mode = pyro.sample("modal_effect",dist.Normal(mode_hat,mode_sigma))
+
+    ltscale_hat = pyro.param("ltscale_hat",ts(0.))
+    ltscale_sigma = pyro.param("ltscale_sigma",torch.ones([]),constraint=constraints.positive)
+    lts = pyro.sample("log_t_scale",dist.Normal(ltscale_hat,ltscale_sigma),
+            infer={'is_auxiliary': True})
+    t_scale_raw = pyro.sample("t_scale_raw",dist.Delta(torch.exp(lts)))
+
+    #
+    ldfraw_hat = pyro.param("ldfraw_hat",ts(0.))
+    ldfraw_sigma = pyro.param("ldfraw_sigma",torch.ones([]),constraint=constraints.positive)
+    ldf = pyro.sample("log_df",dist.Normal(ldfraw_hat,ldfraw_sigma),
+            infer={'is_auxiliary': True})
+    t_scale_raw = pyro.sample("dfraw",dist.Delta(torch.exp(ldf)))
+    #hat_data.update(fhat_data) #include frequentist value in Hessian
+        #can't, no Hessians of gamma functions
+
+    t_part_hat = pyro.param("t_part_hat",torch.zeros(full_N))
+    t_part_sigma = pyro.param("t_part_sigma",torch.ones(full_N),constraint=constraints.positive)
+    tph = t_part_hat.index_select(0,indices)
+    tps = t_part_sigma.index_select(0,indices)
+    with poutine.scale(scale=weight):
+        with pyro.plate('units',N):
+            t_part = pyro.sample("t_part",dist.Normal(tph,tps),
+                    infer={'is_auxiliary': True})
+
+
 
 data = pd.read_csv('testresults/effects_errors.csv')
 echs_x = torch.tensor(data.effects)
@@ -595,9 +645,9 @@ ndom_norm_params = dict(modal_effect=ts(modal_effect),
 #fake_x = model(N,full_N,indices,echs_x,errors,fixedParams = tdom_params)
 #print("Fake:",fake_x)
 
-autoguide = AutoDiagonalNormal(model)
+#autoguide = AutoDiagonalNormal(model)
 guides = OrderedDict(
-                    meanfield=autoguide,
+                    meanfield=meanfield,
                     amortized_laplace = amortized_laplace,
                     unamortized_laplace = unamortized_laplace,
                     )
@@ -673,12 +723,13 @@ def createECHSScenario(trueparams,
 
 
 def createScenario(trueparams,
-            junkData=echs_x,
             nSites = N_SAMPLES,
             errorDistribution = torch.distributions.Gamma(2,4),
             filebase="testresults/scenario"):
-    errors = errorDistribution.sample(nSites)
+    errors = errorDistribution.sample(torch.Size([nSites]))
+    junkData = errorDistribution.sample(torch.Size([nSites])) #gotta have something, even though it's trashed later
     filename = nameWithParams(filebase, trueparams, errors)
+    N = N_SAMPLES
     try:
         print("1")
         with open(filename,"r") as file:
@@ -816,11 +867,12 @@ def trainGuide(guidename = "laplace",
             filename = None,
             errors=errors,
             subsample_N=SUBSAMPLE_N,
-            junkData=echs_x):
+            N = N_SAMPLES):
 
     guide = guides[guidename]
     weight = N * 1. / subsample_N
-    (x,errors) = createScenario(trueparams, None, N_SAMPLES)
+    (x,errors) = createScenario(trueparams, N)
+    print("Sizes:",x.size(),errors.size())
 
     maxError = torch.max(errors)
 
@@ -844,7 +896,7 @@ def trainGuide(guidename = "laplace",
     #svi = SVI(model, guide, AdagradRMSProp({}), Trace_ELBO(nparticles))
 
 
-    for subsample_n in [N, SUBSAMPLE_N]:
+    for subsample_n in [subsample_N]: #,N]:
         svi = SVI(model, guide, ClippedAdam({'lr': 0.005, 'betas': (0.8,0.9)}), Trace_ELBO(nparticles)) #?
         pyro.clear_param_store()
         losses = []
@@ -856,6 +908,11 @@ def trainGuide(guidename = "laplace",
         for i in range(MAX_OPTIM_STEPS):
             indices = torch.randperm(N)[:subsample_n]
             save_data = dict()
+            # print("stepping",subsample_n,N,indices.size(),
+            #                 x.index_select(0,indices).size(),x.size(),
+            #                 errors.index_select(0,indices).size(),errors.size(),
+            #                 maxError,
+            #                 save_data,weight,ts(10.),ts(10.))
             loss = svi.step(subsample_n,N,indices,
                             x.index_select(0,indices),x,
                             errors.index_select(0,indices),errors,
