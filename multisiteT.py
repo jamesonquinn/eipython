@@ -610,8 +610,7 @@ def meanfield(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     tps = t_part_sigma.index_select(0,indices)
     with poutine.scale(scale=weight):
         with pyro.plate('units',N):
-            t_part = pyro.sample("t_part",dist.Normal(tph,tps),
-                    infer={'is_auxiliary': True})
+            t_part = pyro.sample("t_part",dist.Normal(tph,tps))
 
 
 
