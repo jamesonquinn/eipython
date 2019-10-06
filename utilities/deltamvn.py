@@ -9,7 +9,7 @@ from torch.distributions.utils import _standard_normal, lazy_property
 from torch._six import inf
 from numbers import Number
 from torch.distributions.utils import broadcast_all
-from pyro.distributions.torch_distribution import IndependentConstraint, TorchDistributionMixin, TorchDistribution
+from pyro.distributions.torch_distribution import TorchDistributionMixin, TorchDistribution
 
 
 def _batch_mv(bmat, bvec):

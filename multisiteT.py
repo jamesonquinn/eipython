@@ -152,6 +152,9 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
             with poutine.scale(scale=weight):#chosen_units:#full_units:
                 t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(N),ts(1.) * t_scale))
 
+
+    print("model t_part", t_part)
+
     #Latent true values (offset)
     if False:#indices is not None:
         #print("indices",indices,full_N,t_part.size())
@@ -350,12 +353,12 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     #print("tpart:",tpart)
 
     #true_g_hat.requires_grad = True
-    theta_names = list(hat_data.keys())
+    gamma_names = list(hat_data.keys())
     #print("guide t_part",N,full_N,sub_tpart.size(),full_tpart.size())
     hat_data.update(t_part=sub_tpart)
 
     #Get hessian
-    thetaMean = torch.cat([thetaPart.view(-1) for thetaPart in hat_data.values()],0)
+    gammaMean = torch.cat([gammaPart.view(-1) for gammaPart in hat_data.values()],0)
 
     conditioner = dict()
     conditioner.update((k,transformations[k](v)) for k, v in itertools.chain(hat_data.items(), fhat_data.items()))
@@ -365,9 +368,9 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                                 maxError,save_data,weight,scalehyper,tailhyper) #*args,**kwargs)
     logPosterior = blockedTrace.log_prob_sum()
 
-    theta_parts = dict((theta_name,hat_data[theta_name]) for theta_name in theta_names)
+    gamma_parts = dict((gamma_name,hat_data[gamma_name]) for gamma_name in gamma_names)
     #count parameters
-    usedup = int(sum(theta_parts[pname].nelement() for pname in theta_names))
+    usedup = int(sum(gamma_parts[pname].nelement() for pname in gamma_names))
 
     if save_data and "df_adj" in save_data: #just running to get logPosterior; stop and return
         grad = myhessian.mygradient(logPosterior, hat_data.values())
@@ -375,33 +378,36 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
         return(save_data)
     (hess, grad) = myhessian.arrowhead_hessian(logPosterior, hat_data.values(), headsize=usedup, blocksize=1, return_grad=True)#, allow_unused=True)
     hess = -hess
-    thetapsiraw = pyro.param("thetapsi",torch.zeros(usedup) + LOG_BASE_PSI)
+    gammapsiraw = pyro.param("gammapsi",torch.zeros(usedup) + LOG_BASE_PSI)
     latentpsiraw = pyro.param("latentpsi",torch.zeros(1) + LOG_BASE_PSI)
-    thetapsi = torch.exp(thetapsiraw)
+    gammapsi = torch.exp(gammapsiraw)
     #ensure positive definite
-    head_precision, head_adjustment, lowerblocks = getMpD(hess,usedup,1,thetapsi,torch.exp(latentpsiraw),weight)
+    head_precision, head_adjustment, lowerblocks = getMpD(hess,usedup,1,gammapsi,torch.exp(latentpsiraw),weight)
     #big_precision = rescaledSDD(hess, torch.exp(lpsi), head=3, weight=weight)
 
 
     #invert matrix (maybe later, smart)
-    theta_cov = torch.inverse(head_precision)
+    gamma_cov = torch.inverse(head_precision)
 
-    MVN = dist.MultivariateNormal #for deterministic: MVN = deltaMVN
-    #sample top-level parameters
-    theta = pyro.sample('theta',
-                    MVN(thetaMean[:usedup],
-                                theta_cov),
-                    infer={'is_auxiliary': True})
+    #MVN = dist.MultivariateNormal #for deterministic: MVN = deltaMVN
+    #sample top-level
+    chol = gamma_cov.cholesky()
+    submean = gammaMean[:usedup]
+    gamma = (#pyro.sample('gamma',
+                    dist.OMTMultivariateNormal(submean,chol)#,
+                        .rsample())
+                    #infer={'is_auxiliary': True}))
 
-    #decompose theta into specific values
-    tmptheta = theta
-    for pname in theta_names:
-        phat = theta_parts[pname]
+    import pdb; pdb.set_trace()
+    #decompose gamma into specific values
+    tmpgamma = gamma
+    for pname in gamma_names:
+        phat = gamma_parts[pname]
         elems = phat.nelement()
         #print(f"pname, phat: {pname}, {phat}")
-        pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
+        pdat, tmpgamma = tmpgamma[:elems], tmpgamma[elems:]
         pdat = transformations[pname](pdat)
-        #print(f"adding {pname} from theta ({elems}, {phat.size()})" )
+        #print(f"adding {pname} from gamma ({elems}, {phat.size()})" )
         if pname not in fhat_data: #don't do frequentist params yet, see just below
             pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
 
@@ -411,8 +417,8 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
     #sample unit-level parameters, conditional on top-level ones
     global_indices = ts(range(usedup))
-    base_theta = theta
-    base_theta_hat = thetaMean[:usedup]
+    base_gamma = gamma
+    base_gamma_hat = gammaMean[:usedup]
     ylist = []
     for i in range(N):
         #
@@ -437,16 +443,18 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                     torch.cat([ur,lr],0)
                 ],1)
             )
-        full_mean = thetaMean.index_select(0,full_indices) #TODO: do in-place!
-        new_mean, new_precision = conditional_normal(full_mean, full_precision, usedup, theta)
+        full_mean = gammaMean.index_select(0,full_indices) #TODO: do in-place!
+        new_mean, new_precision = conditional_normal(full_mean, full_precision, usedup, gamma)
 
 
 
         try:
             with poutine.scale(scale=weight):
-                ylist.append( pyro.sample(f"y_{i}",
-                                MVN(new_mean, precision_matrix=new_precision),
-                                infer={'is_auxiliary': True}))
+                ylist.append( #pyro.sample(f"y_{i}",
+                                dist.OMTMultivariateNormal(new_mean,
+                                        torch.inverse(new_precision).cholesky())
+                                    .rsample())
+                                #,infer={'is_auxiliary': True}))
         except:
             print(new_precision)
             print(f"det:{np.linalg.det(new_precision.data.numpy())}")
@@ -477,10 +485,10 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     with t_units():
         pyro.sample("t_part", dist.Delta(t_part))
     #
-    #print("end guide.",theta[:3],mode_hat,nscale_hat,tscale_hat,hess[:5,:5],hess[-3:,-3:])
+    #print("end guide.",gamma[:3],mode_hat,nscale_hat,tscale_hat,hess[:5,:5],hess[-3:,-3:])
     #
-    #print(".....1....",true_g_hat,theta[-6:])
-    #print(".....2....",theta[-9:-6])
+    #print(".....1....",true_g_hat,gamma[-6:])
+    #print(".....2....",gamma[-9:-6])
 
     if amortize:
         def fix_m_grad():
@@ -488,6 +496,11 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
             if torch.any(torch.isnan(mode_hat.grad)):
                 complain( "mode_hat.grad")
             if torch.any(torch.isnan(dm.grad)):
+                ftp = full_tpart
+                stp = sub_tpart
+                tp = t_part
+
+                import pdb; pdb.set_trace()
                 complain("dm.grad")
             else:
                 yay("fix_m_grad")
@@ -500,8 +513,16 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
         def fix_t_grad():
             if torch.any(torch.isnan(ltscale_hat.grad)):
                 complain( "ltscale_hat.grad")
+                ftp = full_tpart
+                stp = sub_tpart
+                tp = t_part
+                import pdb; pdb.set_trace()
             if torch.any(torch.isnan(dtr.grad)):
                 complain( "dtr.grad")
+                ftp = full_tpart
+                stp = sub_tpart
+                tp = t_part
+                import pdb; pdb.set_trace()
             else:
                 ltscale_hat.grad = ltscale_hat.grad + dtr.grad
             ltscale_hat.grad[ltscale_hat.grad == float("Inf")] = 1e10
@@ -512,8 +533,16 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
         def fix_df_grad():
             if torch.any(torch.isnan(ldfraw_hat.grad)):
                 complain( "ldfraw_hat.grad")
+                ftp = full_tpart
+                stp = sub_tpart
+                tp = t_part
+                import pdb; pdb.set_trace()
             if torch.any(torch.isnan(ddfr.grad)):
                 complain( "ddfr.grad")
+                ftp = full_tpart
+                stp = sub_tpart
+                tp = t_part
+                import pdb; pdb.set_trace()
             else:
                 ldfraw_hat.grad = ldfraw_hat.grad + ddfr.grad
             ldfraw_hat.grad[ldfraw_hat.grad == float("Inf")] = 1e10
@@ -529,7 +558,7 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                         head_adjustment=head_adjustment,
                         grad=grad,
                         df = ddf,
-                        thetapsiraw=thetapsiraw,
+                        gammapsiraw=gammapsiraw,
                         latentpsiraw=latentpsiraw)
     return(save_data)
     #
@@ -561,22 +590,22 @@ def unamortized_laplace(*args,**kwargs):
 #     hat_data.update(t_part=true_g_hat)
 #
 #     #Get hessian
-#     thetaMean = torch.cat([thetaPart.view(-1) for thetaPart in hat_data.values()],0)
-#     nparams = len(thetaMean)
+#     gammaMean = torch.cat([gammaPart.view(-1) for gammaPart in hat_data.values()],0)
+#     nparams = len(gammaMean)
 #
-#     theta_scale = pyro.param("theta_scale",torch.ones(nparams))
+#     gamma_scale = pyro.param("gamma_scale",torch.ones(nparams))
 #
 #     #declare global-level psi params
-#     theta = pyro.sample('theta',
-#                     dist.Normal(thetaMean,torch.abs(theta_scale)).independent(1),
+#     gamma = pyro.sample('gamma',
+#                     dist.Normal(gammaMean,torch.abs(gamma_scale)).independent(1),
 #                     infer={'is_auxiliary': True})
 #
-#     #decompose theta into specific values
-#     tmptheta = theta
+#     #decompose gamma into specific values
+#     tmpgamma = gamma
 #     for pname, phat in hat_data.items():
 #         elems = phat.nelement()
-#         pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
-#         #print(f"adding {pname} from theta ({elems}, {phat.size()})" )
+#         pdat, tmpgamma = tmpgamma[:elems], tmpgamma[elems:]
+#         #print(f"adding {pname} from gamma ({elems}, {phat.size()})" )
 #
 #         pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
 #     #

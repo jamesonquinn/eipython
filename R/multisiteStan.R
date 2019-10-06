@@ -18,9 +18,8 @@ rstan_options(auto_write = TRUE)
 
 
 maxError = 0.27889007329940796
-DEFAULT_N = 44
+DEFAULT_N = 400
 SMALL_S = 11
-SUBSAMPLE_NS = c(DEFAULT_N, SMALL_S) 
 
 VARS_TO_PLOT = c(1:4,20,45)
 #VARS_TO_PLOT = c(1,45)
@@ -50,9 +49,11 @@ guide_labels = c("amortized Laplace",
 names(guide_colors) = all_guides
 names(guide_labels) = all_guides
 
-subsample_line_types = c(1,2)
+SUBSAMPLE_NS = c(400, 150,50,25,12) 
+subsample_line_types = c(1,2,3,4,5)
 names(subsample_line_types) = as.character(SUBSAMPLE_NS)
-subsample_labels = c("un-subsampled","subsampled (22/44)")
+subsample_labels = as.character(SUBSAMPLE_NS)
+subsample_labels[1] = "un-subsampled"
 names(subsample_labels) = as.character(SUBSAMPLE_NS)
 
 
@@ -157,15 +158,21 @@ getMCMCfor = function(params) {
   amat = as.matrix(afit)
   return(amat)
 }
-
 getRawFitFor = function(params,S,guide ="amortized_laplace"){
   
   jsonName = nameWithParams(qq("../testresults/fit_@{guide}_0"),params,S)
   print(jsonName)
   fittedGuide = fromJSON(file=jsonName)
   if (guide=="meanfield") {
-    hess = diag(fittedGuide$auto_scale**2)
-    mean = fittedGuide$auto_loc
+    hess = diag(c(fittedGuide$mode_sigma,
+                  fittedGuide$ltscale_sigma,
+                  fittedGuide$ldfraw_sigma,
+                  fittedGuide$t_part_sigma))
+    mean = c(fittedGuide$mode_hat,
+             fittedGuide$ltscale_hat,
+             fittedGuide$ldfraw_hat,
+             fittedGuide$t_part_hat
+             )
     d = length(mean)
   } else {
     rawhess = unlist(fittedGuide$raw_hessian)
@@ -189,8 +196,15 @@ getFitFor = function(params,S,guide ="amortized_laplace"){
   print(jsonName)
   fittedGuide = fromJSON(file=jsonName)
   if (guide=="meanfield") {
-    hess = diag(fittedGuide$auto_scale**2)
-    mean = fittedGuide$auto_loc
+    hess = diag(c(fittedGuide$mode_sigma,
+                  fittedGuide$ltscale_sigma,
+                  fittedGuide$ldfraw_sigma,
+                  fittedGuide$t_part_sigma))
+    mean = c(fittedGuide$mode_hat,
+             fittedGuide$ltscale_hat,
+             fittedGuide$ldfraw_hat,
+             fittedGuide$t_part_hat
+    )
     d = length(mean)
   } else {
     rawhess = unlist(fittedGuide$raw_hessian)
@@ -395,3 +409,4 @@ arrowblockhead = function(a,b,c,n,p) {
   result = result + diag(c,n)
   return(result)
 }
+
