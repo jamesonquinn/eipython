@@ -74,7 +74,7 @@ SMEAN = 0. #ie, 1
 SSCALE = 1.
 DMEAN = 1. #ie, 2.7
 DSCALE = 1.5
-
+MIN_SIGMA_OVER_S = 2.2
 
 FUCKING_TENSOR_TYPE = type(torch.tensor(1.))
 
@@ -130,8 +130,9 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     #prior on μ_x
     modal_effect = pyro.sample('modal_effect',dist.Normal(ts(0.),ts(20.)))
 
+    min_sigma = maxError*MIN_SIGMA_OVER_S
     #prior on sd(τ)
-    t_scale = maxError/2+pyro.sample('t_scale_raw',dist.LogNormal(smean,sscale))
+    t_scale = min_sigma   +pyro.sample('t_scale_raw',dist.LogNormal(smean,sscale))
 
     #prior on df
     df = MIN_DF + pyro.sample('dfraw',dist.LogNormal(dmean,dscale))
@@ -140,8 +141,8 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
         print("generating data",fixedParams)
         #
         modal_effect = fixedParams['modal_effect']
-        t_scale = maxError/2+torch.exp(fixedParams['t_scale'])
-        df = (2. + torch.exp(fixedParams['df'])).requires_grad_()
+        t_scale = min_sigma + torch.exp(fixedParams['t_scale'])
+        df = (MIN_DF + torch.exp(fixedParams['df'])).requires_grad_()
 
     #print("model t_part",N,full_N)
     if N==full_N:
@@ -361,7 +362,7 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     dtr = ltscale_hat.detach().requires_grad_() #detached... raw
     ddfr = ldfraw_hat.detach().requires_grad_() #detached... raw
 
-    dt =  maxError/2 + torch.exp(dtr) #detached, cook
+    dt =  maxError*MIN_SIGMA_OVER_S + torch.exp(dtr) #detached, cook
     ddf = MIN_DF + torch.exp(ddfr) #detached, cook
 
 
@@ -840,6 +841,7 @@ def createScenario(trueparams,
             errorDistribution = torch.distributions.Gamma(2,4),
             filebase="testresults/scenario"):
     errors = errorDistribution.sample(torch.Size([nSites]))
+    errors[(errors>1).nonzero()] = 1.
     junkData = errorDistribution.sample(torch.Size([nSites])) #gotta have something, even though it's trashed later
     filename = nameWithParams(filebase, trueparams, errors)
     N = N_SAMPLES
@@ -1103,4 +1105,7 @@ def trainGuide(guidename = "laplace",
         print("guidename",guidename)
         print("trueparams",trueparams)
         for (key, val) in sorted(pyro.get_param_store().items()):
-            print(f"{key}:\n{val}")
+            if sum(val.size()) > 1:
+                print(f"{key}:\n{val[:10]} (10 elems)")
+            else:
+                print(f"{key}:\n{val}")

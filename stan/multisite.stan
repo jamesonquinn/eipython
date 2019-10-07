@@ -3,6 +3,7 @@ data {
   vector[N] se; // known standard errors
   vector[N] x; // observations
   real maxError;
+  real MIN_SIGMA_OVER_S;
   real mindf;
   real dmean;
   real smean;
@@ -22,6 +23,6 @@ model {
   mu ~ normal(0,20.0);
 
   //model
-  T ~ student_t(exp(d) + mindf, 0., exp(varsigma) + maxError/2);
+  T/(exp(varsigma) + maxError*MIN_SIGMA_OVER_S) ~ student_t(exp(d) + mindf, 0., 1.);
   x ~ normal(T + mu, se);
 }
