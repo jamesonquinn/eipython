@@ -18,6 +18,7 @@ rstan_options(auto_write = TRUE)
 
 
 maxError = 0.27889007329940796
+maxError = 1.
 DEFAULT_N = 400
 SMALL_S = 11
 
@@ -26,15 +27,11 @@ VARS_TO_PLOT = c(1:4,20,45)
 
 #globals copied from python
 MIN_DF = 2.5
-SMEAN = 0 #ie, 1
-SSCALE = 1
-DMEAN = 1 #ie, 2.7
+SMEAN = 0. #ie, 1
+SSCALE = 1.
+DMEAN = 1. #ie, 2.7
 DSCALE = 1.5
-
-
-
-MIN_SIGMA_OVER_S = 2.2
-#MIN_SIGMA_OVER_S = .5 #temp for old output; DELETE
+MIN_SIGMA_OVER_S = 1.
 ###########
 
 var_names = c(TeX("$\\mu$"),TeX("$\\varsigma$"),TeX("$d$"))
@@ -152,7 +149,21 @@ getScenario = function(params) {
   fread(nameWithParams("../testresults/scenario",params))
 }
 
+#ndom_norm_params = dict(modal_effect=ts(modal_effect),
+#                        df=ts(3.),
+#                        t_scale=ts(-1.))
 
+toMCMClanguage = function(params,x) {
+  giveVals = function(...) {
+    result = list()
+    result$mu = params$modal_effect
+    result$d = params$df
+    result$varsigma = params$t_scale
+    result$T = x
+    return(result)
+  }
+  return(giveVals)
+}
 
 getMCMCfor = function(params) {
   scenario = getScenario(params)
@@ -167,7 +178,9 @@ getMCMCfor = function(params) {
                                      smean=SMEAN,
                                      dmean=DMEAN,
                                      dscale=DSCALE,
-                                     sscale=SSCALE))
+                                     sscale=SSCALE)
+                  #,init=toMCMClanguage(params,scenario[,x]))
+                  )
   amat = as.matrix(afit)
   return(amat)
 }

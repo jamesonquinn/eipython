@@ -23,6 +23,6 @@ model {
   mu ~ normal(0,20.0);
 
   //model
-  T/(exp(varsigma) + maxError*MIN_SIGMA_OVER_S) ~ student_t(exp(d) + mindf, 0., 1.);
+  T ~ student_t(exp(d) + mindf, 0., exp(varsigma) + maxError*MIN_SIGMA_OVER_S);
   x ~ normal(T + mu, se);
 }

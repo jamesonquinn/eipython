@@ -1,0 +1,66 @@
+Oct 7:
+
+I recently increased MIN_SIGMA_OVER_S to 2.2 and now things are crashing. I'm gonna set it down to .5 again just to see if things work. Meanwhile, here's some debug logging:
+
+
+epoch 500 loss = 1193.1143939495087;
+mode_hat tensor(0.5864, requires_grad=True)
+ltscale_hat tensor(-1.9894, requires_grad=True)
+ldfraw_hat tensor(2.0704, requires_grad=True)
+yay -1520
+yay -1580
+/anaconda3/lib/python3.7/site-packages/pyro/poutine/trace_struct.py:224: UserWarning: Encountered NaN: log_prob_sum at site 't_scale_raw'
+  warn_if_nan(site["log_prob_sum"], "log_prob_sum at site '{}'".format(name))
+/anaconda3/lib/python3.7/site-packages/pyro/infer/trace_elbo.py:135: UserWarning: Encountered NaN: loss
+  warn_if_nan(loss, "loss")
+complaint 9 ltscale_hat.grad
+> /Users/chema/Dropbox/eipython/eipython/multisiteT.py(596)fix_t_grad()
+-> if torch.any(torch.isnan(dtr.grad)):
+(Pdb) isnan(dtr.grad).nonzero()
+*** NameError: name 'isnan' is not defined
+(Pdb) torch.isnan(dtr.grad).nonzero()
+tensor([], size=(1, 0), dtype=torch.int64)
+(Pdb) torch.isnan(ltscale_hat.grad).nonzero()
+tensor([], size=(1, 0), dtype=torch.int64)
+(Pdb) ltscale_hat.grad
+tensor(nan)
+(Pdb) ltscale_hat
+tensor(-2.0755, requires_grad=True)
+(Pdb) t_part.grad
+(Pdb) sub_tpart.grad
+tensor([nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan])
+(Pdb) ylist[0].grad
+*** NameError: name 'ylist' is not defined
+(Pdb) intermediate_vars[-1].grad
+tensor([79.5552])
+(Pdb) for (i,var) in enumerate(intermediate_vars): print(i,var.grad.view(-1)[:4])
+0 tensor([nan])
+1 tensor([nan])
+2 tensor([nan])
+3 tensor([0., 0., 0., 0.])
+4 tensor([nan, nan, nan, nan])
+5 tensor([nan, nan, nan, nan])
+6 tensor([-6.0079,     nan])
+7 tensor([nan, 0., nan, nan])
+8 tensor([nan, nan, nan, nan])
+9 tensor([248.5287])
+10 tensor([-38.5357])
+11 tensor([-320.3403])
+12 tensor([264.1711])
+13 tensor([223.9528])
+14 tensor([-21.8412])
+15 tensor([-328.4545])
+16 tensor([253.6774])
+17 tensor([181.5345])
+18 tensor([302.4854])
+19 tensor([-180.2547])
+20 tensor([79.5552])
+
+...where
+
+      intermediate_vars = [dm,dt,ddf,full_tpart,
+                          sub_tpart,hess,
+                          submean,chol,gamma_cov] + ylist
+
+
+.....

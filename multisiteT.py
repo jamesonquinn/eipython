@@ -74,7 +74,7 @@ SMEAN = 0. #ie, 1
 SSCALE = 1.
 DMEAN = 1. #ie, 2.7
 DSCALE = 1.5
-MIN_SIGMA_OVER_S = 2.2
+MIN_SIGMA_OVER_S = 1. #1.9
 
 FUCKING_TENSOR_TYPE = type(torch.tensor(1.))
 
@@ -995,7 +995,7 @@ def trainGuide(guidename = "laplace",
 
     print("guidename",guidename)
     print("trueparams",trueparams)
-    print("esize",x.size())
+    print("sizes",x.size(),N,subsample_N,weight)
 
     if filename is None:
         file = FakeSink()
