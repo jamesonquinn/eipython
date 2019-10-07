@@ -153,7 +153,7 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                 t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(N),ts(1.) * t_scale))
 
 
-    print("model t_part", t_part)
+    #print("model t_part", t_part)
 
     #Latent true values (offset)
     if False:#indices is not None:
@@ -184,7 +184,20 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 def cuberoot(x):
     return torch.sign(x) * torch.abs(x) ** (1./3.)
 
-def getMLE(nscale, tscale, obs, df):
+EVIL_HACK_EPSILON = 0.0000000000001 #OMG this is evil
+
+def evil_hack_fix(t): #ensure a tensor has no zero elements by adding or subtracting epsilon
+    #this is because the gradient of the cube root of 0 is NaN. Usually, the dimension where
+    #the 0 occurs isn't even in the subsample but it still blows up the overall gradient. So just
+    #force things not to be 0 and it works. Yuck.
+    if torch.randint(0,2,[1]) == 0:
+        evil_hack_epsilon = EVIL_HACK_EPSILON
+    else:
+        evil_hack_epsilon = -EVIL_HACK_EPSILON
+    t2 = t.detach()
+    return t + ((t2==0).float() * evil_hack_epsilon)
+
+def getMLE(nscale, tscale, obs, df, return_intermediates=False):
     #assert getDiscriminant(nscale, tscale, obs, df) < 0 #only one root
     try:
         assert torch.all(tscale / nscale > math.sqrt((df + 1)/df/8)) #only one root, regardless of obs; redundant, stronger
@@ -210,22 +223,36 @@ def getMLE(nscale, tscale, obs, df):
     else:
         insqrt = torch.sqrt(inner)
 
-    x = cuberoot(q + insqrt) + cuberoot(q - insqrt) + p
+    plusterm, minusterm = (q + insqrt, q - insqrt)
+    plustermfixed = evil_hack_fix(plusterm )
+    minustermfixed = evil_hack_fix(minusterm)
+    crpt,crmt = (cuberoot(plustermfixed), cuberoot(minustermfixed))
+    x = crpt + crmt + p
+    shouldBeZero = x**3 + b * x**2 + c * x + d
 
     try:
-        assert approx_eq(x**3 + b * x**2 + c * x + d,torch.zeros(1))
+        assert approx_eq(shouldBeZero,torch.zeros(1))
     except:
+        badIx = (torch.abs(shouldBeZero)>.01).nonzero()
         complain(
-                "assert approx_eq(",(x**3)[:10], (b * x**2)[:10], (c * x)[:10], (d)[:10])
-        complain(
-                "assert2 approx_eq(",(x**3 + b * x**2 + c * x + d)[:10])
+                "assert approx_eq:",badIx,
+                "\n              1..",(x**3)[badIx], (b * x**2)[badIx], (c * x)[badIx], (d)[badIx],
+                "\n              2..",shouldBeZero[badIx])
         # raise
     # print("getMLE(",nscale, tscale, obs, df)
     # print("getMLE2(",b, c, d)
     # print("getMLE3(",p, q, r, inner, insqrt, x)
     # print("getMLE3(", (q - insqrt), (q - insqrt) ** (1./3.))
+    if return_intermediates:
+        return (x,[b,c,d,p,q,r,inner,insqrt,plustermfixed, minustermfixed,crpt,crmt,shouldBeZero,tsq])
     return x
 
+def SillyGetMLE(nscale, tscale, obs, df, return_intermediates=False):
+    silly_result = torch.sqrt(nscale**2 + tscale**2 + obs**2 + df**2)
+
+    if return_intermediates:
+        return (silly_result,[nscale, tscale, obs, df])
+    return silly_result
 
 def getscaleddens(nscale,tscale,df,np,tp):
     #print("getdens(",nscale,tscale,df,np,tp)
@@ -340,7 +367,8 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
     #print("amortized_laplace:",torch.max(errors),maxError,torch.max(errors)/dt)
     if amortize:
-        full_tpart = getMLE(full_errors, dt, full_x-dm, ddf)
+        (full_tpart,MLEvars) = getMLE(full_errors, dt, full_x-dm, ddf,
+                                            return_intermediates=True)
     else:
         full_tpart = pyro.param("full_tmode", full_x - torch.ones(full_N) * torch.mean(full_x))
 
@@ -391,14 +419,24 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
     #MVN = dist.MultivariateNormal #for deterministic: MVN = deltaMVN
     #sample top-level
-    chol = gamma_cov.cholesky()
     submean = gammaMean[:usedup]
-    gamma = (#pyro.sample('gamma',
-                    dist.OMTMultivariateNormal(submean,chol)#,
-                        .rsample())
+    chol = gamma_cov.cholesky()
+    #pyro.sample('gamma',
+    gamma = dist.OMTMultivariateNormal(submean,chol).rsample()
                     #infer={'is_auxiliary': True}))
 
-    import pdb; pdb.set_trace()
+    if False: #testing code. TODO: delete
+        meanie = torch.tensor([5.,6.]).requires_grad_()
+        coviemom = torch.eye(2).requires_grad_()
+        covie = coviemom * 4.
+        cholo = covie.cholesky()
+        outie = dist.OMTMultivariateNormal(meanie,cholo).rsample()
+        [eachvar.retain_grad() for eachvar in
+            [covie,cholo,submean,chol,gamma_cov]
+        ]
+        #outie[0].backward(retain_graph=True)
+        import pdb; pdb.set_trace()
+
     #decompose gamma into specific values
     tmpgamma = gamma
     for pname in gamma_names:
@@ -474,12 +512,29 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                 full_ylist[indices[i]] = ylist[i]
             t_units = full_units
         else:
+            #print("full_ylist = ylist")
             full_ylist = ylist
             t_units = chosen_units
 
     #print("guide t_part 2:",len(full_ylist))
     t_part = torch.cat([y.view(-1) for y in full_ylist],0)
 
+
+    if False: #the debugging that led me to add evil_hack above
+        fake_outcome = torch.sum(t_part**2)
+        intermediate_vars = [dm,dt,ddf,full_tpart,
+                            sub_tpart,hess,
+                            submean,chol,gamma_cov] + ylist
+        [eachvar.retain_grad() for eachvar in
+            intermediate_vars + MLEvars
+        ]
+        fake_outcome.backward()
+        print("Elementary:")
+        print(torch.isnan(MLEvars[9].grad).nonzero())
+        print(MLEvars[-2][240:250])
+        for i in range(len(MLEvars)-1):
+            print(i,":",MLEvars[i][240:245])
+        import pdb; pdb.set_trace()
     #print("t_part",t_part.size())
 
     with t_units():
@@ -490,18 +545,34 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     #print(".....1....",true_g_hat,gamma[-6:])
     #print(".....2....",gamma[-9:-6])
 
+
     if amortize:
+        intermediate_vars = [dm,dt,ddf,full_tpart,
+                            sub_tpart,hess,
+                            submean,chol,gamma_cov] + ylist
+        [eachvar.retain_grad() for eachvar in
+            intermediate_vars + MLEvars
+        ]
         def fix_m_grad():
             #print("fix_m_grad")
             if torch.any(torch.isnan(mode_hat.grad)):
                 complain( "mode_hat.grad")
             if torch.any(torch.isnan(dm.grad)):
+                complain("dm.grad")
                 ftp = full_tpart
                 stp = sub_tpart
                 tp = t_part
-
+                iv = intermediate_vars + MLEvars
+                a,b,c,d = full_errors, dt, full_x-dm, ddf
+                print("intermediate_vars")
+                for eachvar in intermediate_vars: print(eachvar.grad)
+                print("MLE vars")
+                for eachvar in MLEvars: print(eachvar.grad)
+                print(indices)
+                #getMLE(full_errors[243].unsqueeze(-1),dt,full_x[243].unsqueeze(-1)-dm,ddf,return_intermediates=True)
+                #for i in range(2,len(MLEvars)): print("var",i,"val",MLEvars[i][243],"grad",MLEvars[i].grad[243])
+                #for i in range(2,len(MLEvars)): print(torch.isnan(MLEvars[i].grad).nonzero())
                 import pdb; pdb.set_trace()
-                complain("dm.grad")
             else:
                 yay("fix_m_grad")
                 mode_hat.grad = mode_hat.grad + dm.grad
@@ -516,12 +587,16 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                 ftp = full_tpart
                 stp = sub_tpart
                 tp = t_part
+                iv = intermediate_vars + MLEvars
+                a,b,c,d = full_errors, dt, full_x-dm, ddf
                 import pdb; pdb.set_trace()
             if torch.any(torch.isnan(dtr.grad)):
                 complain( "dtr.grad")
                 ftp = full_tpart
                 stp = sub_tpart
                 tp = t_part
+                iv = intermediate_vars + MLEvars
+                a,b,c,d = full_errors, dt, full_x-dm, ddf
                 import pdb; pdb.set_trace()
             else:
                 ltscale_hat.grad = ltscale_hat.grad + dtr.grad
@@ -536,12 +611,22 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                 ftp = full_tpart
                 stp = sub_tpart
                 tp = t_part
+                iv = intermediate_vars + MLEvars
+                a,b,c,d = full_errors, dt, full_x-dm, ddf
                 import pdb; pdb.set_trace()
             if torch.any(torch.isnan(ddfr.grad)):
                 complain( "ddfr.grad")
                 ftp = full_tpart
                 stp = sub_tpart
                 tp = t_part
+                iv = intermediate_vars + MLEvars
+                a,b,c,d = full_errors, dt, full_x-dm, ddf
+                print("intermediate_vars")
+                for eachvar in intermediate_vars: print(eachvar.grad)
+                print("MLE vars")
+                for eachvar in MLEvars: print(eachvar.grad)
+                print(indices)
+                #for i in range(len(MLEvars)): if sum(MLEvars[i].size()) > 1: print("var",i,"val",MLEvars[i][243],"grad",MLEvars[i].grad[243])
                 import pdb; pdb.set_trace()
             else:
                 ldfraw_hat.grad = ldfraw_hat.grad + ddfr.grad
