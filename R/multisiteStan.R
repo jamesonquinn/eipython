@@ -34,7 +34,7 @@ DSCALE = 1.5
 
 
 MIN_SIGMA_OVER_S = 2.2
-MIN_SIGMA_OVER_S = .5 #temp for old output; DELETE
+#MIN_SIGMA_OVER_S = .5 #temp for old output; DELETE
 ###########
 
 var_names = c(TeX("$\\mu$"),TeX("$\\varsigma$"),TeX("$d$"))
@@ -62,8 +62,8 @@ subsample_labels[1] = "un-subsampled"
 names(subsample_labels) = as.character(SUBSAMPLE_NS)
 
 #temp: no 400
-SUBSAMPLE_NS = c(150,50,25,12) 
-subsample_line_types = c(1,2,3,4)
+SUBSAMPLE_NS = c(50,25,12) 
+subsample_line_types = c(1,2,3)
 names(subsample_line_types) = as.character(SUBSAMPLE_NS)
 subsample_labels = as.character(SUBSAMPLE_NS)
 names(subsample_labels) = as.character(SUBSAMPLE_NS)

@@ -78,6 +78,9 @@ MIN_SIGMA_OVER_S = 2.2
 
 FUCKING_TENSOR_TYPE = type(torch.tensor(1.))
 
+
+EVIL_HACK_EPSILON = 0.00000001 #OMG this is evil
+
 def complain(*args):
     global COMPLAINTS_REMAINING
     COMPLAINTS_REMAINING -= 1
@@ -185,7 +188,6 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 def cuberoot(x):
     return torch.sign(x) * torch.abs(x) ** (1./3.)
 
-EVIL_HACK_EPSILON = 0.0000000000001 #OMG this is evil
 
 def evil_hack_fix(t): #ensure a tensor has no zero elements by adding or subtracting epsilon
     #this is because the gradient of the cube root of 0 is NaN. Usually, the dimension where
@@ -838,7 +840,7 @@ def createECHSScenario(trueparams,
 
 def createScenario(trueparams,
             nSites = N_SAMPLES,
-            errorDistribution = torch.distributions.Gamma(2,4),
+            errorDistribution = torch.distributions.Gamma(3,4),
             filebase="testresults/scenario"):
     errors = errorDistribution.sample(torch.Size([nSites]))
     errors[(errors>1).nonzero()] = 1.
