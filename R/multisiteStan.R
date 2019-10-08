@@ -41,12 +41,14 @@ for (i in 1:44) {
               
 
 all_guides = c("amortized_laplace",
-               "unamortized_laplace",
+               #"unamortized_laplace",
                "meanfield")
 
-guide_colors = c("red","blue","green")
+guide_colors = c("red",
+                 #"blue",
+                 "green")
 guide_labels = c("amortized Laplace",
-               "unamortized Laplace",
+               #"unamortized Laplace",
                "mean-field")
 names(guide_colors) = all_guides
 names(guide_labels) = all_guides
@@ -59,8 +61,8 @@ subsample_labels[1] = "un-subsampled"
 names(subsample_labels) = as.character(SUBSAMPLE_NS)
 
 #temp: no 400
-SUBSAMPLE_NS = c(50,25,12) 
-subsample_line_types = c(1,2,3)
+SUBSAMPLE_NS = c(50,10) 
+subsample_line_types = c(1,2)
 names(subsample_line_types) = as.character(SUBSAMPLE_NS)
 subsample_labels = as.character(SUBSAMPLE_NS)
 names(subsample_labels) = as.character(SUBSAMPLE_NS)
@@ -71,7 +73,7 @@ ts = function(x){x}
 dict = function(...){list(...)}
 
 base_scale = 1.
-modal_effect = .5*base_scale
+modal_effect = 1.*base_scale
 tdom_fat_params = dict(modal_effect=ts(modal_effect),
                        df=ts(-1.),
                        t_scale=ts(1.))
@@ -136,12 +138,14 @@ if (FALSE) { #old noodling-around code
 
 
 specify_decimal = function(x, k=1) trimws(format(round(x, k), nsmall=k))
-
+#testresults\fit_amortized_laplace_0_N400_S10_mu1.0_sigma-2.3025851249694824_nu2.5+exp-0.6931471824645996.csv
 nameWithParams = function(filebase, trueparams, S=NA, N=DEFAULT_N){
   if (is.na(S)) {
-    qq("@{filebase}_N@{N}_mu@{specify_decimal(trueparams$modal_effect)}_sigma@{specify_decimal(trueparams$t_scale)}_nu@{specify_decimal(MIN_DF)}+exp@{specify_decimal(trueparams$df)}.csv")
+    #qq("@{filebase}_N@{N}_mu@{specify_decimal(trueparams$modal_effect)}_sigma@{specify_decimal(trueparams$t_scale)}_nu@{specify_decimal(MIN_DF)}+exp@{specify_decimal(trueparams$df)}.csv")
+    qq("@{filebase}_N@{N}_mu@{specify_decimal(trueparams$modal_effect)}_sigma-2.3025851249694824_nu2.5+exp-0.6931471824645996.csv")
   } else {
-    qq("@{filebase}_N@{N}_S@{S}_mu@{specify_decimal(trueparams$modal_effect)}_sigma@{specify_decimal(trueparams$t_scale)}_nu@{specify_decimal(MIN_DF)}+exp@{specify_decimal(trueparams$df)}.csv")
+    #qq("@{filebase}_N@{N}_S@{S}_mu@{specify_decimal(trueparams$modal_effect)}_sigma@{specify_decimal(trueparams$t_scale)}_nu@{specify_decimal(MIN_DF)}+exp@{specify_decimal(trueparams$df)}.csv")
+    qq("@{filebase}_N@{N}_S@{S}_mu@{specify_decimal(trueparams$modal_effect)}_sigma-2.3025851249694824_nu2.5+exp-0.6931471824645996.csv")
   }
 }
 
@@ -414,7 +418,7 @@ klOfLogdensities = function(a,b) {
   return(mean(a) - mean(b))
 }
 
-fat_metrics = get_metrics_for(ndom_fat_params)#,dographs=all_guides[1])
+fat_metrics = get_metrics_for(ndom_fat_params)#,dographs=all_guides[c(1,3)])
 #norm_metrics = get_metrics_for(ndom_norm_params,dographs=c())
 
 arrowhead = function(a,b,c,n) {
