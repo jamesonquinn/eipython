@@ -828,7 +828,7 @@ def createECHSScenario(trueparams,
 
 def createScenario(trueparams,
             nSites = N_SAMPLES,
-            errorDistribution = torch.distributions.Gamma(3,4),
+            errorDistribution = torch.distributions.Gamma(4,4),
             filebase="testresults/scenario"):
     errors = errorDistribution.sample(torch.Size([nSites]))
     errors[(errors>1).nonzero()] = 1.
