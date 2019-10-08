@@ -74,7 +74,7 @@ SMEAN = 0. #ie, 1
 SSCALE = 1.
 DMEAN = 1. #ie, 2.7
 DSCALE = 1.5
-MIN_SIGMA_OVER_S = 1. #1.9
+MIN_SIGMA_OVER_S = 1.9
 
 FUCKING_TENSOR_TYPE = type(torch.tensor(1.))
 
@@ -326,7 +326,7 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     units_plate = pyro.plate('units',N)
     @contextlib.contextmanager
     def chosen_units():
-        with units_plate as n, poutine.scale(scale=weight) as nscale:
+        with units_plate as n, poutine.scale(scale=1.) as nscale:#weight) as nscale:
             yield n
 
     if N==full_N:
@@ -424,21 +424,10 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     #sample top-level
     submean = gammaMean[:usedup]
     chol = gamma_cov.cholesky()
-    #pyro.sample('gamma',
-    gamma = dist.OMTMultivariateNormal(submean,chol).rsample()
-                    #infer={'is_auxiliary': True}))
 
-    if False: #testing code. TODO: delete
-        meanie = torch.tensor([5.,6.]).requires_grad_()
-        coviemom = torch.eye(2).requires_grad_()
-        covie = coviemom * 4.
-        cholo = covie.cholesky()
-        outie = dist.OMTMultivariateNormal(meanie,cholo).rsample()
-        [eachvar.retain_grad() for eachvar in
-            [covie,cholo,submean,chol,gamma_cov]
-        ]
-        #outie[0].backward(retain_graph=True)
-        import pdb; pdb.set_trace()
+    gamma = pyro.sample('gamma',dist.OMTMultivariateNormal(submean,chol),
+                    infer={'is_auxiliary': True})
+
 
     #decompose gamma into specific values
     tmpgamma = gamma
@@ -490,12 +479,11 @@ def amortized_laplace(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
 
         try:
-            with poutine.scale(scale=weight):
-                ylist.append( #pyro.sample(f"y_{i}",
+            with poutine.scale(scale=1.):#weight):
+                ylist.append( pyro.sample(f"y_{i}",
                                 dist.OMTMultivariateNormal(new_mean,
                                         torch.inverse(new_precision).cholesky())
-                                    .rsample())
-                                #,infer={'is_auxiliary': True}))
+                                ,infer={'is_auxiliary': True}))
         except:
             print(new_precision)
             print(f"det:{np.linalg.det(new_precision.data.numpy())}")

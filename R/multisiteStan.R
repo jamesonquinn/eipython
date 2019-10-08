@@ -31,7 +31,7 @@ SMEAN = 0. #ie, 1
 SSCALE = 1.
 DMEAN = 1. #ie, 2.7
 DSCALE = 1.5
-MIN_SIGMA_OVER_S = 1.
+MIN_SIGMA_OVER_S = 1.9
 ###########
 
 var_names = c(TeX("$\\mu$"),TeX("$\\varsigma$"),TeX("$d$"))
@@ -179,7 +179,7 @@ getMCMCfor = function(params) {
                                      dmean=DMEAN,
                                      dscale=DSCALE,
                                      sscale=SSCALE)
-                  #,init=toMCMClanguage(params,scenario[,x]))
+                  ,init=toMCMClanguage(params,scenario[,x])
                   )
   amat = as.matrix(afit)
   return(amat)
