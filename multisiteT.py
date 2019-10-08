@@ -69,6 +69,9 @@ LAMBERT_MAX_ITERS = 10
 LAMBERT_TOL = 1e-2
 
 MAX_OPTIM_STEPS = 3001
+
+
+
 MIN_DF = 2.5
 SMEAN = 0. #ie, 1
 SSCALE = 1.
@@ -842,7 +845,7 @@ def createScenario(trueparams,
             header = next(reader)
             lines = list(reader)
             s,t,x = zip(*lines)
-        s,x = (floaty(s), floaty(x))
+        s,t,x = (floaty(s), floaty(t), floaty(x))
         print(filename, "from file")
     except Exception as e:
         print("exception:",e)
@@ -853,8 +856,8 @@ def createScenario(trueparams,
                     maxError,save_data,1.,
                     fixedParams = trueparams)
                     #N,full_N,indices,x,     full_x,errors,full_errors,maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
-
-        with open(filename,"w") as file:
+        assert not (os.path.exists(filename)) #don't just blindly overwrite!
+        with open(filename,"w", newline="\n") as file:
             writer = csv.writer(file)
             writer.writerow([u"s",u"t",u"x"])
             for an_s,a_t,an_x in zip(errors,t,x):

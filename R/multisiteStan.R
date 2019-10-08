@@ -179,7 +179,7 @@ getMCMCfor = function(params) {
                                      dmean=DMEAN,
                                      dscale=DSCALE,
                                      sscale=SSCALE)
-                  ,init=toMCMClanguage(params,scenario[,x])
+                  #,init=toMCMClanguage(params,scenario[,x])
                   )
   amat = as.matrix(afit)
   return(amat)
