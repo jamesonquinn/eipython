@@ -613,7 +613,7 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     return(save_data)
     #
 
-def unlaplace_guide(*args,**kwargs):
+def unamortized_laplace(*args,**kwargs):
     return(laplace_guide(*args,amortize=False,**kwargs))
 
 
@@ -726,8 +726,8 @@ ndom_norm_params = dict(modal_effect=ts(modal_effect),
 #autoguide = AutoDiagonalNormal(model)
 guides = OrderedDict(
                     meanfield=meanfield,
-                    laplace_guide = laplace_guide,
-                    unlaplace_guide = unlaplace_guide,
+                    amortized_laplace = laplace_guide,
+                    unamortized_laplace = unamortized_laplace,
                     )
 
 class FakeSink(object):
