@@ -84,6 +84,35 @@ FUCKING_TENSOR_TYPE = type(torch.tensor(1.))
 
 EVIL_HACK_EPSILON = 0.00000001 #OMG this is evil
 
+
+
+data = pd.read_csv('testresults/effects_errors.csv')
+echs_x = torch.tensor(data.effects)
+echs_errors = torch.tensor(data.errors)
+N = len(echs_x)
+base_scale = 1.
+modal_effect = 1.*base_scale
+tdom_fat_params = [dict(modal_effect=modal_effect,
+                            df=3., #actual df is 3
+                            t_scale=10.)] #actual sigma is 10
+#
+ndom_fat_params = [dict(modal_effect=modal_effect,
+                            df=3., #actual df is 3
+                            t_scale=2.)]#actual sigma is 2
+#
+tdom_norm_params = [dict(modal_effect=modal_effect,
+                            df=30., #actual df is 30
+                            t_scale=10.)]#actual sigma is 10
+#
+ndom_norm_params = [dict(modal_effect=modal_effect,
+                            df=30., #actual df is 30
+                            t_scale=2.)]#actual sigma is 2
+
+dummy_echs_params = [dict(modal_effect=0.,
+                            df=0., #actual df is 30
+                            t_scale=0.)]#actual sigma is 2
+
+
 def complain(*args):
     global COMPLAINTS_REMAINING
     COMPLAINTS_REMAINING -= 1
@@ -693,33 +722,6 @@ def meanfield(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
 
 
-data = pd.read_csv('testresults/effects_errors.csv')
-echs_x = torch.tensor(data.effects)
-errors = torch.tensor(data.errors)
-N = len(echs_x)
-if False: #smaller
-    N = 3
-    assert N > SUBSAMPLE_N
-    echs_x = echs_x[:N]
-    errors = errors[:N]
-base_scale = 1.
-modal_effect = 1.*base_scale
-tdom_fat_params = [dict(modal_effect=modal_effect,
-                            df=3., #actual df is 3
-                            t_scale=10.)] #actual sigma is 10
-#
-ndom_fat_params = [dict(modal_effect=modal_effect,
-                            df=3., #actual df is 3
-                            t_scale=2.)]#actual sigma is 2
-#
-tdom_norm_params = [dict(modal_effect=modal_effect,
-                            df=30., #actual df is 30
-                            t_scale=10.)]#actual sigma is 10
-#
-ndom_norm_params = [dict(modal_effect=modal_effect,
-                            df=30., #actual df is 30
-                            t_scale=2.)]#actual sigma is 2
-
 def compile_params(source):
     raw = source[0]
     compiled = dict(modal_effect = ts(raw["modal_effect"]),
@@ -774,6 +776,8 @@ def nameWithParams(filebase, sourceparams, errors, S = None):
     trueparams = sourceparams[0]
     if S is None:
         filename = (f"{filebase}_N{len(errors)}_mu{trueparams['modal_effect']}"+
+
+
             f"_sigma{trueparams['t_scale']}_nu{trueparams['df']}.csv")
     else:
         filename = (f"{filebase}_N{len(errors)}_S{S}_mu{trueparams['modal_effect']}"+
@@ -781,7 +785,7 @@ def nameWithParams(filebase, sourceparams, errors, S = None):
     return filename
 
 def createECHSScenario(sourceparams,
-            errors=errors,
+            errors=echs_errors,
             junkData=echs_x,
             filebase="testresults/scenario"):
     filename = nameWithParams(filebase, sourceparams, errors)
@@ -811,6 +815,8 @@ def createECHSScenario(sourceparams,
                 writer.writerow([float(an_s),float(a_t),float(an_x)])
         print(filename, "created")
     print(len(x))
+
+
     print(x[:4])
     return x
 
@@ -854,8 +860,8 @@ def createScenario(sourceparams,
     return (x,errors)
 
 
-def createECHSScenario(sourceparams,
-            errors=errors,
+def createECHSScenario2(sourceparams,
+            errors=echs_errors,
             junkData=echs_x,
             filebase="testresults/scenario"):
     filename = nameWithParams(filebase, sourceparams, errors)
@@ -974,8 +980,15 @@ def trainGuide(guidename = "laplace",
             N = N_SAMPLES):
 
     guide = guides[guidename]
+    if sourceparams == None:
+        (x,errors) = (echs_x, echs_errors)
+        N = len(x)
+        subsample_N = min(N,subsample_N)
+        sourceparams = dummy_echs_params
+    else:
+        (x,errors) = createScenario(sourceparams, N)
+
     weight = N * 1. / subsample_N
-    (x,errors) = createScenario(sourceparams, N)
     print("Sizes:",x.size(),errors.size())
 
     maxError = torch.max(errors)
