@@ -68,7 +68,7 @@ SUBSAMPLE_N = 11
 LAMBERT_MAX_ITERS = 10
 LAMBERT_TOL = 1e-2
 
-MAX_OPTIM_STEPS = 3001
+MAX_OPTIM_STEPS = 2001
 
 
 
@@ -395,11 +395,11 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     (hess, grad) = myhessian.arrowhead_hessian(logPosterior, hat_data.values(), headsize=len(gamma_names),
                                 blocksize=1, return_grad=True)#, allow_unused=True)
     hess = -hess
-    gammapsiraw = pyro.param("gammapsi",torch.zeros(G) + LOG_BASE_PSI)
+    globalpsiraw = pyro.param("globalpsi",torch.zeros(G) + LOG_BASE_PSI)
     latentpsiraw = pyro.param("latentpsi",torch.zeros(1) + LOG_BASE_PSI)
-    gammapsi = torch.exp(gammapsiraw)
+    globalpsi = torch.exp(globalpsiraw)
     #ensure positive definite
-    head_precision, head_adjustment, lowerblocks = getMpD(hess,G,1,gammapsi,torch.exp(latentpsiraw),weight)
+    head_precision, head_adjustment, lowerblocks = getMpD(hess,G,1,globalpsi,torch.exp(latentpsiraw),weight)
     #big_precision = rescaledSDD(hess, torch.exp(lpsi), head=3, weight=weight)
 
 
@@ -608,7 +608,7 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                         head_adjustment=head_adjustment,
                         grad=grad,
                         df = ddf,
-                        gammapsiraw=gammapsiraw,
+                        globalpsiraw=globalpsiraw,
                         latentpsiraw=latentpsiraw)
     return(save_data)
     #
@@ -704,21 +704,28 @@ if False: #smaller
     errors = errors[:N]
 base_scale = 1.
 modal_effect = 1.*base_scale
-tdom_fat_params = dict(modal_effect=ts(modal_effect),
-                            df=ts(math.log(.5)), #actual df is 3
-                            t_scale=ts(math.log(8.1))) #actual sigma is 10
+tdom_fat_params = [dict(modal_effect=modal_effect,
+                            df=3., #actual df is 3
+                            t_scale=10.)] #actual sigma is 10
 #
-ndom_fat_params = dict(modal_effect=ts(modal_effect),
-                            df=ts(math.log(.5)), #actual df is 3
-                            t_scale=ts(math.log(.1)))#actual sigma is 2
+ndom_fat_params = [dict(modal_effect=modal_effect,
+                            df=3., #actual df is 3
+                            t_scale=2.)]#actual sigma is 2
 #
-tdom_norm_params = dict(modal_effect=ts(modal_effect),
-                            df=ts(math.log(27.5)), #actual df is 30
-                            t_scale=ts(math.log(8.1)))#actual sigma is 10
+tdom_norm_params = [dict(modal_effect=modal_effect,
+                            df=30., #actual df is 30
+                            t_scale=10.)]#actual sigma is 10
 #
-ndom_norm_params = dict(modal_effect=ts(modal_effect),
-                            df=ts(math.log(27.5)), #actual df is 30
-                            t_scale=ts(math.log(.1)))#actual sigma is 2
+ndom_norm_params = [dict(modal_effect=modal_effect,
+                            df=30., #actual df is 30
+                            t_scale=2.)]#actual sigma is 2
+
+def compile_params(source):
+    raw = source[0]
+    compiled = dict(modal_effect = ts(raw["modal_effect"]),
+                    df=ts(math.log(raw["df"] - MIN_DF)),
+                    t_scale=ts(math.log(raw["t_scale"] - MIN_SIGMA_OVER_S)))
+    return compiled
 #
 #fake_x = model(N,full_N,indices,echs_x,errors,fixedParams = tdom_params)
 #print("Fake:",fake_x)
@@ -741,7 +748,7 @@ class FakeSink(object):
 def getLaplaceParams():
     store = pyro.get_param_store()
     result = []
-    for item in ("mode_hat","ltscale_hat","ldfraw_hat","lpsi",):
+    for item in ("mode_hat","ltscale_hat","ldfraw_hat","globalpsi","latentpsi","EMPTY_PLACEHOLDER"):
         try:
             result.append(store[item])
         except:
@@ -751,25 +758,33 @@ def getLaplaceParams():
 
 def getMeanfieldParams():
     store = pyro.get_param_store()
-    return list(store["auto_loc"])[:3]
+    result = []
+    for item in ("mode_hat","ltscale_hat","ldfraw_hat","mode_sigma","ltscale_sigma","ldfraw_sigma"):
+        try:
+            result.append(store[item])
+        except:
+            result.append("")
+
+    return result
 
 def floaty(l):
     return ts([float(i) for i in l])
 
-def nameWithParams(filebase, trueparams, errors, S = None):
+def nameWithParams(filebase, sourceparams, errors, S = None):
+    trueparams = sourceparams[0]
     if S is None:
         filename = (f"{filebase}_N{len(errors)}_mu{trueparams['modal_effect']}"+
-            f"_sigma{trueparams['t_scale']}_nu{round(MIN_DF,1)}+exp{trueparams['df']}.csv")
+            f"_sigma{trueparams['t_scale']}_nu{trueparams['df']}.csv")
     else:
         filename = (f"{filebase}_N{len(errors)}_S{S}_mu{trueparams['modal_effect']}"+
-            f"_sigma{trueparams['t_scale']}_nu{round(MIN_DF,1)}+exp{trueparams['df']}.csv")
+            f"_sigma{trueparams['t_scale']}_nu{trueparams['df']}.csv")
     return filename
 
-def createECHSScenario(trueparams,
+def createECHSScenario(sourceparams,
             errors=errors,
             junkData=echs_x,
             filebase="testresults/scenario"):
-    filename = nameWithParams(filebase, trueparams, errors)
+    filename = nameWithParams(filebase, sourceparams, errors)
     try:
         print("1")
         with open(filename,"r") as file:
@@ -786,7 +801,7 @@ def createECHSScenario(trueparams,
         t,x = model(N,N,  None,   junkData,junkData,
                     errors,errors,
                     maxError,save_data,1.,
-                    fixedParams = trueparams)
+                    fixedParams = compile_params(sourceparams))
                     #N,full_N,indices,x,     full_x,errors,full_errors,maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
 
         with open(filename,"w") as file:
@@ -800,14 +815,14 @@ def createECHSScenario(trueparams,
     return x
 
 
-def createScenario(trueparams,
+def createScenario(sourceparams,
             nSites = N_SAMPLES,
             errorDistribution = torch.distributions.Gamma(4,8),
             filebase="testresults/scenario"):
     errors = errorDistribution.sample(torch.Size([nSites]))
     errors[(errors>1).nonzero()] = 1.
     junkData = errorDistribution.sample(torch.Size([nSites])) #gotta have something, even though it's trashed later
-    filename = nameWithParams(filebase, trueparams, errors)
+    filename = nameWithParams(filebase, sourceparams, errors)
     N = N_SAMPLES
     try:
         print("1")
@@ -825,7 +840,7 @@ def createScenario(trueparams,
         t,x = model(N,N,  None,   junkData,junkData,
                     errors,errors,
                     maxError,save_data,1.,
-                    fixedParams = trueparams)
+                    fixedParams = compile_params(sourceparams))
                     #N,full_N,indices,x,     full_x,errors,full_errors,maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
         assert not (os.path.exists(filename)) #don't just blindly overwrite!
         with open(filename,"w", newline="\n") as file:
@@ -839,11 +854,11 @@ def createScenario(trueparams,
     return (x,errors)
 
 
-def createECHSScenario(trueparams,
+def createECHSScenario(sourceparams,
             errors=errors,
             junkData=echs_x,
             filebase="testresults/scenario"):
-    filename = nameWithParams(filebase, trueparams, errors)
+    filename = nameWithParams(filebase, sourceparams, errors)
     try:
         print("1")
         with open(filename,"r") as file:
@@ -860,7 +875,7 @@ def createECHSScenario(trueparams,
         t,x = model(N,N,  None,   junkData,junkData,
                     errors,errors,
                     maxError,save_data,1.,
-                    fixedParams = trueparams)
+                    fixedParams = compile_params(sourceparams))
                     #N,full_N,indices,x,     full_x,errors,full_errors,maxError,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
 
         with open(filename,"w") as file:
@@ -895,12 +910,12 @@ def jsonize(thing):
     #print("jsonized")
 
 def saveFit(guidename, save_data,
-        trueparams, errors, S,
+        sourceparams, errors, S, nparticles,
         filebase="testresults/fit_"):
     i = 0
     while True:
-        filename = nameWithParams(filebase+guidename+"_"+str(i),
-                trueparams, errors, S)
+        filename = nameWithParams(filebase+guidename+"_"+str(i)+"_parts"+str(nparticles),
+                sourceparams, errors, S)
         if not os.path.exists(filename):
             break
         print("file exists:",filename)
@@ -940,9 +955,19 @@ for i in range(3):
         assert tnewhess[i,j] == (1+i+j) % 2
 #print("addNumericalHessianRow tested")
 
+def writeableList(item):
+    if type(item) is str:
+        return [item]
+    if type(item) is FUCKING_TENSOR_TYPE and sum(item.size()) > 0:
+        return [float(subitem) for subitem in item]
+    return [float(item)]
+
+def myWriteRow(writer,row):
+    writer.writerow(list(itertools.chain(*[writeableList(item) for item in row])))
+
 def trainGuide(guidename = "laplace",
             nparticles = 1,
-            trueparams = tdom_fat_params,
+            sourceparams = tdom_fat_params,
             filename = None,
             errors=errors,
             subsample_N=SUBSAMPLE_N,
@@ -950,20 +975,27 @@ def trainGuide(guidename = "laplace",
 
     guide = guides[guidename]
     weight = N * 1. / subsample_N
-    (x,errors) = createScenario(trueparams, N)
+    (x,errors) = createScenario(sourceparams, N)
     print("Sizes:",x.size(),errors.size())
 
     maxError = torch.max(errors)
 
     print("guidename",guidename)
-    print("trueparams",trueparams)
+    print("sourceparams",sourceparams)
     print("sizes",x.size(),N,subsample_N,weight)
 
+    alreadyExists = True
     if filename is None:
         file = FakeSink()
+
     else:
+        alreadyExists = os.path.exists(filename)
         file = open(filename,"a")
     writer = csv.writer(file)
+    if not(alreadyExists):
+        base_line_names = ["guidename", "runtime","truemu",
+            "truenu","truesigma","i", "time", "loss", "mustar", "sigmastar", "nustar", "XX", "YY", "ZZ"]
+        writer.writerow(base_line_names)
 
     #guide = guide2
     #svi = SVI(model, guide, ClippedAdam({'lr': 0.005}), Trace_ELBO(nparticles))
@@ -981,9 +1013,9 @@ def trainGuide(guidename = "laplace",
         losses = []
         mean_losses = [] #(moving average)
         runtime = time.time()
-        base_line = [guidename, runtime,
-                        [trueparams[item] for item in ("modal_effect",
-                                        "df","t_scale")]]
+        base_line = [guidename, runtime] + [
+                        sourceparams[0][item] for item in ("modal_effect",
+                                        "df","t_scale")]
         for i in range(MAX_OPTIM_STEPS):
             indices = torch.randperm(N)[:subsample_n]
             save_data = dict()
@@ -1009,9 +1041,9 @@ def trainGuide(guidename = "laplace",
             losses.append(loss)
             if i % 10 == 0:
                 try:
-                    writer.writerow(base_line + [i, time.time(), loss] + getLaplaceParams())
+                    myWriteRow(writer,base_line + [i, time.time(), loss] + getLaplaceParams())
                 except:
-                    writer.writerow(base_line + [i, time.time(), loss] + getMeanfieldParams())
+                    myWriteRow(writer,base_line + [i, time.time(), loss] + getMeanfieldParams())
                 reload(go_or_nogo)
                 go_or_nogo.demoprintstuff(i,loss)
                 try:
@@ -1063,11 +1095,11 @@ def trainGuide(guidename = "laplace",
         COMPLAINTS_REMAINING = BASE_COMPLAINTS_REMAINING
         YAYS_REMAINING = BASE_YAYS_REMAINING
 
-        saveFit(guidename, save_data, trueparams, errors, subsample_n)
+        saveFit(guidename, save_data, sourceparams, errors, subsample_n, nparticles)
         ##
 
         print("guidename",guidename)
-        print("trueparams",trueparams)
+        print("sourceparams",sourceparams)
         for (key, val) in sorted(pyro.get_param_store().items()):
             if sum(val.size()) > 1:
                 print(f"{key}:\n{val[:10]} (10 elems)")
