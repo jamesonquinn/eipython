@@ -1070,7 +1070,7 @@ def trainGuide(guidename = "laplace",
                 except:
                     myWriteRow(writer,base_line + [i, time.time(), loss] + getMeanfieldParams())
                 reload(go_or_nogo)
-                go_or_nogo.demoprintstuff(i,loss)
+                go_or_nogo.demoprintstuff(i,loss,mean_loss)
                 try:
                     if mean_losses[-1] > mean_losses[-500]:
                         break
