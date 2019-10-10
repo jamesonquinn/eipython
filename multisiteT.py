@@ -1115,7 +1115,11 @@ def trainGuide(guidename = "laplace",
         global COMPLAINTS_REMAINING
         global YAYS_REMAINING
         save_data.update(ycomplaints = (BASE_COMPLAINTS_REMAINING - COMPLAINTS_REMAINING) / 3,
-                        yays = (BASE_YAYS_REMAINING - YAYS_REMAINING) / 3,)
+                        yays = (BASE_YAYS_REMAINING - YAYS_REMAINING) / 3,
+                        mean_loss = mean_losses[-1],
+                        final_loss = loss
+
+                        )
 
         COMPLAINTS_REMAINING = BASE_COMPLAINTS_REMAINING
         YAYS_REMAINING = BASE_YAYS_REMAINING
