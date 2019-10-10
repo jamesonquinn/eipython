@@ -180,8 +180,11 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
             t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(full_N),ts(1.) * t_scale))
     else:
         with pyro.plate('2full_units',N):
-            with poutine.scale(scale=weight):#chosen_units:#full_units:
-                t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(N),ts(1.) * t_scale))
+            try:
+                with poutine.scale(scale=weight):#chosen_units:#full_units:
+                    t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(N),ts(1.) * t_scale))
+            except:
+                import pdb; pdb.set_trace()
 
 
     #print("model t_part", t_part)

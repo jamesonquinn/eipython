@@ -34,6 +34,8 @@ DSCALE = 1.5
 MIN_SIGMA_OVER_S = 1.9
 ###########
 
+BASE_DIRECTORY = "../testresults"
+
 var_names = c(TeX("$\\mu$"),TeX("$\\varsigma$"),TeX("$d$"))
 for (i in 1:44) {
   var_names = c(var_names,TeX(qq("$T_{@{i}}$")))
@@ -68,6 +70,19 @@ subsample_labels = as.character(SUBSAMPLE_NS)
 names(subsample_labels) = as.character(SUBSAMPLE_NS)
 
 
+PARTICLE_NS = c(1,3) 
+particle_widths = c(1,2)
+names(particle_widths) = as.character(PARTICLE_NS)
+particle_labels = as.character(PARTICLE_NS)
+names(particle_labels) = as.character(PARTICLE_NS)
+
+graph_combo_nums =c(10,1,
+                    10,3,
+                    50,1,
+                    50,3,
+                    100,1,
+                    400,1)
+graph_combos=matrix(graph_combo_nums,length(graph_combo_nums)/2,2)
 
 ts = function(x){x}
 dict = function(...){list(...)}
@@ -75,82 +90,39 @@ dict = function(...){list(...)}
 base_scale = 1.
 modal_effect = 1.*base_scale
 tdom_fat_params = dict(modal_effect=ts(modal_effect),
-                       df=ts(-1.),
-                       t_scale=ts(1.))
+                       df=3.,
+                       t_scale=10.)
 #
 ndom_fat_params = dict(modal_effect=ts(modal_effect),
-                       df=ts(-1.),
-                       t_scale=ts(-1.))
+                       df=3.,
+                       t_scale=2.)
 #
 tdom_norm_params = dict(modal_effect=ts(modal_effect),
-                        df=ts(3.),
-                        t_scale=ts(1.))
+                        df=30.,
+                        t_scale=10.)
 #
 ndom_norm_params = dict(modal_effect=ts(modal_effect),
-                        df=ts(3.),
-                        t_scale=ts(-1.))
+                        df=30.,
+                        t_scale=2.)
 
 
 
 
 model = stan_model("../stan/multisite.stan")
 
-if (FALSE) { #old noodling-around code
-  data = fread("../testresults/scenario_N44_mu1.0_sigma2.0_nu3.0.csv")
-  
-  fit1 = sampling(model, data = list(N=length(data[,s]), se=data[,s], x=data[,x]))
-  
-  plot(fit1)
-  
-  data = fread("../testresults/scenario_N44_mu1.0_sigma2.0_nu-1.0.csv")
-  
-  fit2 = sampling(model, data = list(N=length(data[,s]), se=data[,s], x=data[,x]))
-  
-  plot(fit2)
-  
-  fitframe = extract(fit1)
-  names(fitframe)
-  fitframe$T
-  
-  fitmat = as.matrix(fit1)
-  
-  dim(fitmat)
-  
-  head(fitmat)
-  
-  
-  
-  
-  
-  o = fromJSON(file="../testresults/fit_amortized_laplace_0_N44_mu1.0_sigma-2.0_nu-1.0.csv")
-  
-  rawhess = unlist(o$raw_hessian)
-  
-  d = sqrt(length(rawhess))
-  hess = matrix(rawhess,d,d)
-  dim(hess)
-  
-  hess[0:8,0:5]
-  
-  #getDensity(vec, )
-}
-
-
 
 specify_decimal = function(x, k=1) trimws(format(round(x, k), nsmall=k))
 #testresults\fit_amortized_laplace_0_N400_S10_mu1.0_sigma-2.3025851249694824_nu2.5+exp-0.6931471824645996.csv
 nameWithParams = function(filebase, trueparams, S=NA, N=DEFAULT_N){
   if (is.na(S)) {
-    #qq("@{filebase}_N@{N}_mu@{specify_decimal(trueparams$modal_effect)}_sigma@{specify_decimal(trueparams$t_scale)}_nu@{specify_decimal(MIN_DF)}+exp@{specify_decimal(trueparams$df)}.csv")
-    qq("@{filebase}_N@{N}_mu@{specify_decimal(trueparams$modal_effect)}_sigma-2.3025851249694824_nu2.5+exp-0.6931471824645996.csv")
+    qq("@{filebase}_N@{N}_mu@{specify_decimal(trueparams$modal_effect)}_sigma@{specify_decimal(trueparams$t_scale)}_nu@{specify_decimal(MIN_DF)}+exp@{specify_decimal(trueparams$df)}.csv")
   } else {
-    #qq("@{filebase}_N@{N}_S@{S}_mu@{specify_decimal(trueparams$modal_effect)}_sigma@{specify_decimal(trueparams$t_scale)}_nu@{specify_decimal(MIN_DF)}+exp@{specify_decimal(trueparams$df)}.csv")
-    qq("@{filebase}_N@{N}_S@{S}_mu@{specify_decimal(trueparams$modal_effect)}_sigma-2.3025851249694824_nu2.5+exp-0.6931471824645996.csv")
+    qq("@{filebase}_N@{N}_S@{S}_mu@{specify_decimal(trueparams$modal_effect)}_sigma@{specify_decimal(trueparams$t_scale)}_nu@{specify_decimal(MIN_DF)}+exp@{specify_decimal(trueparams$df)}.csv")
   }
 }
 
 getScenario = function(params) {
-  fread(nameWithParams("../testresults/scenario",params))
+  fread(nameWithParams(qq("@{BASE_DIRECTORY}/scenario"),params))
 }
 
 #ndom_norm_params = dict(modal_effect=ts(modal_effect),
@@ -188,9 +160,9 @@ getMCMCfor = function(params) {
   amat = as.matrix(afit)
   return(amat)
 }
-getRawFitFor = function(params,S,guide ="amortized_laplace"){
+getRawFitFor = function(params,S,guide ="amortized_laplace",particles=1,iter=1){
   
-  jsonName = nameWithParams(qq("../testresults/fit_@{guide}_0"),params,S)
+  jsonName = nameWithParams(qq("@{BASE_DIRECTORY}/fit_@{guide}_@{iter}_parts@{particles}"),params,S)
   print(jsonName)
   fittedGuide = fromJSON(file=jsonName)
   if (guide=="meanfield") {
@@ -222,7 +194,7 @@ getRawFitFor = function(params,S,guide ="amortized_laplace"){
 
 getFitFor = function(params,S,guide ="amortized_laplace"){
   
-  jsonName = nameWithParams(qq("../testresults/fit_@{guide}_0"),params,S)
+  jsonName = nameWithParams(qq("@{BASE_DIRECTORY}/fit_@{guide}_0"),params,S)
   print(jsonName)
   fittedGuide = fromJSON(file=jsonName)
   if (guide=="meanfield") {
@@ -307,13 +279,16 @@ add_base_formatting = function(rawgraph, guides=all_guides, subsamples=SUBSAMPLE
      scale_colour_manual(name="Guide family",
                       values=guide_colors,
                       labels=guide_labels) +
-     scale_linetype_manual(name="Subsampling?",
-                  values =subsample_line_types,
-                  labels = subsample_labels))
+    scale_linetype_manual(name="Subsampling?",
+                         values =subsample_line_types,
+                         labels = subsample_labels) +
+    scale_size_manual(name="Guide samples/step",
+                          values = particle_widths,
+                          labels = particle_labels))
 }
 
-add_coverages = function(graphs, mymean, mycovar, guide, S, vars_to_plot=VARS_TO_PLOT) {
-  ridiculous_closure = function(graphs, mymean, mycovar, guide, S, vars_to_plot) {
+add_coverages = function(graphs, mymean, mycovar, guide, S, particles, vars_to_plot=VARS_TO_PLOT) {
+  ridiculous_closure = function(graphs, mymean, mycovar, guide, S, particles, vars_to_plot) {
     newgraphs = list()
     for (i in vars_to_plot) {
       print(qq("adding @{guide} @{S} @{i}"))
@@ -321,7 +296,8 @@ add_coverages = function(graphs, mymean, mycovar, guide, S, vars_to_plot=VARS_TO
       newgraph = (graphs[[ii]] +
               stat_function(fun=dnorm, args = list(mean=mymean[i], sd = sqrt(mycovar[i,i])), 
                             aes(color=guide,
-                                linetype=as.character(S)), 
+                                linetype=as.character(S),
+                                width=as.character(particles)), 
                             show.legend=TRUE) )
       newgraphs[[ii]] = newgraph
       
@@ -368,7 +344,10 @@ get_metrics_for = function(params,guides = all_guides, dographs=all_guides, subs
   print(paste("guides:",guides))
   graphs = graph_mcmc(amat)
   for (guide in guides) {
-    for (S in subsample_ns ) {
+    for (line in 1:dim(graph_combos)[1]) {
+      graph_combo = graph_combos[line,]
+      S = graph_combo[1]
+      particles = graph_combo[2]
       print(paste("guide:",guide))
       meanhess = getRawFitFor(params,S,guide)
       mean = meanhess$mean
@@ -391,7 +370,7 @@ get_metrics_for = function(params,guides = all_guides, dographs=all_guides, subs
         print(qq("adding @{guide} @{S} @{mean[1]}"))
         print(mean)
         print(mean[1])
-        graphs = add_coverages(graphs,mean,covar,guide,S)
+        graphs = add_coverages(graphs,mean,covar,guide,S,particles)
       }
       #guide = "meanfield"
     }
