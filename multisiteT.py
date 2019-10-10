@@ -176,8 +176,8 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
     #print("model t_part",N,full_N)
     if N==full_N:
-        with pyro.plate('2full_units',full_N): #I hate you! but this magic works? #chosen_units:#
-            t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(full_N),ts(1.) * t_scale))
+        with pyro.plate('2full_units',N): #I hate you! but this magic works? #chosen_units:#
+            t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(N),ts(1.) * t_scale))
     else:
         with pyro.plate('2full_units',N):
             try:
@@ -393,10 +393,10 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     else:
         full_tpart = pyro.param("full_tmode", full_x - torch.ones(full_N) * torch.mean(full_x))
 
-    if N == full_N:
-        sub_tpart = full_tpart
-    else:
-        sub_tpart = full_tpart.index_select(0,indices)
+    #if N == full_N:
+    #    sub_tpart = full_tpart   #NO BAD BAD DO NOT DO THIS STOP NOW! Must respect permuted order!!!!
+    #else:
+    sub_tpart = full_tpart.index_select(0,indices)
 
     #print("tpart:",tpart)
 
@@ -1032,8 +1032,17 @@ def trainGuide(guidename = "laplace",
         base_line = [guidename, runtime] + [
                         sourceparams[0][item] for item in ("modal_effect",
                                         "df","t_scale")]
+        cur_perm = torch.randperm(N)
+        used_up = 0
         for i in range(MAX_OPTIM_STEPS):
-            indices = torch.randperm(N)[:subsample_n]
+            if subsample_n < N:
+                if (used_up + subsample_n) > N:
+                    cur_perm = torch.randperm(N)
+                    used_up = 0
+                indices = cur_perm[used_up:used_up + subsample_n]
+                used_up = used_up + subsample_n    
+            else:
+                indices = torch.tensor(range(N))
             save_data = dict()
             # print("stepping",subsample_n,N,indices.size(),
             #                 x.index_select(0,indices).size(),x.size(),
