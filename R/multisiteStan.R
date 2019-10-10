@@ -63,8 +63,8 @@ subsample_labels[1] = "un-subsampled"
 names(subsample_labels) = as.character(SUBSAMPLE_NS)
 
 #temp: no 400
-SUBSAMPLE_NS = c(50,10) 
-subsample_line_types = c(1,2)
+SUBSAMPLE_NS = c(400,100,50,10) 
+subsample_line_types = 1:length(SUBSAMPLE_NS)
 names(subsample_line_types) = as.character(SUBSAMPLE_NS)
 subsample_labels = as.character(SUBSAMPLE_NS)
 names(subsample_labels) = as.character(SUBSAMPLE_NS)
@@ -74,7 +74,7 @@ PARTICLE_NS = c(1,3)
 particle_widths = c(1,2)
 names(particle_widths) = as.character(PARTICLE_NS)
 particle_labels = as.character(PARTICLE_NS)
-names(particle_labels) = as.character(PARTICLE_NS)
+names(particle_labels) = c("one","three")#as.character(PARTICLE_NS)
 
 graph_combo_nums =c(10,1,
                     10,3,
@@ -82,7 +82,7 @@ graph_combo_nums =c(10,1,
                     50,3,
                     100,1,
                     400,1)
-graph_combos=matrix(graph_combo_nums,length(graph_combo_nums)/2,2)
+graph_combos=t(matrix(graph_combo_nums,2,length(graph_combo_nums)/2))
 
 ts = function(x){x}
 dict = function(...){list(...)}
@@ -115,9 +115,9 @@ specify_decimal = function(x, k=1) trimws(format(round(x, k), nsmall=k))
 #testresults\fit_amortized_laplace_0_N400_S10_mu1.0_sigma-2.3025851249694824_nu2.5+exp-0.6931471824645996.csv
 nameWithParams = function(filebase, trueparams, S=NA, N=DEFAULT_N){
   if (is.na(S)) {
-    qq("@{filebase}_N@{N}_mu@{specify_decimal(trueparams$modal_effect)}_sigma@{specify_decimal(trueparams$t_scale)}_nu@{specify_decimal(MIN_DF)}+exp@{specify_decimal(trueparams$df)}.csv")
+    qq("@{filebase}_N@{N}_mu@{specify_decimal(trueparams$modal_effect)}_sigma@{specify_decimal(trueparams$t_scale)}_nu@{specify_decimal(trueparams$df)}.csv")
   } else {
-    qq("@{filebase}_N@{N}_S@{S}_mu@{specify_decimal(trueparams$modal_effect)}_sigma@{specify_decimal(trueparams$t_scale)}_nu@{specify_decimal(MIN_DF)}+exp@{specify_decimal(trueparams$df)}.csv")
+    qq("@{filebase}_N@{N}_S@{S}_mu@{specify_decimal(trueparams$modal_effect)}_sigma@{specify_decimal(trueparams$t_scale)}_nu@{specify_decimal(trueparams$df)}.csv")
   }
 }
 
@@ -160,7 +160,7 @@ getMCMCfor = function(params) {
   amat = as.matrix(afit)
   return(amat)
 }
-getRawFitFor = function(params,S,guide ="amortized_laplace",particles=1,iter=1){
+getRawFitFor = function(params,S,guide ="amortized_laplace",particles=1,iter=0){
   
   jsonName = nameWithParams(qq("@{BASE_DIRECTORY}/fit_@{guide}_@{iter}_parts@{particles}"),params,S)
   print(jsonName)
@@ -297,14 +297,15 @@ add_coverages = function(graphs, mymean, mycovar, guide, S, particles, vars_to_p
               stat_function(fun=dnorm, args = list(mean=mymean[i], sd = sqrt(mycovar[i,i])), 
                             aes(color=guide,
                                 linetype=as.character(S),
-                                width=as.character(particles)), 
+                                size=as.character(particles)), 
                             show.legend=TRUE) )
       newgraphs[[ii]] = newgraph
       
     }
     return(newgraphs)
   }
-  return(ridiculous_closure(graphs, mymean, mycovar, guide, S, vars_to_plot)) #I hate R sometimes...
+  ridiculous_var = paste0(guide,toString(S+particles+mymean+mycovar))
+  return(ridiculous_closure(graphs, mymean, mycovar, guide, S, particles, vars_to_plot)) #I hate R sometimes...
 }
 
 graph_coverages = function(samples, mymean, mycovar, guide, S) {
@@ -348,7 +349,7 @@ get_metrics_for = function(params,guides = all_guides, dographs=all_guides, subs
       graph_combo = graph_combos[line,]
       S = graph_combo[1]
       particles = graph_combo[2]
-      print(paste("guide:",guide))
+      print(paste("guide:",guide,"S",S,"particles",particles))
       meanhess = getRawFitFor(params,S,guide)
       mean = meanhess$mean
       hess = meanhess$hess
