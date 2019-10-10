@@ -16,9 +16,9 @@ def printstuff(i,loss):
         pass
     #print(f' pnsml = {pyro.get_param_store()["precinct_newton_step_multiplier_logit"]}')
 
-def demoprintstuff(i,loss):
+def demoprintstuff(i,loss,mean_loss=None,*args):
     if (i % NUM_BETWEEN_PRINT) == 0:
-        print(f'epoch {i} loss = {loss};')
+        print(f'epoch {i} loss = {loss}; mean_loss= {mean_loss}; {args}')
 
         for item in ("mode_hat","gscale_hat","nscale_hat","narrower","ltscale_hat","ldfraw_hat"):
             try:

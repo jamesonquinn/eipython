@@ -1070,7 +1070,7 @@ def trainGuide(guidename = "laplace",
                 except:
                     myWriteRow(writer,base_line + [i, time.time(), loss] + getMeanfieldParams())
                 reload(go_or_nogo)
-                go_or_nogo.demoprintstuff(i,loss)
+                go_or_nogo.demoprintstuff(i,loss,mean_loss)
                 try:
                     if mean_losses[-1] > mean_losses[-500]:
                         break
@@ -1115,7 +1115,11 @@ def trainGuide(guidename = "laplace",
         global COMPLAINTS_REMAINING
         global YAYS_REMAINING
         save_data.update(ycomplaints = (BASE_COMPLAINTS_REMAINING - COMPLAINTS_REMAINING) / 3,
-                        yays = (BASE_YAYS_REMAINING - YAYS_REMAINING) / 3,)
+                        yays = (BASE_YAYS_REMAINING - YAYS_REMAINING) / 3,
+                        mean_loss = mean_losses[-1],
+                        final_loss = loss
+
+                        )
 
         COMPLAINTS_REMAINING = BASE_COMPLAINTS_REMAINING
         YAYS_REMAINING = BASE_YAYS_REMAINING
