@@ -28,7 +28,7 @@ VARS_TO_PLOT = c(1:4,20,45)
 #globals copied from python
 MIN_DF = 2.5
 SMEAN = 0. #ie, 1
-SSCALE = 1.
+SSCALE = 2.
 DMEAN = 1. #ie, 2.7
 DSCALE = 1.5
 MIN_SIGMA_OVER_S = 1.9
@@ -43,14 +43,14 @@ for (i in 1:44) {
               
 
 all_guides = c("amortized_laplace",
-               #"unamortized_laplace",
+               "unamortized_laplace",
                "meanfield")
 
 guide_colors = c("red",
-                 #"blue",
+                 "blue",
                  "green")
 guide_labels = c("amortized Laplace",
-               #"unamortized Laplace",
+               "unamortized Laplace",
                "mean-field")
 names(guide_colors) = all_guides
 names(guide_labels) = all_guides
@@ -71,17 +71,20 @@ names(subsample_labels) = as.character(SUBSAMPLE_NS)
 
 
 PARTICLE_NS = c(1,3) 
-particle_widths = c(1,2)
+particle_widths = c(.5,1.5)
 names(particle_widths) = as.character(PARTICLE_NS)
 particle_labels = as.character(PARTICLE_NS)
 names(particle_labels) = c("one","three")#as.character(PARTICLE_NS)
 
 graph_combo_nums =c(10,1,
-                    10,3,
-                    50,1,
-                    50,3,
-                    100,1,
-                    400,1)
+                    10,3
+                    ,50,1
+                    ,50,3
+                    ,100,1
+                    ,100,3
+                    #,400,1
+                    #,400,3
+)
 graph_combos=t(matrix(graph_combo_nums,2,length(graph_combo_nums)/2))
 
 ts = function(x){x}
@@ -163,7 +166,7 @@ getMCMCfor = function(params) {
 getRawFitFor = function(params,S,guide ="amortized_laplace",particles=1,iter=0){
   
   jsonName = nameWithParams(qq("@{BASE_DIRECTORY}/fit_@{guide}_@{iter}_parts@{particles}"),params,S)
-  print(jsonName)
+  #print(jsonName)
   fittedGuide = fromJSON(file=jsonName)
   if (guide=="meanfield") {
     hess = diag(c(fittedGuide$mode_sigma,
@@ -195,7 +198,7 @@ getRawFitFor = function(params,S,guide ="amortized_laplace",particles=1,iter=0){
 getFitFor = function(params,S,guide ="amortized_laplace"){
   
   jsonName = nameWithParams(qq("@{BASE_DIRECTORY}/fit_@{guide}_0"),params,S)
-  print(jsonName)
+  #print(jsonName)
   fittedGuide = fromJSON(file=jsonName)
   if (guide=="meanfield") {
     hess = diag(c(fittedGuide$mode_sigma,
@@ -288,45 +291,47 @@ add_base_formatting = function(rawgraph, guides=all_guides, subsamples=SUBSAMPLE
 }
 
 add_coverages = function(graphs, mymean, mycovar, guide, S, particles, vars_to_plot=VARS_TO_PLOT) {
+  
+  ridiculous_var = paste(guide,toString(S+particles+mymean+mycovar))
+  #print(ridiculous_var)
   ridiculous_closure = function(graphs, mymean, mycovar, guide, S, particles, vars_to_plot) {
     newgraphs = list()
     for (i in vars_to_plot) {
-      print(qq("adding @{guide} @{S} @{i}"))
+      #print(qq("adding @{guide} @{S} @{i}"))
       ii = toString(i)
       newgraph = (graphs[[ii]] +
               stat_function(fun=dnorm, args = list(mean=mymean[i], sd = sqrt(mycovar[i,i])), 
                             aes(color=guide,
                                 linetype=as.character(S),
-                                size=as.character(particles)), 
+                                size=as.character(particles)),
+                                alpha=(particles)/3,
                             show.legend=TRUE) )
       newgraphs[[ii]] = newgraph
       
     }
     return(newgraphs)
   }
-  ridiculous_var = paste0(guide,toString(S+particles+mymean+mycovar))
   return(ridiculous_closure(graphs, mymean, mycovar, guide, S, particles, vars_to_plot)) #I hate R sometimes...
 }
 
-graph_coverages = function(samples, mymean, mycovar, guide, S) {
-  print(colnames(samples))
-  for (i in 1:4) {
-      print(ggplot(data.table(mcmc=c(samples[,i],
-                                     mymean[i])), aes(x=mcmc)) + #cheating to force axis
-              geom_histogram(aes(y=..density..)) +
-              scale_colour_manual(name="Which is which?",
-                                  values=c(red="red", blue="blue"),
-                                  labels=c(red="Truth (is out of style)", blue="Fiction (still imitating truth)")) +
-              stat_function(fun=dnorm, args = list(mean=mymean[i], sd = sqrt(mycovar[i,i])), aes(colour="red"), show.legend=TRUE) +
-              stat_function(fun=dnorm, args = list(mean=mymean[i] + 1, sd = sqrt(mycovar[i,i])), aes(colour="blue"), show.legend=TRUE) +
-              labs(title=qq("@{guide}; @{S} subsamples"),
-                   x = var_names[i])) +
-      scale_colour_identity(name="Which is which?", guide="legend",
-                          #values=c(red="red", blue="blue"),
-                          labels=c(red="Truth (is out of style)", blue="Fiction (still imitating truth)"))
-            
-  }
-}
+#graph_coverages = function(samples, mymean, mycovar, guide, S) {
+#  print(colnames(samples))
+#  for (i in 1:4) {
+#      print(ggplot(data.table(mcmc=c(samples[,i],
+#                                     mymean[i])), aes(x=mcmc)) + #cheating to force axis
+#              geom_histogram(aes(y=..density..)) +
+#              scale_colour_manual(name="Which is which?",
+#                                  values=c(red="red", blue="blue"),
+#                                  labels=c(red="Truth (is out of style)", blue="Fiction (still imitating truth)")) +
+#              stat_function(fun=dnorm, args = list(mean=mymean[i], sd = sqrt(mycovar[i,i])), aes(colour="red"), show.legend=TRUE) +
+#              stat_function(fun=dnorm, args = list(mean=mymean[i] + 1, sd = sqrt(mycovar[i,i])), aes(colour="blue"), show.legend=TRUE) +
+#              labs(title=qq("@{guide}; @{S} subsamples"),
+#                   x = var_names[i])) +
+#      scale_colour_identity(name="Which is which?", guide="legend",
+#                          #values=c(red="red", blue="blue"),
+#                          labels=c(red="Truth (is out of style)", blue="Fiction (still imitating truth)"))
+#  }
+#}
 
 
 
@@ -350,37 +355,42 @@ get_metrics_for = function(params,guides = all_guides, dographs=all_guides, subs
       S = graph_combo[1]
       particles = graph_combo[2]
       print(paste("guide:",guide,"S",S,"particles",particles))
-      meanhess = getRawFitFor(params,S,guide)
-      mean = meanhess$mean
-      hess = meanhess$hess
-      d = meanhess$d
-      covar = solve(hess)
-      #print("mean")
-      #print(mean)
-      dens = dmvnorm(amat[,1:d],mean,covar,log=TRUE)
-      #print(rbind(amat[99:100,1:d],mean,sqrt(1/diag(hess))))
-      #print(paste(guide,head(dens)))
-      if (!(guide %in% names(leftelbows))) {
-        leftelbows[[guide]] = list()
-        coverages[[guide]] = list()
+      tryCatch({
         
-      }
-      leftelbows[[guide]][[toString(S)]] = klOfLogdensities(amat[,48],dens)
-      coverages[[guide]][[toString(S)]] = get_coverages(amat,mean,covar)
-      if (guide %in% dographs) {
-        print(qq("adding @{guide} @{S} @{mean[1]}"))
-        print(mean)
-        print(mean[1])
-        graphs = add_coverages(graphs,mean,covar,guide,S,particles)
-      }
-      #guide = "meanfield"
+        meanhess = getRawFitFor(params,S,guide,particles)
+        mymean = meanhess$mean
+        myhess = meanhess$hess
+        d = meanhess$d
+        covar = solve(myhess)
+        #print("mean")
+        #print(mean)
+        dens = dmvnorm(amat[,1:d],mymean,covar,log=TRUE)
+        #print(rbind(amat[99:100,1:d],mean,sqrt(1/diag(hess))))
+        #print(paste(guide,head(dens)))
+        if (!(guide %in% names(leftelbows))) {
+          leftelbows[[guide]] = list()
+          coverages[[guide]] = list()
+          
+        }
+        leftelbows[[guide]][[toString(S)]] = klOfLogdensities(amat[,48],dens)
+        coverages[[guide]][[toString(S)]] = get_coverages(amat,mymean,covar)
+        if (guide %in% dographs) {
+          print(qq("adding @{guide} @{S} @{mymean[1]}"))
+          #print(mymean)
+          print(paste("mean[1] is",mymean[1],S,particles))
+          graphs = add_coverages(graphs,mymean,covar,guide,S,particles)
+        }
+        #guide = "meanfield"
+      }, error = function(e) {
+        print(qq("FAILED to add @{guide} S@{S} part@{particles}"))
+      })
     }
   }
-  print(names(graphs))
+  #print(names(graphs))
   g2 = list()
   for (i in 1:length(names(graphs))) {
     name = names(graphs)[i]
-    print(name)
+    #print(name)
     g2[[i]] = graphs[[name]]
     #print(graphs[[name]])
   }
@@ -398,8 +408,12 @@ klOfLogdensities = function(a,b) {
   return(mean(a) - mean(b))
 }
 
-fat_metrics = get_metrics_for(ndom_fat_params)#,dographs=all_guides[c(1,3)])
-#norm_metrics = get_metrics_for(ndom_norm_params,dographs=c())
+fat = TRUE
+if (fat) {
+  fat_metrics = get_metrics_for(ndom_fat_params,dographs=all_guides[c(1,3)])
+} else {
+  norm_metrics = get_metrics_for(ndom_norm_params)
+}
 
 arrowhead = function(a,b,c,n) {
   result = matrix(0,n,n)
