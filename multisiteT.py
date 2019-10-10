@@ -183,7 +183,9 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
             try:
                 with poutine.scale(scale=weight):#chosen_units:#full_units:
                     t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(N),ts(1.) * t_scale))
-            except:
+            except Error as e:
+                print("Error sampling t_part...")
+                print(e)
                 import pdb; pdb.set_trace()
 
 
@@ -381,6 +383,7 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     dm = mode_hat.detach().requires_grad_()
     dtr = ltscale_hat.detach().requires_grad_() #detached... raw
     ddfr = ldfraw_hat.detach().requires_grad_() #detached... raw
+    print("ddfr",ddfr)
 
     dt =  maxError*MIN_SIGMA_OVER_S + torch.exp(dtr) #detached, cook
     ddf = MIN_DF + torch.exp(ddfr) #detached, cook
@@ -920,8 +923,8 @@ def jsonize(thing):
 
 def saveFit(guidename, save_data,
         sourceparams, errors, S, nparticles,
-        filebase="testresults/fit_"):
-    i = 0
+        filebase="testresults/fit_",name_offset=0):
+    i = name_offset
     while True:
         filename = nameWithParams(filebase+guidename+"_"+str(i)+"_parts"+str(nparticles),
                 sourceparams, errors, S)
@@ -980,7 +983,8 @@ def trainGuide(guidename = "laplace",
             filename = None,
             errors=echs_errors,
             subsample_N=SUBSAMPLE_N,
-            N = N_SAMPLES):
+            N = N_SAMPLES,
+            name_offset=0):
 
     guide = guides[guidename]
     if sourceparams == None:
@@ -1070,7 +1074,7 @@ def trainGuide(guidename = "laplace",
                 except:
                     myWriteRow(writer,base_line + [i, time.time(), loss] + getMeanfieldParams())
                 reload(go_or_nogo)
-                go_or_nogo.demoprintstuff(i,loss,mean_loss)
+                go_or_nogo.demoprintstuff(i,loss,mean_losses[-1])
                 try:
                     if mean_losses[-1] > mean_losses[-500]:
                         break
@@ -1124,7 +1128,7 @@ def trainGuide(guidename = "laplace",
         COMPLAINTS_REMAINING = BASE_COMPLAINTS_REMAINING
         YAYS_REMAINING = BASE_YAYS_REMAINING
 
-        saveFit(guidename, save_data, sourceparams, errors, subsample_n, nparticles)
+        saveFit(guidename, save_data, sourceparams, errors, subsample_n, nparticles,name_offset=name_offset)
         ##
 
         print("guidename",guidename)
