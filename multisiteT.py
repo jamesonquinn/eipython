@@ -978,7 +978,7 @@ def trainGuide(guidename = "laplace",
             nparticles = 1,
             sourceparams = tdom_fat_params,
             filename = None,
-            errors=errors,
+            errors=echs_errors,
             subsample_N=SUBSAMPLE_N,
             N = N_SAMPLES):
 
@@ -1040,7 +1040,7 @@ def trainGuide(guidename = "laplace",
                     cur_perm = torch.randperm(N)
                     used_up = 0
                 indices = cur_perm[used_up:used_up + subsample_n]
-                used_up = used_up + subsample_n    
+                used_up = used_up + subsample_n
             else:
                 indices = torch.tensor(range(N))
             save_data = dict()
