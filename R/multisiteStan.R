@@ -16,7 +16,7 @@ rstan_options(auto_write = TRUE)
 
 
 
-
+MAX_ITERS = 5
 maxError = 0.27889007329940796
 maxError = 1.
 DEFAULT_N = 400
@@ -82,8 +82,8 @@ graph_combo_nums =c(10,1,
                     ,50,3
                     ,100,1
                     ,100,3
-                    #,400,1
-                    #,400,3
+                    ,400,1
+                    ,400,3
 )
 graph_combos=t(matrix(graph_combo_nums,2,length(graph_combo_nums)/2))
 
@@ -190,7 +190,7 @@ getRawFitFor = function(params,S,guide ="amortized_laplace",particles=1,iter=0){
              fittedGuide$ahat_data$t_part)
     
   }
-  return(list(mean=mean,hess=hess,d=d))
+  return(list(mean=mean,hess=hess,d=d,fit=fittedGuide))
 }
 
 
@@ -343,47 +343,80 @@ add_coverages = function(graphs, mymean, mycovar, guide, S, particles, vars_to_p
 #Bring it all together!
 ###########################################################################################
 ###########################################################################################
+
+ELBOfrom = function(f) {
+  
+  tryCatch({
+    ELBO = f$fit$mean_loss
+    if (is.null(ELBO)) {
+      return(NA)
+    } else {
+      return(ELBO)
+    }
+  }, error = function(e) {
+    return(NA)
+  })
+}
+
+
 get_metrics_for = function(params,guides = all_guides, dographs=all_guides, subsample_ns=SUBSAMPLE_NS) {
   amat = getMCMCfor(params)
-  leftelbows = list()
-  coverages = list()
+  print(qq("Dimensions of @{toString(dim(amat))}, OK?"))
+  metrics = data.table()
   print(paste("guides:",guides))
   graphs = graph_mcmc(amat)
-  for (guide in guides) {
-    for (line in 1:dim(graph_combos)[1]) {
-      graph_combo = graph_combos[line,]
-      S = graph_combo[1]
-      particles = graph_combo[2]
-      print(paste("guide:",guide,"S",S,"particles",particles))
-      tryCatch({
-        
-        meanhess = getRawFitFor(params,S,guide,particles)
-        mymean = meanhess$mean
-        myhess = meanhess$hess
-        d = meanhess$d
-        covar = solve(myhess)
-        #print("mean")
-        #print(mean)
-        dens = dmvnorm(amat[,1:d],mymean,covar,log=TRUE)
-        #print(rbind(amat[99:100,1:d],mean,sqrt(1/diag(hess))))
-        #print(paste(guide,head(dens)))
-        if (!(guide %in% names(leftelbows))) {
-          leftelbows[[guide]] = list()
-          coverages[[guide]] = list()
+  for (iter in 0:(MAX_ITERS-1)) {
+    for (guide in guides) {
+      for (line in 1:dim(graph_combos)[1]) {
+        graph_combo = graph_combos[line,]
+        S = graph_combo[1]
+        particles = graph_combo[2]
+        print(paste("guide:",guide,"S",S,"particles",particles))
+        tryCatch({
           
-        }
-        leftelbows[[guide]][[toString(S)]] = klOfLogdensities(amat[,48],dens)
-        coverages[[guide]][[toString(S)]] = get_coverages(amat,mymean,covar)
-        if (guide %in% dographs) {
-          print(qq("adding @{guide} @{S} @{mymean[1]}"))
-          #print(mymean)
-          print(paste("mean[1] is",mymean[1],S,particles))
-          graphs = add_coverages(graphs,mymean,covar,guide,S,particles)
-        }
-        #guide = "meanfield"
-      }, error = function(e) {
-        print(qq("FAILED to add @{guide} S@{S} part@{particles}"))
-      })
+          meanhess = getRawFitFor(params,S,guide,particles)
+          mymean = meanhess$mean
+          myhess = meanhess$hess
+          d = meanhess$d
+          covar = solve(myhess)
+          #print("mean")
+          #print(mean)
+          dens = dmvnorm(amat[,1:d],mymean,covar,log=TRUE)
+          #print(rbind(amat[99:100,1:d],mean,sqrt(1/diag(hess))))
+          #print(paste(guide,head(dens)))
+          EUBO = klOfLogdensities(amat[,d+1],dens)
+          coverage = get_coverages(amat,mymean,covar)
+          newmetrics = data.table(guide=guide,
+                                  modal_effect=params$modal_effect,
+                                     df=params$df,
+                                     t_scale=params$t_scale,
+                                     subsample_sites=S,
+                                     particles=particles,
+                                     iter=iter,
+                                     EUBO=EUBO,
+                                     coverage1=coverage[1,1],
+                                     coverage2=coverage[2,1],
+                                     coverage3=coverage[3,1],
+                                     coverageT=coverage[4,1],
+                                     ELBO = ELBOfrom(meanhess)
+                                     )
+          print(qq("dnm: @{dim(newmetrics)} dm: @{dim(metrics)}"))
+          metrics = rbind(metrics,newmetrics,
+                          fill=TRUE)
+          if (iter==0) {
+            if (guide %in% dographs) {
+              print(qq("adding @{guide} @{S} @{mymean[1]}"))
+              #print(mymean)
+              print(paste("mean[1] is",mymean[1],S,particles))
+              graphs = add_coverages(graphs,mymean,covar,guide,S,particles)
+            }
+          }
+          #guide = "meanfield"
+        }, error = function(e) {
+          print(qq("FAILED to add @{guide} S@{S} part@{particles} iter@{iter}"))
+          print(e)
+        })
+      }
     }
   }
   #print(names(graphs))
@@ -400,7 +433,7 @@ get_metrics_for = function(params,guides = all_guides, dographs=all_guides, subs
   print(length(p))
   print(p)
   print(" printed")
-  return(list(leftelbows=leftelbows,coverages=coverages))
+  return(metrics)
 }
 
 
@@ -410,7 +443,7 @@ klOfLogdensities = function(a,b) {
 
 fat = TRUE
 if (fat) {
-  fat_metrics = get_metrics_for(ndom_fat_params,dographs=all_guides[c(1,3)])
+  fat_metrics = get_metrics_for(ndom_fat_params,dographs=all_guides[c(1,2,3)])
 } else {
   norm_metrics = get_metrics_for(ndom_norm_params)
 }

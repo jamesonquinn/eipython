@@ -383,7 +383,7 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     dm = mode_hat.detach().requires_grad_()
     dtr = ltscale_hat.detach().requires_grad_() #detached... raw
     ddfr = ldfraw_hat.detach().requires_grad_() #detached... raw
-    print("ddfr",ddfr)
+    print("ddfr",float(ddfr),"dtr",float(dtr))
 
     dt =  maxError*MIN_SIGMA_OVER_S + torch.exp(dtr) #detached, cook
     ddf = MIN_DF + torch.exp(ddfr) #detached, cook
