@@ -374,7 +374,7 @@ get_metrics_for = function(params,guides = all_guides, dographs=all_guides, subs
         print(paste("guide:",guide,"S",S,"particles",particles))
         tryCatch({
           
-          meanhess = getRawFitFor(params,S,guide,particles)
+          meanhess = getRawFitFor(params,S,guide,particles,iter=iter)
           mymean = meanhess$mean
           myhess = meanhess$hess
           d = meanhess$d
@@ -444,7 +444,7 @@ klOfLogdensities = function(a,b) {
 fat = TRUE
 if (fat) {
   fat_metrics = get_metrics_for(ndom_fat_params,dographs=all_guides[c(1,2,3)])
-  fat_metrics[,mean(EUBO),by=list(df,subsample_sites,particles,guide)]
+  fat_metrics[,list(EUBO=mean(EUBO),ELBO=mean(ELBO,na.rm=TRUE),N=length(ELBO)),by=list(df,subsample_sites,particles,guide)]
 } else {
   norm_metrics = get_metrics_for(ndom_norm_params)
 }
