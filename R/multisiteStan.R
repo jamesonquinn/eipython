@@ -444,6 +444,7 @@ klOfLogdensities = function(a,b) {
 fat = TRUE
 if (fat) {
   fat_metrics = get_metrics_for(ndom_fat_params,dographs=all_guides[c(1,2,3)])
+  fat_metrics[,mean(EUBO),by=list(df,subsample_sites,particles,guide)]
 } else {
   norm_metrics = get_metrics_for(ndom_norm_params)
 }
