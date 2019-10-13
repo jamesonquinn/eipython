@@ -51,7 +51,7 @@ var_names = c(TeX("$\\mu$"),TeX("$\\varsigma$"),TeX("$d$"))
 for (i in 1:44) {
   var_names = c(var_names,TeX(qq("$T_{@{i}}$")))
 }
-              
+
 
 all_guides = c("amortized_laplace",
                "unamortized_laplace",
@@ -73,7 +73,7 @@ guide_labels = c("amortized Laplace",
 names(guide_colors) = all_guides
 names(guide_labels) = all_guides
 
-SUBSAMPLE_NS = c(400, 150,50,25,12) 
+SUBSAMPLE_NS = c(400, 150,50,25,12)
 subsample_line_types = c(1,2,3,4,5)
 names(subsample_line_types) = as.character(SUBSAMPLE_NS)
 subsample_labels = as.character(SUBSAMPLE_NS)
@@ -81,14 +81,14 @@ subsample_labels[1] = "un-subsampled"
 names(subsample_labels) = as.character(SUBSAMPLE_NS)
 
 #temp: no 400
-SUBSAMPLE_NS = c(400,100,50,10,44,399) 
+SUBSAMPLE_NS = c(400,100,50,10,44,399)
 subsample_line_types = 1:length(SUBSAMPLE_NS)
 names(subsample_line_types) = as.character(SUBSAMPLE_NS)
 subsample_labels = as.character(SUBSAMPLE_NS)
 names(subsample_labels) = as.character(SUBSAMPLE_NS)
 
 
-PARTICLE_NS = c(1,3) 
+PARTICLE_NS = c(1,3)
 particle_widths = c(.5,1.5)
 names(particle_widths) = as.character(PARTICLE_NS)
 particle_labels = as.character(PARTICLE_NS)
@@ -176,9 +176,9 @@ getMCMCfor = function(params,N) {
   mymaxError = max(scenario[,s])
   print(paste(min(scenario[,s]),mymaxError,MIN_SIGMA_OVER_S,
               MIN_DF,SMEAN,DMEAN,DSCALE,SSCALE))
-  
-  afit = sampling(model, data = list(N=length(scenario[,s]), 
-                                     se=scenario[,s], 
+
+  afit = sampling(model, data = list(N=length(scenario[,s]),
+                                     se=scenario[,s],
                                      x=scenario[,x],
                                      maxError=mymaxError,
                                      MIN_SIGMA_OVER_S=MIN_SIGMA_OVER_S,
@@ -193,7 +193,7 @@ getMCMCfor = function(params,N) {
   return(amat)
 }
 getRawFitFor = function(params,S,guide ="amortized_laplace",particles=1,iter=0,N=DEFAULT_N){
-  
+
   jsonName = nameWithParams(qq("@{BASE_DIRECTORY}/fit_@{guide}_@{iter}_parts@{particles}"),params,S,N=N)
   print(jsonName)
   fittedGuide = fromJSON(file=jsonName)
@@ -210,14 +210,14 @@ getRawFitFor = function(params,S,guide ="amortized_laplace",particles=1,iter=0,N
     d = length(mean)
   } else {
     rawhess = unlist(fittedGuide$raw_hessian)
-    
+
     d = sqrt(length(rawhess))
     hess = matrix(rawhess,d,d)
-    mean = c(fittedGuide$ahat_data$modal_effect, 
+    mean = c(fittedGuide$ahat_data$modal_effect,
              fittedGuide$ahat_data$t_scale_raw,
              log(fittedGuide$df - MIN_DF),
              fittedGuide$ahat_data$t_part)
-    
+
   }
   return(list(mean=mean,hess=hess,d=d,fit=fittedGuide))
 }
@@ -225,7 +225,7 @@ getRawFitFor = function(params,S,guide ="amortized_laplace",particles=1,iter=0,N
 
 
 getFitFor = function(params,S,guide ="amortized_laplace"){
-  
+
   jsonName = nameWithParams(qq("@{BASE_DIRECTORY}/fit_@{guide}_0"),params,S)
   #print(jsonName)
   fittedGuide = fromJSON(file=jsonName)
@@ -242,14 +242,14 @@ getFitFor = function(params,S,guide ="amortized_laplace"){
     d = length(mean)
   } else {
     rawhess = unlist(fittedGuide$raw_hessian)
-    
+
     d = sqrt(length(rawhess))
     hess = matrix(rawhess,d,d)
-    mean = c(fittedGuide$ahat_data$modal_effect, 
+    mean = c(fittedGuide$ahat_data$modal_effect,
              fittedGuide$ahat_data$t_scale_raw,
              log(fittedGuide$df - MIN_DF),
              fittedGuide$ahat_data$t_part)
-    
+
   }
   return(list(mean=mean,hess=hess,d=d))
 }
@@ -297,8 +297,8 @@ graph_mcmc = function(samples, graphs=list(), vars_to_plot=VARS_TO_PLOT, base_fo
         ggplot(data.table(mcmc=samples[,i]), aes(x=mcmc)) + #cheating to force axis
         geom_histogram(aes(y=..density..)) +
         labs(x = var_names[i]))
-        
-        
+
+
     }
     #print("raw")
     #print(graphs[[ii]])
@@ -307,7 +307,7 @@ graph_mcmc = function(samples, graphs=list(), vars_to_plot=VARS_TO_PLOT, base_fo
 }
 
 add_base_formatting = function(rawgraph, guides=all_guides, subsamples=SUBSAMPLE_NS) {
-  
+
   return(rawgraph +
      scale_colour_manual(name="Guide family",
                       values=guide_colors,
@@ -326,27 +326,27 @@ add_true_vals = function(graphs,params) {
     newgraphs = list()
     for (ii in names(graphs)) {
       if (ii=="1") {
-        
+
         newgraph = (graphs[[ii]] +
                       geom_vline(xintercept=params$modal_effect))
       } else if (ii=="2") {
-        
+
         newgraph = (graphs[[ii]] +
                       geom_vline(xintercept=log(params$t_scale-MIN_SIGMA_OVER_S )))
       } else if (ii=="3") {
         newgraph = (graphs[[ii]] +
                       geom_vline(xintercept=log(params$df-MIN_DF)))
-        
+
       } else {
         newgraph = graphs[[ii]]
       }
       newgraphs[[ii]] = newgraph
-      
+
     }
     return(newgraphs)
   }
   return(ridiculous_closure(graphs, params)) #I hate R sometimes...
-  
+
 }
 
 add_coverages = function(graphs, mymean, mycovar, guide, S, particles, vars_to_plot=VARS_TO_PLOT) {
@@ -359,14 +359,14 @@ add_coverages = function(graphs, mymean, mycovar, guide, S, particles, vars_to_p
       #print(qq("adding @{guide} @{S} @{i}"))
       ii = toString(i)
       newgraph = (graphs[[ii]] +
-              stat_function(fun=dnorm, args = list(mean=mymean[i], sd = sqrt(mycovar[i,i])), 
+              stat_function(fun=dnorm, args = list(mean=mymean[i], sd = sqrt(mycovar[i,i])),
                             aes(color=guide,
                                 linetype=as.character(S),
                                 size=as.character(particles)),
                                 #alpha=(particles)/3,
                             show.legend=TRUE) )
       newgraphs[[ii]] = newgraph
-      
+
     }
     return(newgraphs)
   }
@@ -404,7 +404,7 @@ add_coverages = function(graphs, mymean, mycovar, guide, S, particles, vars_to_p
 ###########################################################################################
 
 ELBOfrom = function(f) {
-  
+
   tryCatch({
     ELBO = f$fit$mean_loss
     if (is.null(ELBO)) {
@@ -435,7 +435,7 @@ get_metrics_for = function(params,N=DEFAULT_N,guides = all_guides, dographs=all_
         particles = graph_combo[2]
         print(paste("guide:",guide,"S",S,"particles",particles))
         tryCatch({
-          
+
           meanhess = getRawFitFor(params,S,guide,particles,iter=iter,N=N)
           mymean = meanhess$mean
           myhess = meanhess$hess
@@ -518,13 +518,13 @@ if (fat) {
   xtable(ouput_table)
 } else {
   norm_metrics = get_metrics_for(ndom_norm_params)
-  
+
   ITER_TO_GRAPH = 3
   graph_combo_nums =c(100,3
   )
   graph_combos=t(matrix(graph_combo_nums,2,length(graph_combo_nums)/2))
   norm_metrics_mini = get_metrics_for(ndom_norm_params)
-  
+
   ouput_table2 = norm_metrics[,list(EUBO=mean(EUBO),
                                   ELBO=mean(ELBO,na.rm=TRUE),
                                   N=length(ELBO),
@@ -563,4 +563,3 @@ arrowblockhead = function(a,b,c,n,p) {
   result = result + diag(c,n)
   return(result)
 }
-
