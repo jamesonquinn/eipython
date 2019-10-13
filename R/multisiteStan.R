@@ -11,12 +11,14 @@ library(rjson)
 library(mvtnorm)
 library(GetoptLong)
 library(latex2exp)
+library(xtable)
 rstan_options(auto_write = TRUE)
 
 
 
 
-MAX_ITERS = 5
+ITERS_TO_CHECK = c(0:5,10:14)
+ITER_TO_GRAPH = 10
 maxError = 0.27889007329940796
 maxError = 1.
 DEFAULT_N = 400
@@ -24,6 +26,15 @@ SMALL_S = 11
 
 VARS_TO_PLOT = c(1:4,20,45)
 #VARS_TO_PLOT = c(1,45)
+
+#Test values for ECHS
+
+MIN_DF = 2.5
+SMEAN = 0. #ie, 1
+SSCALE = 4.
+DMEAN = 1. #ie, 2.7
+DSCALE = 2.5
+MIN_SIGMA_OVER_S = 1.9
 
 #globals copied from python
 MIN_DF = 2.5
@@ -44,14 +55,21 @@ for (i in 1:44) {
 
 all_guides = c("amortized_laplace",
                "unamortized_laplace",
-               "meanfield")
+               "meanfield",
+               "fully_amortized",
+               "unparametrized_laplace")
 
-guide_colors = c("red",
-                 "blue",
-                 "green")
+guide_colors = c("black",
+                 "orange",
+                 "green",
+                 "red",
+                 "blue")
 guide_labels = c("amortized Laplace",
                "unamortized Laplace",
-               "mean-field")
+               "mean-field",
+               "fully amortized Laplace",
+               "unparametrized
+               ")
 names(guide_colors) = all_guides
 names(guide_labels) = all_guides
 
@@ -63,7 +81,7 @@ subsample_labels[1] = "un-subsampled"
 names(subsample_labels) = as.character(SUBSAMPLE_NS)
 
 #temp: no 400
-SUBSAMPLE_NS = c(400,100,50,10) 
+SUBSAMPLE_NS = c(400,100,50,10,44,399) 
 subsample_line_types = 1:length(SUBSAMPLE_NS)
 names(subsample_line_types) = as.character(SUBSAMPLE_NS)
 subsample_labels = as.character(SUBSAMPLE_NS)
@@ -76,16 +94,20 @@ names(particle_widths) = as.character(PARTICLE_NS)
 particle_labels = as.character(PARTICLE_NS)
 names(particle_labels) = c("one","three")#as.character(PARTICLE_NS)
 
-graph_combo_nums =c(10,1,
-                    10,3
+graph_combo_nums =c(10,1
+                    #,
+                    #10,3
                     ,50,1
-                    ,50,3
+                    #,50,3
                     ,100,1
                     ,100,3
                     ,400,1
                     ,400,3
+                    ,399,1
 )
 graph_combos=t(matrix(graph_combo_nums,2,length(graph_combo_nums)/2))
+
+EXTRA_FORMATTING = geom_blank() #guides(linetype = FALSE, size=FALSE) #
 
 ts = function(x){x}
 dict = function(...){list(...)}
@@ -108,6 +130,10 @@ ndom_norm_params = dict(modal_effect=ts(modal_effect),
                         df=30.,
                         t_scale=2.)
 
+dummy_echs_params = dict(modal_effect=0,
+                        df=0,
+                        t_scale=0)
+
 
 
 
@@ -124,8 +150,8 @@ nameWithParams = function(filebase, trueparams, S=NA, N=DEFAULT_N){
   }
 }
 
-getScenario = function(params) {
-  fread(nameWithParams(qq("@{BASE_DIRECTORY}/scenario"),params))
+getScenario = function(params,N) {
+  fread(nameWithParams(qq("@{BASE_DIRECTORY}/scenario"),params,N=N))
 }
 
 #ndom_norm_params = dict(modal_effect=ts(modal_effect),
@@ -144,14 +170,17 @@ toMCMClanguage = function(params,x) {
   return(giveVals)
 }
 
-getMCMCfor = function(params) {
-  scenario = getScenario(params)
-  
+getMCMCfor = function(params,N) {
+  scenario = getScenario(params,N)
+  print(paste("dims",dim(scenario),toString(names(scenario))))
+  mymaxError = max(scenario[,s])
+  print(paste(min(scenario[,s]),mymaxError,MIN_SIGMA_OVER_S,
+              MIN_DF,SMEAN,DMEAN,DSCALE,SSCALE))
   
   afit = sampling(model, data = list(N=length(scenario[,s]), 
                                      se=scenario[,s], 
                                      x=scenario[,x],
-                                     maxError=maxError,
+                                     maxError=mymaxError,
                                      MIN_SIGMA_OVER_S=MIN_SIGMA_OVER_S,
                                      mindf=MIN_DF,
                                      smean=SMEAN,
@@ -163,10 +192,10 @@ getMCMCfor = function(params) {
   amat = as.matrix(afit)
   return(amat)
 }
-getRawFitFor = function(params,S,guide ="amortized_laplace",particles=1,iter=0){
+getRawFitFor = function(params,S,guide ="amortized_laplace",particles=1,iter=0,N=DEFAULT_N){
   
-  jsonName = nameWithParams(qq("@{BASE_DIRECTORY}/fit_@{guide}_@{iter}_parts@{particles}"),params,S)
-  #print(jsonName)
+  jsonName = nameWithParams(qq("@{BASE_DIRECTORY}/fit_@{guide}_@{iter}_parts@{particles}"),params,S,N=N)
+  print(jsonName)
   fittedGuide = fromJSON(file=jsonName)
   if (guide=="meanfield") {
     hess = diag(c(fittedGuide$mode_sigma,
@@ -260,6 +289,7 @@ get_coverages = function(samples, mymean, mycovar, alpha=c(0.05,.5)) {
 #graphing stuff
 ###########################################################################################
 graph_mcmc = function(samples, graphs=list(), vars_to_plot=VARS_TO_PLOT, base_format=get_base_formatting()) {
+  print(paste("dimsamp",dim(samples)))
   for (i in vars_to_plot) {
     ii = toString(i)
     if (!(ii %in% names(graphs))) {
@@ -287,11 +317,40 @@ add_base_formatting = function(rawgraph, guides=all_guides, subsamples=SUBSAMPLE
                          labels = subsample_labels) +
     scale_size_manual(name="Guide samples/step",
                           values = particle_widths,
-                          labels = particle_labels))
+                          labels = particle_labels) +
+    EXTRA_FORMATTING)
+}
+
+add_true_vals = function(graphs,params) {
+  ridiculous_closure = function(graphs, params) {
+    newgraphs = list()
+    for (ii in names(graphs)) {
+      if (ii=="1") {
+        
+        newgraph = (graphs[[ii]] +
+                      geom_vline(xintercept=params$modal_effect))
+      } else if (ii=="2") {
+        
+        newgraph = (graphs[[ii]] +
+                      geom_vline(xintercept=log(params$t_scale-MIN_SIGMA_OVER_S )))
+      } else if (ii=="3") {
+        newgraph = (graphs[[ii]] +
+                      geom_vline(xintercept=log(params$df-MIN_DF)))
+        
+      } else {
+        newgraph = graphs[[ii]]
+      }
+      newgraphs[[ii]] = newgraph
+      
+    }
+    return(newgraphs)
+  }
+  return(ridiculous_closure(graphs, params)) #I hate R sometimes...
+  
 }
 
 add_coverages = function(graphs, mymean, mycovar, guide, S, particles, vars_to_plot=VARS_TO_PLOT) {
-  
+  print(paste("adding",toString(mymean[1:4]),toString(mycovar[1:4])))
   ridiculous_var = paste(guide,toString(S+particles+mymean+mycovar))
   #print(ridiculous_var)
   ridiculous_closure = function(graphs, mymean, mycovar, guide, S, particles, vars_to_plot) {
@@ -304,7 +363,7 @@ add_coverages = function(graphs, mymean, mycovar, guide, S, particles, vars_to_p
                             aes(color=guide,
                                 linetype=as.character(S),
                                 size=as.character(particles)),
-                                alpha=(particles)/3,
+                                #alpha=(particles)/3,
                             show.legend=TRUE) )
       newgraphs[[ii]] = newgraph
       
@@ -359,13 +418,16 @@ ELBOfrom = function(f) {
 }
 
 
-get_metrics_for = function(params,guides = all_guides, dographs=all_guides, subsample_ns=SUBSAMPLE_NS) {
-  amat = getMCMCfor(params)
+get_metrics_for = function(params,N=DEFAULT_N,guides = all_guides, dographs=all_guides, subsample_ns=SUBSAMPLE_NS, graph_truth=TRUE) {
+  amat = getMCMCfor(params,N)
   print(qq("Dimensions of @{toString(dim(amat))}, OK?"))
   metrics = data.table()
   print(paste("guides:",guides))
   graphs = graph_mcmc(amat)
-  for (iter in 0:(MAX_ITERS-1)) {
+  if (graph_truth) {
+    graphs = add_true_vals(graphs,params)
+  }
+  for (iter in ITERS_TO_CHECK) {
     for (guide in guides) {
       for (line in 1:dim(graph_combos)[1]) {
         graph_combo = graph_combos[line,]
@@ -374,7 +436,7 @@ get_metrics_for = function(params,guides = all_guides, dographs=all_guides, subs
         print(paste("guide:",guide,"S",S,"particles",particles))
         tryCatch({
           
-          meanhess = getRawFitFor(params,S,guide,particles)
+          meanhess = getRawFitFor(params,S,guide,particles,iter=iter,N=N)
           mymean = meanhess$mean
           myhess = meanhess$hess
           d = meanhess$d
@@ -403,7 +465,7 @@ get_metrics_for = function(params,guides = all_guides, dographs=all_guides, subs
           print(qq("dnm: @{dim(newmetrics)} dm: @{dim(metrics)}"))
           metrics = rbind(metrics,newmetrics,
                           fill=TRUE)
-          if (iter==0) {
+          if (iter==ITER_TO_GRAPH) {
             if (guide %in% dographs) {
               print(qq("adding @{guide} @{S} @{mymean[1]}"))
               #print(mymean)
@@ -413,7 +475,7 @@ get_metrics_for = function(params,guides = all_guides, dographs=all_guides, subs
           }
           #guide = "meanfield"
         }, error = function(e) {
-          print(qq("FAILED to add @{guide} S@{S} part@{particles} iter@{iter}"))
+          print(qq("FAILED to add @{guide} N@{N} S@{S} part@{particles} iter@{iter}"))
           print(e)
         })
       }
@@ -443,11 +505,45 @@ klOfLogdensities = function(a,b) {
 
 fat = TRUE
 if (fat) {
-  fat_metrics = get_metrics_for(ndom_fat_params,dographs=all_guides[c(1,2,3)])
-  fat_metrics[,mean(EUBO),by=list(df,subsample_sites,particles,guide)]
+  fat_metrics = get_metrics_for(ndom_fat_params,dographs=all_guides[c(1,4,5,6,7)])
+  ouput_table = fat_metrics[,list(EUBO=mean(EUBO),
+                    ELBO=mean(ELBO,na.rm=TRUE),
+                    N=length(ELBO),
+                    MuCover=mean(coverage1),
+                    SigCover = mean(coverage2),
+                    DFcover = mean(coverage3),
+                    Tcover = mean(coverageT)
+                    ),
+              by=list(df,subsample_sites,particles,guide)][subsample_sites==100][order(particles),][order(guide),]
+  xtable(ouput_table)
 } else {
   norm_metrics = get_metrics_for(ndom_norm_params)
+  
+  ITER_TO_GRAPH = 3
+  graph_combo_nums =c(100,3
+  )
+  graph_combos=t(matrix(graph_combo_nums,2,length(graph_combo_nums)/2))
+  norm_metrics_mini = get_metrics_for(ndom_norm_params)
+  
+  ouput_table2 = norm_metrics[,list(EUBO=mean(EUBO),
+                                  ELBO=mean(ELBO,na.rm=TRUE),
+                                  N=length(ELBO),
+                                  MuCover=mean(coverage1),
+                                  SigCover = mean(coverage2),
+                                  DFcover = mean(coverage3),
+                                  Tcover = mean(coverageT)
+  ),
+  by=list(df,subsample_sites,particles,guide)][subsample_sites==100][order(particles),][order(guide),]
+  xtable(ouput_table2)
 }
+if (false) {
+  ITER_TO_GRAPH = 10
+  graph_combo_nums =c(44,3
+  )
+  graph_combos=t(matrix(graph_combo_nums,2,length(graph_combo_nums)/2))
+  get_metrics_for(dummy_echs_params,graph_truth = FALSE,N=44)
+
+  }
 
 arrowhead = function(a,b,c,n) {
   result = matrix(0,n,n)
