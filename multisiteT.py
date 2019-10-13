@@ -339,7 +339,7 @@ def get_unconditional_cov(full_precision, n):
 def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                         save_data=None,
                         weight=1.,scalehyper=ts(4.),tailhyper=ts(10.),
-                        amortize=True):
+                        amortize=True, alternateDistribution = None):
     #print("laplace_guide:",N,len(x),len(errors),weight)
 
 
@@ -383,7 +383,7 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     dm = mode_hat.detach().requires_grad_()
     dtr = ltscale_hat.detach().requires_grad_() #detached... raw
     ddfr = ldfraw_hat.detach().requires_grad_() #detached... raw
-    print("ddfr",float(ddfr),"dtr",float(dtr))
+    #print("ddfr",float(ddfr),"dtr",float(dtr))
 
     dt =  maxError*MIN_SIGMA_OVER_S + torch.exp(dtr) #detached, cook
     ddf = MIN_DF + torch.exp(ddfr) #detached, cook
@@ -444,10 +444,15 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     #MVN = dist.MultivariateNormal #for deterministic: MVN = deltaMVN
     #sample top-level
     submean = phi[:G]
-    chol = gamma_cov.cholesky()
+    if alternateDistribution:
+        chol = torch.ones(1,1)
+        gamma = pyro.sample('gamma',alternateDistribution(submean,gamma_cov),
+                        infer={'is_auxiliary': True})
+    else:
+        chol = gamma_cov.cholesky()
 
-    gamma = pyro.sample('gamma',dist.OMTMultivariateNormal(submean,chol),
-                    infer={'is_auxiliary': True})
+        gamma = pyro.sample('gamma',dist.OMTMultivariateNormal(submean,chol),
+                        infer={'is_auxiliary': True})
 
 
     #decompose gamma into specific values
@@ -501,10 +506,16 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
         try:
             with poutine.scale(scale=1.):#weight):
-                ylist.append( pyro.sample(f"y_{i}",
-                                dist.OMTMultivariateNormal(new_mean,
-                                        torch.inverse(new_precision).cholesky())
-                                ,infer={'is_auxiliary': True}))
+                if alternateDistribution:
+                    ylist.append( pyro.sample(f"y_{i}",
+                                    alternateDistribution(new_mean,
+                                            torch.inverse(new_precision))
+                                    ,infer={'is_auxiliary': True}))
+                else:
+                    ylist.append( pyro.sample(f"y_{i}",
+                                    dist.OMTMultivariateNormal(new_mean,
+                                            torch.inverse(new_precision).cholesky())
+                                    ,infer={'is_auxiliary': True}))
         except:
             print(new_precision)
             print(f"det:{np.linalg.det(new_precision.data.numpy())}")
@@ -648,9 +659,17 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     return(save_data)
     #
 
-def unamortized_laplace(*args,**kwargs):
-    return(laplace_guide(*args,amortize=False,**kwargs))
+def another_guide(**extrakwargs):
+    def do_another_guide(*args, **kwargs):
+        return(laplace_guide(*args,**{**kwargs, **extrakwargs}))
+    return do_another_guide
 
+
+unamortized_laplace = another_guide(amortize=False)
+
+unparametrized_laplace = another_guide(alternateDistribution=dist.MultivariateNormal)
+
+fully_amortized = another_guide(alternateDistribution=DeltaMVN)
 
 #     #
 # def amortized_meanfield(N,full_N,indices,x,full_x,errors,full_errors,maxError,save_data,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
@@ -743,6 +762,8 @@ guides = OrderedDict(
                     meanfield=meanfield,
                     amortized_laplace = laplace_guide,
                     unamortized_laplace = unamortized_laplace,
+                    fully_amortized = fully_amortized,
+                    unparametrized_laplace = unparametrized_laplace
                     )
 
 class FakeSink(object):
