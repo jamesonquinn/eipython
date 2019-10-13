@@ -72,6 +72,47 @@ if MINIMAL_DEBUG:
 else:
     pyrosample = pyro.sample
 
+FACTOR_NAMES = ["t",#time (year)
+                "o",#office (pres/sen/gov)
+                ]
+
+FACTOR_SIZES = [3, 3] #3 years, 3 offices; check data later
+
+class GlobalTerm:
+    def __init__(self, hasRace, hasFacs):
+        self.hasRace = hasRace
+        self.hasFacs = hasFacs
+        self.setName()
+
+    def setName(self):
+        name = "alpha_p" #party, always
+        if self.hasRace:
+            name += "o"
+        for (hasFac, facName) in zip(self.hasFacs, FACTOR_NAMES):
+            if hasFac:
+                name += facName
+        self.name = name
+        self.signame = name + "_sigma"
+
+    def getSigmaName(self,):
+
+    def modelSample(self,):
+        pass
+
+    def modelApply(self,):
+        pass
+
+    def guideParam(self,):
+        pass
+
+    def guideToModel(self,):
+        pass
+
+    def modelPregen(self,):
+        pass
+
+class LocalTerm(GlobalTerm)
+
 def model(data=None, scale=1., include_nuisance=False, do_print=False):
     print("model:begin",scale,include_nuisance)
     if data is None:
@@ -86,12 +127,15 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
                     # pyrosample('precinctSizes',
                     #         dist.NegativeBinomial(p*r - 5*(r+1-R) + 6, .95))
     else:
-        ns, vs, indeps, tots = data
+        ns, vs, indeps, tots, factors, facNums, covs = data
         assert len(ns)==len(vs)
         # Hyperparams.
         P = len(ns)
         R = len(ns[0])
         C = len(vs[0])
+        nFactors = factors.size()[1]
+        assert len(facNums) == nFactors
+        nCovs = covs.size()[1]
 
     prepare_ps = range(P)
     ps_plate = pyro.plate('all_sampled_ps',P)
