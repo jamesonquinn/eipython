@@ -5,7 +5,7 @@ from torch.distributions import Categorical
 from numbers import Number
 from torch.distributions import constraints
 from torch.distributions.utils import broadcast_all
-from pyro.distributions.torch_distribution import IndependentConstraint, TorchDistributionMixin, TorchDistribution
+from pyro.distributions.torch_distribution import TorchDistributionMixin, TorchDistribution
 
 print("Reloading cmult...")
 
