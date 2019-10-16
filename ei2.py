@@ -80,6 +80,14 @@ else:
     pyrosample = pyro.sample
 
 def model(data=None, scale=1., include_nuisance=True, do_print=False):
+    """
+
+    Notes:
+        -if data is None, creates 30 precincts of data from nothing
+        -otherwise, data should be a tuple (ns, vs, indeps, tots).
+            -if vs is None, create & return data from model, with that ns
+            -otherwise, model conditions on that vs (ie, use for density, not sampling)
+    """
     print("model:begin",scale,include_nuisance)
     if data is None:
         P, R, C = 30, 4, 3
@@ -89,16 +97,21 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False):
             for r in range(R):
                 ns[p,r] = 20 * (p*r - 5*(r+1-R) + 6) + ((p-15)*(r-1))^2
                 ns[p,r] = 20 * (p*r - 5*(r+1-R) + 6) + ((p-1)*(r-1))^2
+        vs = None
+
 
                     # pyrosample('precinctSizes',
                     #         dist.NegativeBinomial(p*r - 5*(r+1-R) + 6, .95))
     else:
         ns, vs, indeps, tots = data
-        assert len(ns)==len(vs)
+        if vs is None:
+            C = 3
+        else:
+            assert len(ns)==len(vs)
+            C = len(vs[0])
         # Hyperparams.
         P = len(ns)
         R = len(ns[0])
-        C = len(vs[0])
 
     prepare_ps = range(P)
     ps_plate = pyro.plate('all_sampled_ps',P)
@@ -112,7 +125,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False):
     if include_nuisance:
         sdprc = pyrosample('sdprc', dist.Exponential(.2))
 
-    if data is None:
+    if vs is None:
         sdc = .2
         sdrc = .4
         sdprc = .6
@@ -148,7 +161,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False):
     #                 eprc = pyrosample('eprc', dist.Normal(0,sdprc))
 
     with all_sampled_ps() as p_tensor:#pyro.plate('precinctsm2', P):
-        if data is None:
+        if vs is None:
             y = torch.zeros(P,R,C)
             for p in p_tensor:
                 for r in range(R):
@@ -172,7 +185,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False):
             dp("model y",scale,y.size(),y[0,:2,:2])
             #dp("ldim",logits.size(),y[0,0,0])
 
-    if data is None:
+    if vs is None:
         #
         dp(f"ec:{ec}")
         dp(f"erc:{erc}")
