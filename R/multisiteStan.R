@@ -15,7 +15,13 @@ library(xtable)
 rstan_options(auto_write = TRUE)
 
 
-
+########################################################################################
+########################################################################################
+########################################################################################
+###################    TODO: fix "hat" vs "star"                ########################
+########################################################################################
+########################################################################################
+########################################################################################
 
 ITERS_TO_CHECK = c(0:5,10:14)
 ITER_TO_GRAPH = 10
@@ -73,8 +79,8 @@ guide_labels = c("amortized Laplace",
 names(guide_colors) = all_guides
 names(guide_labels) = all_guides
 
-SUBSAMPLE_NS = c(400, 150,50,25,12)
-subsample_line_types = c(1,2,3,4,5)
+SUBSAMPLE_NS = c(400, 399,150,50,25,12,10)
+subsample_line_types = c(1,1,2,3,4,5,5)
 names(subsample_line_types) = as.character(SUBSAMPLE_NS)
 subsample_labels = as.character(SUBSAMPLE_NS)
 subsample_labels[1] = "un-subsampled"
@@ -98,7 +104,7 @@ graph_combo_nums =c(10,1
                     #,
                     #10,3
                     ,50,1
-                    #,50,3
+                    ,50,3
                     ,100,1
                     ,100,3
                     ,400,1
@@ -506,16 +512,16 @@ klOfLogdensities = function(a,b) {
 fat = TRUE
 if (fat) {
   fat_metrics = get_metrics_for(ndom_fat_params,dographs=all_guides[c(1,4,5,6,7)])
-  ouput_table = fat_metrics[,list(EUBO=mean(EUBO),
+  output_table = fat_metrics[,list(EUBO=mean(EUBO),
                     ELBO=mean(ELBO,na.rm=TRUE),
-                    N=length(ELBO),
+                    #N=length(ELBO),
                     MuCover=mean(coverage1),
                     SigCover = mean(coverage2),
                     DFcover = mean(coverage3),
                     Tcover = mean(coverageT)
                     ),
               by=list(df,subsample_sites,particles,guide)][subsample_sites==100][order(particles),][order(guide),]
-  xtable(ouput_table)
+  print(xtable(output_table,digits=c(0,1,0,0,0,0,0,0,3,3,3,3)),include.rownames=FALSE)
 } else {
   norm_metrics = get_metrics_for(ndom_norm_params)
 

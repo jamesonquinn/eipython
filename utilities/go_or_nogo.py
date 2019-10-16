@@ -8,10 +8,10 @@ NUM_BETWEEN_PRINT = 100
 
 def printstuff(i,loss):
     print(f'epoch {i} loss = {loss};'+
-        f' logsdrchat = {pyro.get_param_store()["logsdrchat"]};')
-    print(f' erchat = {pyro.get_param_store()["erchat"]}')
+        f' logsdrcstar = {pyro.get_param_store()["logsdrcstar"]};')
+    print(f' ercstar = {pyro.get_param_store()["ercstar_raw"]}')
     try:
-        print(f' corrhat = {pyro.get_param_store()["corrhat"]}')
+        print(f' corrstar = {pyro.get_param_store()["corrstar"]}')
     except:
         pass
     #print(f' pnsml = {pyro.get_param_store()["precinct_newton_step_multiplier_logit"]}')
@@ -20,7 +20,7 @@ def demoprintstuff(i,loss,mean_loss=None,*args):
     if (i % NUM_BETWEEN_PRINT) == 0:
         print(f'epoch {i} loss = {loss}; mean_loss= {mean_loss}; {args}')
 
-        for item in ("mode_hat","gscale_hat","nscale_hat","narrower","ltscale_hat","ldfraw_hat"):
+        for item in ("mode_star","gscale_star","nscale_star","narrower","ltscale_star","ldfraw_star"):
             try:
                 print(item,pyro.get_param_store()[item])
             except:
@@ -34,8 +34,8 @@ def printstuff2():
 def getLaplaceParams():
     store = pyro.get_param_store()
     result = []
-    for item in ("mode_hat","nscale_hat","gscale_hat","narrower",
-                "echat","erchat","eprchat","corrhat"):
+    for item in ("mode_star","nscale_star","gscale_star","narrower",
+                "ecstar","ercstar","eprcstar","corrstar"):
         try:
             result.append(store[item])
         except:

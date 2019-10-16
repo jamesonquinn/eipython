@@ -86,7 +86,7 @@ EVIL_HACK_EPSILON = 0.00000001 #OMG this is evil
 
 
 
-data = pd.read_csv('testresults/effects_errors.csv')
+data = pd.read_csv('input_data/effects_errors.csv')
 echs_x = torch.tensor(data.effects)
 echs_errors = torch.tensor(data.errors)
 N = len(echs_x)
@@ -359,30 +359,30 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
             with pyro.plate('full_units',full_N) as n:
                 yield n
 
-    hat_data = OrderedDict() #
-    fhat_data = OrderedDict() #frequentist
+    star_data = OrderedDict() #
+    fstar_data = OrderedDict() #frequentist
     transformations = defaultdict(lambda: lambda x: x) #
-    mode_hat = pyro.param("mode_hat",ts(0.))
-    hat_data.update(modal_effect=mode_hat)
+    mode_star = pyro.param("mode_star",ts(0.))
+    star_data.update(modal_effect=mode_star)
 
-    ltscale_hat = pyro.param("ltscale_hat",ts(0.))
-    hat_data.update(t_scale_raw=ltscale_hat)
+    ltscale_star = pyro.param("ltscale_star",ts(0.))
+    star_data.update(t_scale_raw=ltscale_star)
     transformations.update(t_scale_raw=torch.exp)
 
-    ldfraw_hat2 = pyro.param("ldfraw_hat",ts(0.))
+    ldfraw_star2 = pyro.param("ldfraw_star",ts(0.))
     if save_data and "df_adj" in save_data:
-        ldfraw_hat = ldfraw_hat2 + save_data["df_adj"]
+        ldfraw_star = ldfraw_star2 + save_data["df_adj"]
     else:
-        ldfraw_hat = ldfraw_hat2
-    fhat_data.update(dfraw=ldfraw_hat)
-    #hat_data.update(fhat_data) #include frequentist value in Hessian
+        ldfraw_star = ldfraw_star2
+    fstar_data.update(dfraw=ldfraw_star)
+    #star_data.update(fstar_data) #include frequentist value in Hessian
         #can't, no Hessians of gamma functions
     transformations.update(dfraw=torch.exp)
 
 
-    dm = mode_hat.detach().requires_grad_()
-    dtr = ltscale_hat.detach().requires_grad_() #detached... raw
-    ddfr = ldfraw_hat.detach().requires_grad_() #detached... raw
+    dm = mode_star.detach().requires_grad_()
+    dtr = ltscale_star.detach().requires_grad_() #detached... raw
+    ddfr = ldfraw_star.detach().requires_grad_() #detached... raw
     #print("ddfr",float(ddfr),"dtr",float(dtr))
 
     dt =  maxError*MIN_SIGMA_OVER_S + torch.exp(dtr) #detached, cook
@@ -403,31 +403,31 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
     #print("tpart:",tpart)
 
-    #true_g_hat.requires_grad = True
-    gamma_names = list(hat_data.keys())
+    #true_g_star.requires_grad = True
+    gamma_names = list(star_data.keys())
     #print("guide t_part",N,full_N,sub_tpart.size(),full_tpart.size())
-    hat_data.update(t_part=sub_tpart)
+    star_data.update(t_part=sub_tpart)
 
     #Get hessian
-    phi = torch.cat([phiPart.view(-1) for phiPart in hat_data.values()],0)
+    phi = torch.cat([phiPart.view(-1) for phiPart in star_data.values()],0)
 
     conditioner = dict()
-    conditioner.update((k,transformations[k](v)) for k, v in itertools.chain(hat_data.items(), fhat_data.items()))
+    conditioner.update((k,transformations[k](v)) for k, v in itertools.chain(star_data.items(), fstar_data.items()))
     hessCenter = pyro.condition(model,conditioner)
     blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,full_N,#None,x,x,errors,errors,
                                 indices,x,full_x,errors,full_errors,
                                 maxError,save_data,weight,scalehyper,tailhyper) #*args,**kwargs)
     logPosterior = blockedTrace.log_prob_sum()
 
-    gamma_parts = dict((gamma_name,hat_data[gamma_name]) for gamma_name in gamma_names)
+    gamma_parts = dict((gamma_name,star_data[gamma_name]) for gamma_name in gamma_names)
     #count parameters
     G = int(sum(gamma_parts[pname].nelement() for pname in gamma_names))
 
     if save_data and "df_adj" in save_data: #just running to get logPosterior; stop and return
-        grad = myhessian.mygradient(logPosterior, hat_data.values())
+        grad = myhessian.mygradient(logPosterior, star_data.values())
         save_data.update(logPosterior=logPosterior, grad=grad)
         return(save_data)
-    (hess, grad) = myhessian.arrowhead_hessian(logPosterior, hat_data.values(), headsize=len(gamma_names),
+    (hess, grad) = myhessian.arrowhead_hessian(logPosterior, star_data.values(), headsize=len(gamma_names),
                                 blocksize=1, return_grad=True)#, allow_unused=True)
     hess = -hess
     globalpsiraw = pyro.param("globalpsi",torch.zeros(G) + LOG_BASE_PSI)
@@ -458,23 +458,23 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     #decompose gamma into specific values
     tmpgamma = gamma
     for pname in gamma_names:
-        phat = gamma_parts[pname]
-        elems = phat.nelement()
-        #print(f"pname, phat: {pname}, {phat}")
+        pstar = gamma_parts[pname]
+        elems = pstar.nelement()
+        #print(f"pname, pstar: {pname}, {pstar}")
         pdat, tmpgamma = tmpgamma[:elems], tmpgamma[elems:]
         pdat = transformations[pname](pdat)
-        #print(f"adding {pname} from gamma ({elems}, {phat.size()})" )
-        if pname not in fhat_data: #don't do frequentist params yet, see just below
-            pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
+        #print(f"adding {pname} from gamma ({elems}, {pstar.size()})" )
+        if pname not in fstar_data: #don't do frequentist params yet, see just below
+            pyro.sample(pname, dist.Delta(pdat.view(pstar.size())).to_event(len(list(pstar.size()))))
 
-    for k,v in fhat_data.items():
+    for k,v in fstar_data.items():
         pyro.sample(k, dist.Delta(transformations[k](v)))
 
 
     #sample unit-level parameters, conditional on top-level ones
     global_indices = ts(range(G))
     base_gamma = gamma
-    base_gamma_hat = phi[:G]
+    base_gamma_star = phi[:G]
     ylist = []
     for i in range(N):
         #
@@ -551,9 +551,9 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     with t_units():
         pyro.sample("t_part", dist.Delta(t_part))
     #
-    #print("end guide.",gamma[:3],mode_hat,nscale_hat,tscale_hat,hess[:5,:5],hess[-3:,-3:])
+    #print("end guide.",gamma[:3],mode_star,nscale_star,tscale_star,hess[:5,:5],hess[-3:,-3:])
     #
-    #print(".....1....",true_g_hat,gamma[-6:])
+    #print(".....1....",true_g_star,gamma[-6:])
     #print(".....2....",gamma[-9:-6])
 
 
@@ -566,8 +566,8 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
         ]
         def fix_m_grad():
             #print("fix_m_grad")
-            if torch.any(torch.isnan(mode_hat.grad)):
-                complain( "mode_hat.grad")
+            if torch.any(torch.isnan(mode_star.grad)):
+                complain( "mode_star.grad")
             if torch.any(torch.isnan(dm.grad)):
                 complain("dm.grad")
                 ftp = full_tpart
@@ -586,15 +586,15 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                 import pdb; pdb.set_trace()
             else:
                 yay("fix_m_grad")
-                mode_hat.grad = mode_hat.grad + dm.grad
-            mode_hat.grad[mode_hat.grad == float("Inf")] = 1e10
-            mode_hat.grad[mode_hat.grad == float("-Inf")] = -1e10
-            #print("mode_hat.grad",mode_hat.grad)
-        mode_hat.fix_grad = fix_m_grad
+                mode_star.grad = mode_star.grad + dm.grad
+            mode_star.grad[mode_star.grad == float("Inf")] = 1e10
+            mode_star.grad[mode_star.grad == float("-Inf")] = -1e10
+            #print("mode_star.grad",mode_star.grad)
+        mode_star.fix_grad = fix_m_grad
         #
         def fix_t_grad():
-            if torch.any(torch.isnan(ltscale_hat.grad)):
-                complain( "ltscale_hat.grad")
+            if torch.any(torch.isnan(ltscale_star.grad)):
+                complain( "ltscale_star.grad")
                 ftp = full_tpart
                 stp = sub_tpart
                 tp = t_part
@@ -610,15 +610,15 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                 a,b,c,d = full_errors, dt, full_x-dm, ddf
                 import pdb; pdb.set_trace()
             else:
-                ltscale_hat.grad = ltscale_hat.grad + dtr.grad
-            ltscale_hat.grad[ltscale_hat.grad == float("Inf")] = 1e10
-            ltscale_hat.grad[ltscale_hat.grad == float("-Inf")] = -1e10
-            #print("ltscale_hat.grad",ltscale_hat.grad)
-        ltscale_hat.fix_grad = fix_t_grad
+                ltscale_star.grad = ltscale_star.grad + dtr.grad
+            ltscale_star.grad[ltscale_star.grad == float("Inf")] = 1e10
+            ltscale_star.grad[ltscale_star.grad == float("-Inf")] = -1e10
+            #print("ltscale_star.grad",ltscale_star.grad)
+        ltscale_star.fix_grad = fix_t_grad
 
         def fix_df_grad():
-            if torch.any(torch.isnan(ldfraw_hat.grad)):
-                complain( "ldfraw_hat.grad")
+            if torch.any(torch.isnan(ldfraw_star.grad)):
+                complain( "ldfraw_star.grad")
                 ftp = full_tpart
                 stp = sub_tpart
                 tp = t_part
@@ -640,14 +640,14 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                 #for i in range(len(MLEvars)): if sum(MLEvars[i].size()) > 1: print("var",i,"val",MLEvars[i][243],"grad",MLEvars[i].grad[243])
                 import pdb; pdb.set_trace()
             else:
-                ldfraw_hat.grad = ldfraw_hat.grad + ddfr.grad
-            ldfraw_hat.grad[ldfraw_hat.grad == float("Inf")] = 1e10
-            ldfraw_hat.grad[ldfraw_hat.grad == float("-Inf")] = -1e10
-            #print("ldfraw_hat.grad",ldfraw_hat.grad)
-        ldfraw_hat.fix_grad = fix_df_grad
+                ldfraw_star.grad = ldfraw_star.grad + ddfr.grad
+            ldfraw_star.grad[ldfraw_star.grad == float("Inf")] = 1e10
+            ldfraw_star.grad[ldfraw_star.grad == float("-Inf")] = -1e10
+            #print("ldfraw_star.grad",ldfraw_star.grad)
+        ldfraw_star.fix_grad = fix_df_grad
 
     if save_data is not None:
-        save_data.update(ahat_data=hat_data,
+        save_data.update(astar_data=star_data,
                         logPosterior=logPosterior,
                         raw_hessian=hess,
                         fixed_hessian_upper = head_precision,
@@ -675,26 +675,26 @@ fully_amortized = another_guide(alternateDistribution=DeltaMVN)
 # def amortized_meanfield(N,full_N,indices,x,full_x,errors,full_errors,maxError,save_data,weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
 #     #print("guide2 start")
 #     #
-#     hat_data = OrderedDict()
-#     mode_hat = pyro.param("mode_hat",ts(0.))
-#     hat_data.update(modal_effect=mode_hat)
+#     star_data = OrderedDict()
+#     mode_star = pyro.param("mode_star",ts(0.))
+#     star_data.update(modal_effect=mode_star)
 #
-#     nscale_hat = pyro.param("nscale_hat",ts(1.)) #log this? nah; just use "out of box"
-#     hat_data.update(norm_scale=nscale_hat)
+#     nscale_star = pyro.param("nscale_star",ts(1.)) #log this? nah; just use "out of box"
+#     star_data.update(norm_scale=nscale_star)
 #
-#     tscale_hat = pyro.param("tscale_hat",ts(1.))
-#     hat_data.update(t_scale=tscale_hat)
+#     tscale_star = pyro.param("tscale_star",ts(1.))
+#     star_data.update(t_scale=tscale_star)
 #
-#     normpart, tpart = getMLE(nscale_hat, tscale_hat, errors, x)
+#     normpart, tpart = getMLE(nscale_star, tscale_star, errors, x)
 #
-#     true_n_hat = normpart * nscale_hat / (nscale_hat + errors)
-#     hat_data.update(norm_part=true_n_hat)
+#     true_n_star = normpart * nscale_star / (nscale_star + errors)
+#     star_data.update(norm_part=true_n_star)
 #
-#     true_g_hat = tpart
-#     hat_data.update(t_part=true_g_hat)
+#     true_g_star = tpart
+#     star_data.update(t_part=true_g_star)
 #
 #     #Get hessian
-#     phi = torch.cat([gammaPart.view(-1) for gammaPart in hat_data.values()],0)
+#     phi = torch.cat([gammaPart.view(-1) for gammaPart in star_data.values()],0)
 #     nparams = len(phi)
 #
 #     gamma_scale = pyro.param("gamma_scale",torch.ones(nparams))
@@ -706,40 +706,40 @@ fully_amortized = another_guide(alternateDistribution=DeltaMVN)
 #
 #     #decompose gamma into specific values
 #     tmpgamma = gamma
-#     for pname, phat in hat_data.items():
-#         elems = phat.nelement()
+#     for pname, pstar in star_data.items():
+#         elems = pstar.nelement()
 #         pdat, tmpgamma = tmpgamma[:elems], tmpgamma[elems:]
-#         #print(f"adding {pname} from gamma ({elems}, {phat.size()})" )
+#         #print(f"adding {pname} from gamma ({elems}, {pstar.size()})" )
 #
-#         pyro.sample(pname, dist.Delta(pdat.view(phat.size())).to_event(len(list(phat.size()))))
+#         pyro.sample(pname, dist.Delta(pdat.view(pstar.size())).to_event(len(list(pstar.size()))))
 #     #
 
 def meanfield(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                         save_data=None,
                         weight=1.,scalehyper=ts(4.),tailhyper=ts(10.)):
 
-    mode_hat = pyro.param("mode_hat",ts(0.))
+    mode_star = pyro.param("mode_star",ts(0.))
     mode_sigma = pyro.param("mode_sigma",torch.ones([]),constraint=constraints.positive)
-    mode = pyro.sample("modal_effect",dist.Normal(mode_hat,mode_sigma))
+    mode = pyro.sample("modal_effect",dist.Normal(mode_star,mode_sigma))
 
-    ltscale_hat = pyro.param("ltscale_hat",ts(0.))
+    ltscale_star = pyro.param("ltscale_star",ts(0.))
     ltscale_sigma = pyro.param("ltscale_sigma",torch.ones([]),constraint=constraints.positive)
-    lts = pyro.sample("log_t_scale",dist.Normal(ltscale_hat,ltscale_sigma),
+    lts = pyro.sample("log_t_scale",dist.Normal(ltscale_star,ltscale_sigma),
             infer={'is_auxiliary': True})
     t_scale_raw = pyro.sample("t_scale_raw",dist.Delta(torch.exp(lts)))
 
     #
-    ldfraw_hat = pyro.param("ldfraw_hat",ts(0.))
+    ldfraw_star = pyro.param("ldfraw_star",ts(0.))
     ldfraw_sigma = pyro.param("ldfraw_sigma",torch.ones([]),constraint=constraints.positive)
-    ldf = pyro.sample("log_df",dist.Normal(ldfraw_hat,ldfraw_sigma),
+    ldf = pyro.sample("log_df",dist.Normal(ldfraw_star,ldfraw_sigma),
             infer={'is_auxiliary': True})
     t_scale_raw = pyro.sample("dfraw",dist.Delta(torch.exp(ldf)))
-    #hat_data.update(fhat_data) #include frequentist value in Hessian
+    #star_data.update(fstar_data) #include frequentist value in Hessian
         #can't, no Hessians of gamma functions
 
-    t_part_hat = pyro.param("t_part_hat",torch.zeros(full_N))
+    t_part_star = pyro.param("t_part_star",torch.zeros(full_N))
     t_part_sigma = pyro.param("t_part_sigma",torch.ones(full_N),constraint=constraints.positive)
-    tph = t_part_hat.index_select(0,indices)
+    tph = t_part_star.index_select(0,indices)
     tps = t_part_sigma.index_select(0,indices)
     with poutine.scale(scale=weight):
         with pyro.plate('units',N):
@@ -777,7 +777,7 @@ class FakeSink(object):
 def getLaplaceParams():
     store = pyro.get_param_store()
     result = []
-    for item in ("mode_hat","ltscale_hat","ldfraw_hat","globalpsi","latentpsi","EMPTY_PLACEHOLDER"):
+    for item in ("mode_star","ltscale_star","ldfraw_star","globalpsi","latentpsi","EMPTY_PLACEHOLDER"):
         try:
             result.append(store[item])
         except:
@@ -788,7 +788,7 @@ def getLaplaceParams():
 def getMeanfieldParams():
     store = pyro.get_param_store()
     result = []
-    for item in ("mode_hat","ltscale_hat","ldfraw_hat","mode_sigma","ltscale_sigma","ldfraw_sigma"):
+    for item in ("mode_star","ltscale_star","ldfraw_star","mode_sigma","ltscale_sigma","ldfraw_sigma"):
         try:
             result.append(store[item])
         except:

@@ -1,18 +1,25 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 from __future__ import print_function
-print('Yes, I will run.')
+from utilities.debugGismos import *
+dp('base:Yes, I will run.')
 
 from importlib import reload
+import csv
+import time
+import math
+import os
+import random
+import json
 import contextlib
 from itertools import chain
 import cProfile as profile
-import inspect
 from collections import OrderedDict, defaultdict
 
 
 from matplotlib import pyplot as plt
 import numpy as np
+import pandas
 
 import torch
 from torch.distributions import constraints
@@ -57,7 +64,7 @@ BUNCHFAC = 35
 
 ADJUST_SCALE = .05
 MAX_NEWTON_STEP = .7 #currently, just taking this much of a step, hard-coded
-EPRCHAT_HESSIAN_POINT_FRACTION = .5
+EPRCstar_HESSIAN_POINT_FRACTION = .5
 RECENTER_PRIOR_STRENGTH = 2.
 
 
@@ -72,7 +79,7 @@ if MINIMAL_DEBUG:
 else:
     pyrosample = pyro.sample
 
-def model(data=None, scale=1., include_nuisance=False, do_print=False):
+def model(data=None, scale=1., include_nuisance=True, do_print=False):
     print("model:begin",scale,include_nuisance)
     if data is None:
         P, R, C = 30, 4, 3
@@ -109,7 +116,7 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
         sdc = .2
         sdrc = .4
         sdprc = .6
-    #print(f"sdprc in model:{sdprc}")
+    #dp(f"sdprc in model:{sdprc}")
 
     #This is NOT used for data, but instead as a way to sneak a "prior" into the guide to improve identification.
     #param_residual=pyrosample('param_residual', dist.Normal(0.,1.))
@@ -121,7 +128,7 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
             logits = (
                 pyrosample(f'logits', dist.Normal((ec + erc).expand(P,R,C), sdprc).to_event(2))
                 ) #eprc.size() == [P,R,C] because plate dimension happens on left
-        #print("Model: sampling eprc",eprc[0,0,0])
+        #dp("Model: sampling eprc",eprc[0,0,0])
     else:
         logits = torch.zeros(P,R,C) #dummy for print statements. TODO:remove
 
@@ -146,131 +153,145 @@ def model(data=None, scale=1., include_nuisance=False, do_print=False):
             for p in p_tensor:
                 for r in range(R):
                     tmp = dist.Multinomial(int(ns[p,r]),logits=logits[p,r]).sample()
-                    #print(f"y_{p}_{r}: {tmp} {y[p,r]}")
+                    #dp(f"y_{p}_{r}: {tmp} {y[p,r]}")
                     y[p,r] = tmp
         else:
             if not torch.all(torch.isfinite(logits)):
-                print("logits!!!")
+                dp("logits!!!")
                 for p in range(P):
                     if not torch.all(torch.isfinite(logits[p])):
-                        print("nan in logits[p]",p)
-                        print(logits[p])
-                        print(ec)
-                        print(erc)
+                        dp("nan in logits[p]",p)
+                        dp(logits[p])
+                        dp(ec)
+                        dp(erc)
             y = pyro.sample(f"y",
                         CMult(1000,logits=logits).to_event(1))
                         #dim P, R, C from plate, to_event, CMult
                         #note that n is totally fake — sums are what matter.
                         #TODO: fix CMult so this fakery isn't necessary.
-            print("model y",scale,y.size(),y[0,:2,:2])
-            #print("ldim",logits.size(),y[0,0,0])
+            dp("model y",scale,y.size(),y[0,:2,:2])
+            #dp("ldim",logits.size(),y[0,0,0])
 
     if data is None:
         #
-        print(f"ec:{ec}")
-        print(f"erc:{erc}")
-        print(f"y[0]:{y[0]}")
+        dp(f"ec:{ec}")
+        dp(f"erc:{erc}")
+        dp(f"y[0]:{y[0]}")
         vs = torch.sum(y,1)
 
         return (ns,vs)
 
-    print("model:end")
+    dp("model:end")
 
 
 
-def recenter_rc(rc):
-    rowcentered= (rc - torch.mean(rc,0))
-    colcentered = rowcentered - torch.mean(rowcentered,0)
-    return colcentered
+def expand_and_center(tens):
+    result = tens
+    for i,n in enumerate(tens.size()):
+        result = torch.cat([result,
+                    -torch.sum(result,i).unsqueeze(i)]
+                ,i)
+
+    return result
 
 
-def lineno():
-    """Returns the current line number in our program."""
-    return inspect.currentframe().f_back.f_lineno
 
 
-# This function is to guess a good starting point for eprchat. But removing for now because:
+# This function is to guess a good starting point for eprcstar. But removing for now because:
 # 1. SIMPLIFY!
 # 2. We're doing 1 (partial) step of Newton's Method anyway so this is mostly redundant.
 
 
-# def initial_eprc_hat_guess(totsp,pi_p,Q2,Q_precision,pi_precision):
+# def initial_eprc_star_guess(totsp,pi_p,Q2,Q_precision,pi_precision):
 #     pi_precision = totsp / pi_p / (torch.ones_like(pi_p) - pi_p)
 #     pweighted_Q = pi_p + (Q2-pi_p) * Q_precision / (Q_precision + pi_precision)
 #     return (torch.log(pweighted_Q/pi_p))
 
-def guide(data, scale, include_nuisance=False, do_print=False):
-    print("guide:begin",scale,include_nuisance)
+def guide(data, scale, include_nuisance=True, do_print=False):
+    dp("guide:begin",scale,include_nuisance)
 
+
+    ##################################################################
+    # Set up plates / weights
+    ##################################################################
     ns, vs, indeps, tots = data
     P = len(ns)
     R = len(ns[1])
     C = len(vs[1])
 
-    prepare_ps = range(P) #for dealing with hatted quantities (no pyro.sample)
+    prepare_ps = range(P) #for dealing with stared quantities (no pyro.sample)
     ps_plate = pyro.plate('all_sampled_ps',P)
     @contextlib.contextmanager
-    def all_sampled_ps(): #for dealing with unhatted quantities (include pyro.sample)
+    def all_sampled_ps(): #for dealing with unstared quantities (include pyro.sample)
         with ps_plate as p, poutine.scale(scale=scale) as pscale:
             yield p
 
-    #Start with hats.
+    ##################################################################
+    # Get guide parameters (stars)
+    ##################################################################
 
-    theta_hat_data = OrderedDict()
-    fhat_data = OrderedDict() #frequentist
-    phat_data = OrderedDict()
+    gamma_star_data = OrderedDict()
+    fstar_data = OrderedDict() #frequentist
+    pstar_data = OrderedDict()
     transformation = defaultdict(lambda: lambda x: x) #factory of identity functions
 
-    logsdrchat = pyro.param('logsdrchat',ts(-1.))
-    fhat_data.update(sdrc=logsdrchat)
+    logsdrcstar = pyro.param('logsdrcstar',ts(-1.))
+    fstar_data.update(sdrc=logsdrcstar)
     transformation.update(sdrc=torch.exp)
     if include_nuisance:
-        logsdprchat = pyro.param('logsdprchat',ts(-1.))
-        fhat_data.update(sdprc=logsdprchat)
+        logsdprcstar = pyro.param('logsdprcstar',ts(-1.))
+        fstar_data.update(sdprc=logsdprcstar)
         transformation.update(sdprc=torch.exp)
-        eprchat_startingpoint = torch.zeros(P,R,C,requires_grad =True) #not a pyro param...
-        #eprchat_startingpoint[p].requires_grad_(True) #...so we have to do this manually
+        eprcstar_startingpoint = torch.zeros(P,R,C,requires_grad =True) #not a pyro param...
+        #eprcstar_startingpoint[p].requires_grad_(True) #...so we have to do this manually
 
-    echat = pyro.param('echat', torch.zeros(C))
-    erchat = pyro.param('erchat', torch.zeros(R,C))
-    theta_hat_data.update(ec=echat,erc=erchat)
-    transformation.update(erc=recenter_rc)
+    ecstar_raw = pyro.param('ecstar_raw', torch.zeros(C-1))
+    ercstar_raw = pyro.param('ercstar_raw', torch.zeros(R-1,C-1))
+    gamma_star_data.update(ec=ecstar_raw,erc=ercstar_raw)
+    transformation.update(ec=expand_and_center, erc=expand_and_center)
 
-    eprchat_hessian_point_fraction = EPRCHAT_HESSIAN_POINT_FRACTION #pyro.param("eprchat_fraction",ts(0.5),constraint=constraints.interval(0.0, 1.0))
+    eprcstar_hessian_point_fraction = EPRCstar_HESSIAN_POINT_FRACTION #pyro.param("eprcstar_fraction",ts(0.5),constraint=constraints.interval(0.0, 1.0))
     # with pyro.plate('candidatesg', C):
-    #     echat = pyro.param('echat', ts(0.))
+    #     ecstar = pyro.param('ecstar', ts(0.))
     #     with pyro.plate('rgroupsg', R):
-    #         erchat = pyro.param('erchat', ts(0.))
+    #         ercstar = pyro.param('ercstar', ts(0.))
     #         if include_nuisance:
     #             with pyro.plate('precinctsg', P):
-    #                 eprchat = pyro.param('eprchat', ts(0.))
-    #             theta_hat_data.update(eprc=eprchat)
+    #                 eprcstar = pyro.param('eprcstar', ts(0.))
+    #             gamma_star_data.update(eprc=eprcstar)
 
 
-    ec2 = echat.detach().requires_grad_()
-    erc2 = erchat.detach().requires_grad_()
+    ##################################################################
+    # Amortize to find ystar and wstar
+    ##################################################################
+
+    ec2r = ecstar_raw.detach().requires_grad_()
+    erc2r = ercstar_raw.detach().requires_grad_()
+    ec2 = expand_and_center(ec2r)
+    erc2 = expand_and_center(erc2r)
+    dp("sizes",[it.size() for it in [ec2r,erc2r,ec2,erc2,]])
 
     if include_nuisance:
-        sdprc2 = logsdprchat.detach().requires_grad_()
+        sdprc2 = logsdprcstar.detach().requires_grad_()
 
-    #Including recenter_rc makes erc not identifiable
+    #Including expand_and_center makes erc not identifiable
     #We could  "impose a prior" as follows, but instead, we'll just allow things to wander off.
     # recentering_amount = (RECENTER_PRIOR_STRENGTH *
-    #         torch.mean((erchat - recenter_rc(erchat))**2)/torch.exp(logsdrchat))
+    #         torch.mean((ercstar - expand_and_center(ercstar))**2)/torch.exp(logsdrcstar))
     # pyrosample('param_residual', dist.Delta(recentering_amount))
 
 
-    #Amortize hats
-    yhat = []
-    what = [] #P  * ((R-1) * (C-1)
-    yhat2 = [] #reconstituted as a function of what
-    eprchats = [] #P  * (R * C)
+    #Amortize stars
+    ystar = []
+    wstar = [] #P  * ((R-1) * (C-1)
+    ystar2 = [] #reconstituted as a function of wstar
+    eprcstars = [] #P  * (R * C)
 
     logittotals = ec2 + erc2
-    #print("sizes1 ",P,R,C,eprc.size(),ec.size(),erc.size(),logittotals.size())
+    #dp("sizes1 ",P,R,C,eprc.size(),ec.size(),erc.size(),logittotals.size())
     if include_nuisance:
-        #print("adding starting point")
-        logittotals = logittotals + eprchat_startingpoint # += doesn't work here because mumble in-place mumble shape
+        #dp("adding starting point")
+        logittotals = logittotals + eprcstar_startingpoint # += doesn't work here because mumble in-place mumble shape
     else:
         logittotals = logittotals.expand(P,R,C)
     pi_raw = torch.exp(logittotals)
@@ -278,9 +299,7 @@ def guide(data, scale, include_nuisance=False, do_print=False):
 
 
 
-    #print("guide:pre-p")
-    if include_nuisance:
-        Q_precision = torch.exp(-sdprc2) * R / (R-1) #TODO: check that correction for R TODO: check that sign
+    #dp("guide:pre-p")
 
     for p in prepare_ps:#pyro.plate('precinctsg2', P):
         #precalculation - logits to pi
@@ -288,143 +307,108 @@ def guide(data, scale, include_nuisance=False, do_print=False):
 
         #get ŷ^(0)
         Q, iters = optimize_Q(R,C,pi[p],vs[p]/torch.sum(vs[p]),ns[p]/torch.sum(ns[p]),tolerance=.01,maxiters=3)
-        #print(f"optimize_Q {p}:{iters}")
-        yhat.append(Q*tots[p])
+        #dp(f"optimize_Q {p}:{iters}")
+        ystar.append(Q*tots[p])
         if p==0:
             pass
-            #print("p0", Q,tots[p])
+            #dp("p0", Q,tots[p])
 
         #depolytopize
-        what.append(depolytopize(R,C,yhat[p],indeps[p]))
+        wstar.append(depolytopize(R,C,ystar[p],indeps[p]))
 
-        yhat2.append(polytopize(R,C,what[p],indeps[p]))
+        ystar2.append(polytopize(R,C,wstar[p],indeps[p]))
 
         QbyR = Q/torch.sum(Q,-1).unsqueeze(-1)
         logresidual = torch.log(QbyR / pi[p])
-        eprchat = logresidual * eprchat_hessian_point_fraction
+        eprcstar = logresidual * eprcstar_hessian_point_fraction
 
         #get ν̂^(0)
         if include_nuisance:
-            eprchats.append(eprchat)
-            #was: initial_eprc_hat_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
+            eprcstars.append(eprcstar)
+            #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
 
 
-    phat_data.update(y=torch.cat([y.unsqueeze(0) for y in yhat2],0))
-    #print("y is",phat_data["y"].size(),yhat[-1].size(),yhat[0][0,0],yhat2[0][0,0])
+    pstar_data.update(y=torch.cat([y.unsqueeze(0) for y in ystar2],0))
+    #dp("y is",pstar_data["y"].size(),ystar[-1].size(),ystar[0][0,0],ystar2[0][0,0])
     if include_nuisance:
-        if False: #dummy eprchats — testing
-            eprchats = [torch.zeros(R,C,requires_grad=True) for i in range(P)]
-        eprchat = torch.cat([eprc.unsqueeze(0) for eprc in eprchats],0)
-        logits = echat + erchat + eprchat
-        phat_data.update(logits=logits)
+        eprcstar = torch.cat([eprc.unsqueeze(0) for eprc in eprcstars],0)
+        logits = expand_and_center(ecstar_raw) + expand_and_center(ercstar_raw) + eprcstar
+    else:
+
+        logits = (expand_and_center(ecstar_raw) + expand_and_center(ercstar_raw)).repeat(P,1,1)
+    pstar_data.update(logits=logits)
 
 
-    #print("guide:post-p")
+    #dp("guide:post-p")
 
 
     ################################################################################
-    #Get hessians
+    # Get hessian(s)
     ################################################################################
 
-    #Start with theta
+    #Start with gamma
 
-    transformed_hat_data = OrderedDict()
-    for k,v in chain(theta_hat_data.items(),phat_data.items(),fhat_data.items()):
+    transformed_star_data = OrderedDict()
+    for k,v in chain(gamma_star_data.items(),pstar_data.items(),fstar_data.items()):
         if k in transformation:
-            transformed_hat_data[k] = transformation[k](v)
+            transformed_star_data[k] = transformation[k](v)
         else:
-            transformed_hat_data[k] = v
+            transformed_star_data[k] = v
 
     #
-    #print("line ",lineno())
-    hess_center = pyro.condition(model,transformed_hat_data)
-    #print("line ",lineno())
+    #dp("line ",lineno())
+    hess_center = pyro.condition(model,transformed_star_data)
+    #dp("line ",lineno())
     mytrace = poutine.block(poutine.trace(hess_center).get_trace)(data, scale, include_nuisance)
-    #print("line ",lineno(),P,R,C)
+    #dp("line ",lineno(),P,R,C)
     log_posterior = mytrace.log_prob_sum()
-    print("lp: ",log_posterior,lineno())
-
-    if True:
-        yyy = transformed_hat_data["y"]
-
-        print("guide y",yyy.size(),yyy[0,:2,:2])
-        yhess = myhessian.hessian(log_posterior, yyy)
-        print("yhess",yhess[:4,:4])
-        whess = myhessian.hessian(log_posterior, what)
-        print("whess", whess)
-
-    if False: #test perturbing y and logits
-        second_transformed_hat_data = dict(transformed_hat_data)
-        for vartochange in ["y","y","logits","logits"]:
-            second_transformed_hat_data = dict(second_transformed_hat_data)
-
-            second_hess_center = pyro.condition(model,second_transformed_hat_data)
-            #print("line ",lineno())
-            second_mytrace = poutine.block(poutine.trace(second_hess_center).get_trace)(data, scale, include_nuisance)
-            #print("line ",lineno(),P,R,C)
-            second_log_posterior = second_mytrace.log_prob_sum()
-            print("re-lp: ",second_log_posterior,lineno())
-
-            new_logits = second_transformed_hat_data[vartochange]
-            new_logits[0,0,0].add_(torch.ones([]))
-            new_logits[0,-1,-1].add_(-torch.ones([]))
-            second_transformed_hat_data[vartochange] = new_logits
-
-            second_hess_center = pyro.condition(model,second_transformed_hat_data)
-            #print("line ",lineno())
-            second_mytrace = poutine.block(poutine.trace(second_hess_center).get_trace)(data, scale, include_nuisance)
-            #print("line ",lineno(),P,R,C)
-            second_log_posterior = second_mytrace.log_prob_sum()
-            print("lp2: ",second_log_posterior,lineno())
+    dp("lp: ",log_posterior,lineno())
 
 
 
-    hessian_hats_in_sampling_order = [] #this will have eprchats — good for taking hessian but wrong for mean
-    mean_hats_in_sampling_order = [] #this will have logits — right mean, but not upstream, so can't use for hessian
-    for part_name in list(theta_hat_data.keys()):
-        #print(f"adding {part_name} to hats_in_sampling_order")
-        hessian_hats_in_sampling_order.append(theta_hat_data[part_name])
-        mean_hats_in_sampling_order.append(theta_hat_data[part_name])
-    theta_dims = sum(theta_part.numel() for theta_part in theta_hat_data.values())
-    #print("len theta",len(hats_in_sampling_order),hats_in_sampling_order)
+    hessian_stars_in_sampling_order = [] #this will have eprcstars — good for taking hessian but wrong for mean
+    mean_stars_in_sampling_order = [] #this will have logits — right mean, but not upstream, so can't use for hessian
+    for part_name in list(gamma_star_data.keys()):
+        #dp(f"adding {part_name} to stars_in_sampling_order")
+        hessian_stars_in_sampling_order.append(gamma_star_data[part_name])
+        mean_stars_in_sampling_order.append(gamma_star_data[part_name])
+    gamma_dims = sum(gamma_part.numel() for gamma_part in gamma_star_data.values())
+    #dp("len gamma",len(stars_in_sampling_order),stars_in_sampling_order)
 
-    #add phat_data to hats_in_sampling_order — but don't get it from phat_data because it comes in wrong format
+    #add pstar_data to stars_in_sampling_order — but don't get it from pstar_data because it comes in wrong format
     if include_nuisance:
         tensors_per_unit = 2 #tensors, not elements=(R-1)*(C-1) + R*C
         dims_per_unit = (R-1)*(C-1) + R*C
-        for w,eprc,logit in zip(what,
-                        eprchats, #This is NOT the center of the distribution; that's `logits`
-                                #However, the Hessian wrt `eprchats` should equal that wrt `logits`
+        for w,eprc,logit in zip(wstar,
+                        eprcstars, #This is NOT the center of the distribution; tstar's `logits`
+                                #However, the Hessian wrt `eprcstars` should equal that wrt `logits`
                                 #And using `logits` here wouldn't work because it's not upstream on the autodiff graph
                         logits):
-            hessian_hats_in_sampling_order.extend([w,eprc])
-            mean_hats_in_sampling_order.extend([w,logit])
+            hessian_stars_in_sampling_order.extend([w,eprc])
+            mean_stars_in_sampling_order.extend([w,logit])
     else:
         tensors_per_unit = 1 #tensors, not elements=(R-1)*(C-1)
         dims_per_unit = (R-1)*(C-1)
-        hessian_hats_in_sampling_order.extend(what) #`what` is already a list, not a tensor, so this works
-        mean_hats_in_sampling_order.extend(what) #`what` is already a list, not a tensor, so this works
-    full_dims = sum(hat.numel() for hat in mean_hats_in_sampling_order) #doesn't matter which one, hessian_... would be fine
+        hessian_stars_in_sampling_order.extend(wstar) #`wstar` is already a list, not a tensor, so this works
+        mean_stars_in_sampling_order.extend(wstar) #`wstar` is already a list, not a tensor, so this works
+    full_dims = sum(star.numel() for star in mean_stars_in_sampling_order) #doesn't matter which one, hessian_... would be fine
 
-    #print("lp:::",log_posterior)
+    #dp("lp:::",log_posterior)
     big_arrow, big_grad = myhessian.arrowhead_hessian_precision(log_posterior,
-                    hessian_hats_in_sampling_order, #This is NOT the center of the distribution; that's `logits`
-                            #However, the Hessian wrt `eprchats` should equal that wrt `logits`
+                    hessian_stars_in_sampling_order, #This is NOT the center of the distribution; that's `logits`
+                            #However, the Hessian wrt `eprcstars` should equal that wrt `logits`
                             #And using `logits` here wouldn't work because it's not upstream on the autodiff graph
-                    len(theta_hat_data), #tensors, not elements=theta_dims
+                    len(gamma_star_data), #tensors, not elements=gamma_dims
                     tensors_per_unit,
                     return_grad=True)
 
 
-    if False: #debug arrowhead_hessian_precision
-        raw_hess = myhessian.hessian(log_posterior,
-                        hessian_hats_in_sampling_order)
-        print("raw_hess",raw_hess[:4,:4])
-        print(raw_hess[theta_dims:theta_dims+4,theta_dims:theta_dims+4])
-
+    ##################################################################
+    # Sample gamma (globals)
+    ##################################################################
 
     #declare global-level psi params
-    globalpsi = pyro.param('globalpsi',torch.ones(theta_dims)*BASE_PSI,
+    globalpsi = pyro.param('globalpsi',torch.ones(gamma_dims)*BASE_PSI,
                 constraint=constraints.positive)
     #declare precinct-level psi params
     precinctpsi = pyro.param('precinctpsi',BASE_PSI * torch.ones(dims_per_unit),
@@ -436,54 +420,45 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     #head_precision, head_adjustment,  = rescaledSDD(-neg_big_hessian,combinedpsi) #TODO: in-place
 
 
-    #theta_info = big_hessian[:theta_dims,:theta_dims]
+    #gamma_info = big_hessian[:gamma_dims,:gamma_dims]
 
-    all_means = torch.cat([tpart.contiguous().view(-1) for tpart in mean_hats_in_sampling_order],0)
-    #print("all_means",all_means)
-    #print(torch.any(torch.isnan(torch.diag(neg_big_hessian))),torch.any(torch.isnan(torch.diag(big_hessian))))
-    theta_mean = all_means[:theta_dims]
-    #print("detirminants",np.linalg.det(theta_info.detach()),np.linalg.det(big_hessian.detach()))
-    #print(theta_info[:3,:3])
-    #print(-neg_big_hessian[:6,:3])
+    all_means = torch.cat([tpart.contiguous().view(-1) for tpart in mean_stars_in_sampling_order],0)
+    #dp("all_means",all_means)
+    #dp(torch.any(torch.isnan(torch.diag(neg_big_hessian))),torch.any(torch.isnan(torch.diag(big_hessian))))
+    gamma_mean = all_means[:gamma_dims]
+    #dp("detirminants",np.linalg.det(gamma_info.detach()),np.linalg.det(big_hessian.detach()))
+    #dp(gamma_info[:3,:3])
+    #dp(-neg_big_hessian[:6,:3])
 
-    theta = pyrosample('theta',
-                    dist.MultivariateNormal(theta_mean, precision_matrix=big_arrow.marginal_gg()),
+    gamma = pyrosample('gamma',
+                    dist.MultivariateNormal(gamma_mean, precision_matrix=big_arrow.marginal_gg()),
                     infer={'is_auxiliary': True})
-    g_delta = theta - theta_mean
+    g_delta = gamma - gamma_mean
 
-    #decompose theta into specific values
-    tmptheta = theta
-    for pname, phat in theta_hat_data.items():
-        elems = phat.nelement()
-        pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
-        #print(f"adding {pname} from theta ({elems}, {phat.size()}, {tmptheta.size()}, {pdat})" )
+    #decompose gamma into specific values
+    tmpgamma = gamma
+    for pname, pstar in gamma_star_data.items():
+        elems = pstar.nelement()
+        pdat, tmpgamma = tmpgamma[:elems], tmpgamma[elems:]
+        #dp(f"adding {pname} from gamma ({elems}, {pstar.size()}, {tmpgamma.size()}, {pdat})" )
 
         if pname in transformation:
-            pyrosample(pname, dist.Delta(transformation[pname](pdat.view(phat.size())))
-                                .to_event(len(list(phat.size())))) #TODO: reshape after transformation, not just before???
+            pyrosample(pname, dist.Delta(transformation[pname](pdat.view(pstar.size())))
+                                .to_event(len(list(pstar.size())))) #TODO: reshape after transformation, not just before???
         else:
-            pyrosample(pname, dist.Delta(pdat.view(phat.size()))
-                                .to_event(len(list(phat.size()))))
-    # with all_sampled_ps() as p_tensor:
-    #     for p in p_tensor:
-    #         for pname, phat in phat_data[p].items():
-    #             elems = phat.nelement()
-    #             pdat, tmptheta = tmptheta[:elems], tmptheta[elems:]
-    #             #print(f"adding {pname} from theta ({elems}, {phat.size()}, {tmptheta.size()}, {pdat})" )
-    #
-    #             if pname in transformation:
-    #                 pyrosample(pname, dist.Delta(transformation[pname](pdat.view(phat.size())))
-    #                                     .to_event(len(list(phat.size())))) #TODO: reshape after transformation, not just before???
-    #             else:
-    #                 pyrosample(pname, dist.Delta(pdat.view(phat.size()))
-    #                                     .to_event(len(list(phat.size()))))
-    assert list(tmptheta.size())[0] == 0
+            pyrosample(pname, dist.Delta(pdat.view(pstar.size()))
+                                .to_event(len(list(pstar.size()))))
+    assert list(tmpgamma.size())[0] == 0
 
 
-    for k,v in fhat_data.items():
+    for k,v in fstar_data.items():
         pyrosample(k, dist.Delta(transformation[k](v)))
 
 
+
+    ##################################################################
+    # Sample lambda_i (locals)
+    ##################################################################
 
     #TODO: uncomment the following, which is fancy logic for learning what fraction of a Newton's method step to take
 
@@ -493,28 +468,32 @@ def guide(data, scale, include_nuisance=False, do_print=False):
     step_mult = MAX_NEWTON_STEP #* epnsml / (1 + epnsml)
     ysamps = []
     logit_samps = []
-    global_indices = ts(range(theta_dims))
+    adjusted_means = []
+    global_indices = ts(range(gamma_dims))
     for p in range(P):
 
 
-        precinct_indices = ts(range(theta_dims + p*dims_per_unit, theta_dims + (p+1)*dims_per_unit))
+        precinct_indices = ts(range(gamma_dims + p*dims_per_unit, gamma_dims + (p+1)*dims_per_unit))
 
-        #print(f"theta_1p_hess:{P},{p},{B},{P//B},{len(big_HWs)},{big_HWs[p//B].size()},")
-        #print(f"HW2:{big_HWs[p//B].size()},{list(full_indices)}")
+        #dp(f"gamma_1p_hess:{P},{p},{B},{P//B},{len(big_HWs)},{big_HWs[p//B].size()},")
+        #dp(f"HW2:{big_HWs[p//B].size()},{list(full_indices)}")
         conditional_mean, conditional_cov = big_arrow.conditional_ll_mcov(p,g_delta,
                                 all_means.index_select(0,precinct_indices))
 
         precinct_cov = big_arrow.llinvs[p] #for Newton's method, not for sampling
 
-        precinct_grad = big_grad.index_select(0,precinct_indices) #[theta_dims + pp*(R-1)*(C-1): theta_dims + (pp+1)*(R-1)*(C-1)]
+        precinct_grad = big_grad.index_select(0,precinct_indices) #[gamma_dims + pp*(R-1)*(C-1): gamma_dims + (pp+1)*(R-1)*(C-1)]
 
-        #print("precinct:::",theta_1p_hess.size(),precinct_cov.size(),big_grad.size(),precinct_grad.size(),)
-        adjusted_mean = conditional_mean + step_mult * torch.mv(precinct_cov, precinct_grad)
+        #dp("precinct:::",gamma_1p_hess.size(),precinct_cov.size(),big_grad.size(),precinct_grad.size(),)
+        if include_nuisance:
+            adjusted_mean = conditional_mean + step_mult * torch.mv(precinct_cov, precinct_grad)
                                  #one (partial, as defined by step_mult) step of Newton's method
                                  #Note: this applies to both ws and nus (eprcs). I was worried about whether that was circular logic but I talked with Mira and we both think it's actually principled.
+        else:
+            adjusted_mean = conditional_mean
 
 
-
+        adjusted_means.append(adjusted_mean)
 
         try:
             pstuff = pyrosample(f"pstuff_{p}",
@@ -522,7 +501,7 @@ def guide(data, scale, include_nuisance=False, do_print=False):
                             infer={'is_auxiliary': True})
 
         except:
-            print("error sampling pstuff",p,conditional_cov.size())
+            dp("error sampling pstuff",p,conditional_cov.size())
             print(conditional_cov)
             rawp = big_arrow.raw_lls[p]
             print(rawp)
@@ -545,78 +524,72 @@ def guide(data, scale, include_nuisance=False, do_print=False):
         if not torch.all(torch.isfinite(ys)):
             for p in range(P):
                 if not torch.all(torch.isfinite(ys[p,:,:])):
-                    print("nan in ys for precinct",p)
+                    dp("nan in ys for precinct",p)
                     print(ys[p,:,:])
                     if include_nuisance:
                         print(logit_samps[p])
                     #
-                    print("ns",ns[p])
-                    print("vs",vs[p])
-                    print("echat",echat)
-                    print("erchat",erchat)
+                    dp("ns",ns[p])
+                    dp("vs",vs[p])
+                    dp("ecstar",ecstar)
+                    dp("ercstar",ercstar)
         pyro.sample("y", dist.Delta(ys).to_event(2))
 
         if include_nuisance:
             logit_samp_tensor = torch.cat(logit_samps,0)
             if not torch.all(torch.isfinite(logit_samp_tensor)):
-                print("logits!!")
+                dp("logits!!")
                 for p in range(P):
                     if not torch.all(torch.isfinite(logit_samp_tensor[p,:,:])):
-                        print("nan in nus for precinct",p)
+                        dp("nan in nus for precinct",p)
                         print(logit_samp_tensor[p])
                         print(ysamps[p])
-                        print("ns",ns[p])
-                        print("vs",vs[p])
-                        print("echat",echat)
-                        print("erchat",erchat)
+                        dp("ns",ns[p])
+                        dp("vs",vs[p])
+                        dp("ecstar",ecstar)
+                        dp("ercstar",ercstar)
             pyro.sample("logits", dist.Delta(logit_samp_tensor).to_event(2))
 
 
-
-    #ec2 = echat.detach().requires_grad_()
-    #erc2 = erchat.detach().requires_grad_()
+    ##################################################################
+    # ensure gradients get to the right place
+    ##################################################################
 
     def fix_ec_grad():
-        echat.grad = echat.grad + ec2.grad
-        #print("mode_hat.grad",mode_hat.grad)
-    echat.fix_grad = fix_ec_grad
+        ecstar_raw.grad = ecstar_raw.grad + ec2r.grad
+        #dp("mode_star.grad",mode_star.grad)
+    ecstar_raw.fix_grad = fix_ec_grad
 
     def fix_erc_grad():
-        erchat.grad = erchat.grad + erc2.grad
-        #print("mode_hat.grad",mode_hat.grad)
-    erchat.fix_grad = fix_erc_grad
+        ercstar_raw.grad = ercstar_raw.grad + erc2r.grad
+        #dp("mode_star.grad",mode_star.grad)
+    ercstar_raw.fix_grad = fix_erc_grad
 
     #no sdprc2 fix_grad. That's deliberate; the use of sdprc is an ugly hack and that error shouldn't bias the estimate of sdprc
 
 
-    #TODO:
-        #TODO:
-            #TODO:
-                #TODO: return value!
-    #TODO:
-        #TODO:
-            #TODO:
-                #TODO:  return value!
-                    #TODO:
-                        #TODO:
-                            #TODO:
-                                #TODO: return value!
-                    #TODO:
-                        #TODO:
-                            #TODO:
-                                #TODO:  return value!
 
-
-
-
-
+    ##################################################################
+    # Return values, debugging, cleanup.
+    ##################################################################
 
 
     if do_print:
         go_or_nogo.printstuff2()
 
-    print("guide:end")
+    dp("guide:end")
 
+    result = dict(
+        aa_gamma_star_data = gamma_star_data,
+        fstar_data = fstar_data,
+        pstar_data = pstar_data,
+        a_hess_center = hess_center,
+        all_means = all_means,
+        big_arrow = big_arrow,
+        big_grad = big_grad,
+        adjusted_means = adjusted_means
+    )
+    return result
 
 
 
@@ -628,17 +601,18 @@ def get_subset(data,size,i):
     subset = (ns.index_select(0,indices) , vs.index_select(0,indices),
                 [indeps[p] for p in indices], [tots[p] for p in indices])
     scale = torch.sum(ns) / torch.sum(subset[0]) #likelihood impact of a precinct proportional to n
-    #print(f"scale:{scale}")
-    print("scale",scale)
+    #dp(f"scale:{scale}")
+    dp("scale",scale)
     return(subset,scale)
 
 def trainGuide():
+    resetDebugCounts()
 
     # Let's generate voting data. I'm conditioning concentration=1 for numerical stability.
 
     data = model()
     processed_data = process_data(data) #precalculate independence points
-    #print(data)
+    #dp(data)
 
 
     # Now let's train the guide.
@@ -648,7 +622,7 @@ def trainGuide():
     losses = []
     for i in range(NSTEPS):
         subset, scale = get_subset(processed_data,SUBSET_SIZE,i)
-        print("svi.step(...",i,scale)
+        dp("svi.step(...",i,scale)
         loss = svi.step(subset,scale,True,do_print=(i % 10 == 0))
         losses.append(loss)
         if i % 10 == 0:
@@ -671,8 +645,8 @@ def trainGuide():
         print(f"{key}:\n{val}")
 
     ns, vs = data
-    # print("yhat[0]:",
-    #     polytopize(4,3,pyroStore["what_0"],
+    # print("ystar[0]:",
+    #     polytopize(4,3,pyroStore["wstar_0"],
     #                get_indep(4,3,ns[0],vs[0])))
 
     return(svi,losses,data)

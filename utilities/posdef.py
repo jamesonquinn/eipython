@@ -1,5 +1,6 @@
 import torch
 import math
+import json
 #from .autoassign import autoassign
 ts = torch.tensor
 
@@ -203,11 +204,11 @@ class ArrowheadPrecision:
         if self.lls is not None:
             return
         print("calc_lls")
-        self.lls = [weight*rescaledSDD(raw_ll/weight,self.psil,debug=i)
+        self.lls = [weight*rescaledSDD(raw_ll/weight,self.psil)#,debug=i)
                     for (i,(raw_ll,weight)) in enumerate(zip(self.raw_lls, self.weights))]
-        print("example:")
-        print(self.raw_lls[0][:4,:4])
-        print(self.lls[0][:4,:4])
+        #print("example:")
+        #print(self.raw_lls[0][:4,:4])
+        #print(self.lls[0][:4,:4])
         self.llinvs = [torch.inverse(ll) for ll in self.lls]
 
     def marginal_gg(self):
@@ -217,9 +218,9 @@ class ArrowheadPrecision:
         mgg = self.gg - torch.sum(torch.stack([torch.mm(torch.mm(gl,llinv),gl.t())
                                             for (gl,llinv,weight) in zip(self.gls,self.llinvs,self.weights)
                                             ]),0)
-        print("marginal")
-        print(self.gg[:4,:4])
-        print(mgg[:4,:4])
+        #print("marginal")
+        #print(self.gg[:4,:4])
+        #print(mgg[:4,:4])
         self._mgg = rescaledSDD(mgg,self.psig,debug=0)
         return self._mgg
 
@@ -232,3 +233,23 @@ class ArrowheadPrecision:
         new_mean = l_mean - torch.mv(torch.mm(llinv,gl.t()),
                                             g_delta)
         return (new_mean,llinv)
+
+    def to_jsonable(self):
+        result = dict(
+            G = self.G,
+            L = self.L,
+            mgg = self._mgg,
+            lls = self.lls,
+            llinvs = self.llinvs,
+            gls = self.gls,
+            weights = self.weights
+        )
+        return result
+
+class FittedGuideEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, ArrowheadPrecision):
+            return obj.to_jsonable()
+        if torch.is_tensor(obj):
+            return obj.tolist()
+        return json.JSONEncoder.default(self,obj)
