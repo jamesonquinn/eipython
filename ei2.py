@@ -39,6 +39,10 @@ reload(polytopize)
 from utilities.polytopize import get_indep, polytopize, depolytopize, to_subspace, process_data
 from utilities.posdef import *
 
+use_cuda = torch.cuda.is_available()
+if use_cuda:
+    torch.set_default_tensor_type("torch.cuda.FloatTensor")
+
 ts = torch.tensor
 
 

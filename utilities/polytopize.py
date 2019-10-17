@@ -57,6 +57,13 @@ def process_data(data):
     tots = [torch.sum(n) for n in ns]
     return (ns, vs, indeps, tots)
 
+def process_dataU(data):
+    ns, vs, indeps, tots = process_data(data)
+    indepsU = torch.stack(indeps).view(-1,sum(indeps[0].size()))
+    totsU = torch.stack(tots)
+    return (ns, vs, indepsU, totsU)
+
+
 def to_subspace(raw, R, C, ns, vs):
     vdiffs = vs - torch.sum(raw,0)
     tot = torch.sum(vs)
@@ -100,6 +107,26 @@ def polytopize(R, C, raw, start, do_aug=True):
     #print(aug2,closest//C,closest%C,r,shrinkfac)
     #print("shrink:",shrinkfac)
     return start - shrinkfac * aug2
+
+
+def polytopizeU(R, C, raw, start):
+    aug1 = torch.cat((raw,-raw.sum(1).unsqueeze(1)),1)
+    aug2 = torch.cat((aug1,-aug1.sum(2).unsqueeze(2)),2).view(-1,R*C)
+
+    try:
+        ratio = torch.div(aug2, -start)
+    except:
+        print(f"line 67:{R},{C},{raw.size()},{start.size()}")
+        raise
+    closest = torch.argmax(ratio, 1)
+
+    all_shrinkfacs = start * (1 - torch.exp(-ratio)) / aug2
+    correct_shrinkfacs = all_shrinkfacs.gather(1,closest)
+    #print("ptope",start,closest//C,closest%C,
+    #        ratio[closest//C,closest%C],aug2[closest//C,closest%C])
+    #print(aug2,closest//C,closest%C,r,shrinkfac)
+    #print("shrink:",shrinkfac)
+    return (start - correct_shrinkfacs * aug2).view(-1,R,C)
 
 def depolytopize(R, C, poly, start):
     assert poly.size() == start.size(), f"depoly fail {R},{C},{poly.size()},{start.size()}"
