@@ -299,10 +299,6 @@ def guide(data, scale, include_nuisance=True, do_print=False):
 
 
     #Amortize stars
-    ystar = []
-    wstar = [] #P  * ((R-1) * (C-1)
-    ystar2 = [] #reconstituted as a function of wstar
-    eprcstars = [] #P  * (R * C)
 
     logittotals = ec2 + erc2
     #dp("sizes1 ",P,R,C,eprc.size(),ec.size(),erc.size(),logittotals.size())
@@ -322,9 +318,10 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     if True: #preserve indent from above line for now
         #precalculation - logits to pi
 
-
+        dp("amosize",[a.size() for a in [pi,vs,torch.sum(vs,1)]])
         #get ŷ^(0)
-        Q, iters = optimize_Q(R,C,pi,vs/torch.sum(vs,1),ns/torch.sum(ns,1),tolerance=.01,maxiters=3)
+        Q, iters = optimize_Q(R,C,pi,vs/torch.sum(vs,1).unsqueeze(1),ns/torch.sum(ns,1).unsqueeze(1),tolerance=.01,maxiters=3)
+        # TODO: include those sums in preprocessing
         #dp(f"optimize_Q {p}:{iters}")
         ystar = Q*tots
 
@@ -338,12 +335,11 @@ def guide(data, scale, include_nuisance=True, do_print=False):
         if include_nuisance:
             QbyR = Q/torch.sum(Q,1).unsqueeze(1)
             logresidual = torch.log(QbyR / pi)
-            eprcstar = logresidual * eprcstar_hessian_point_fraction
-            eprcstars.append(eprcstar)
+            eprcstars = logresidual * eprcstar_hessian_point_fraction
             #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
 
 
-    pstar_data.update(y=ystar2,0))
+    pstar_data.update(y=ystar2)
     #dp("y is",pstar_data["y"].size(),ystar[-1].size(),ystar[0][0,0],ystar2[0][0,0])
     if include_nuisance:
         logits = expand_and_center(ecstar_raw) + expand_and_center(ercstar_raw) + eprcstars
