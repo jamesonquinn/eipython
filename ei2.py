@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 from __future__ import print_function
-from utilities.debugGismos import *
+from utilities.debugGizmos import *
 dp('base:Yes, I will run.')
 
 from importlib import reload
@@ -318,38 +318,35 @@ def guide(data, scale, include_nuisance=True, do_print=False):
 
     #dp("guide:pre-p")
 
-    for p in prepare_ps:#pyro.plate('precinctsg2', P):
+    #for p in prepare_ps:#pyro.plate('precinctsg2', P):
+    if True: #preserve indent from above line for now
         #precalculation - logits to pi
 
 
         #get ŷ^(0)
-        Q, iters = optimize_Q(R,C,pi[p],vs[p]/torch.sum(vs[p]),ns[p]/torch.sum(ns[p]),tolerance=.01,maxiters=3)
+        Q, iters = optimize_Q(R,C,pi,vs/torch.sum(vs,1),ns/torch.sum(ns,1),tolerance=.01,maxiters=3)
         #dp(f"optimize_Q {p}:{iters}")
-        ystar.append(Q*tots[p])
-        if p==0:
-            pass
-            #dp("p0", Q,tots[p])
+        ystar = Q*tots
 
         #depolytopize
-        wstar.append(depolytopize(R,C,ystar[p],indeps[p]))
+        wstar.append(depolytopize(R,C,ystar,indeps))
 
-        ystar2.append(polytopize(R,C,wstar[p],indeps[p]))
+        ystar2.append(polytopize(R,C,wstar,indeps))
 
-        QbyR = Q/torch.sum(Q,-1).unsqueeze(-1)
-        logresidual = torch.log(QbyR / pi[p])
-        eprcstar = logresidual * eprcstar_hessian_point_fraction
 
         #get ν̂^(0)
         if include_nuisance:
+            QbyR = Q/torch.sum(Q,1).unsqueeze(1)
+            logresidual = torch.log(QbyR / pi)
+            eprcstar = logresidual * eprcstar_hessian_point_fraction
             eprcstars.append(eprcstar)
             #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
 
 
-    pstar_data.update(y=torch.cat([y.unsqueeze(0) for y in ystar2],0))
+    pstar_data.update(y=ystar2,0))
     #dp("y is",pstar_data["y"].size(),ystar[-1].size(),ystar[0][0,0],ystar2[0][0,0])
     if include_nuisance:
-        eprcstar = torch.cat([eprc.unsqueeze(0) for eprc in eprcstars],0)
-        logits = expand_and_center(ecstar_raw) + expand_and_center(ercstar_raw) + eprcstar
+        logits = expand_and_center(ecstar_raw) + expand_and_center(ercstar_raw) + eprcstars
     else:
 
         logits = (expand_and_center(ecstar_raw) + expand_and_center(ercstar_raw)).repeat(P,1,1)
@@ -621,6 +618,16 @@ def get_subset(data,size,i):
     #dp(f"scale:{scale}")
     dp("scale",scale)
     return(subset,scale)
+
+
+
+data = pandas.read_csv('input_data/NC_precincts_2016_with_sample.csv')
+  #,county,precinct,white_reg,black_reg,other_reg,test
+wreg = torch.tensor(data.white_reg)
+breg = torch.tensor(data.black_reg)
+oreg = torch.tensor(data.other_reg)
+
+ns = torch.stack([wreg, breg, oreg],1).float()
 
 def trainGuide():
     resetDebugCounts()

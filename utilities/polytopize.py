@@ -26,6 +26,7 @@ from pyro.contrib.autoguide import AutoDelta
 from pyro.optim import Adam
 from pyro.infer import SVI, TraceEnum_ELBO, config_enumerate, infer_discrete
 
+from utilities.debugGizmos import *
 
 MIN_DIFF = 5e-2
 
@@ -59,7 +60,7 @@ def process_data(data):
 
 def process_dataU(data):
     ns, vs, indeps, tots = process_data(data)
-    indepsU = torch.stack(indeps).view(-1,sum(indeps[0].size()))
+    indepsU = torch.stack(indeps).view(-1,torch.numel(indeps[0]))
     totsU = torch.stack(tots)
     return (ns, vs, indepsU, totsU)
 
@@ -121,12 +122,37 @@ def polytopizeU(R, C, raw, start):
     closest = torch.argmax(ratio, 1)
 
     all_shrinkfacs = start * (1 - torch.exp(-ratio)) / aug2
-    correct_shrinkfacs = all_shrinkfacs.gather(1,closest)
+    #dp("Sizes..",[a.size() for a in (raw,start,aug1,aug2,ratio,all_shrinkfacs,closest.unsqueeze(1))])
+    correct_shrinkfacs = all_shrinkfacs.gather(1,closest.unsqueeze(1))
     #print("ptope",start,closest//C,closest%C,
     #        ratio[closest//C,closest%C],aug2[closest//C,closest%C])
     #print(aug2,closest//C,closest%C,r,shrinkfac)
     #print("shrink:",shrinkfac)
     return (start - correct_shrinkfacs * aug2).view(-1,R,C)
+
+DEPOLY_EPSILON = 1e-9
+def depolytopizeU(R, C, rawpoly, start):
+    poly = rawpoly.view(-1,R*C)
+    assert poly.size() == start.size(), f"depoly fail {R},{C},{poly.size()},{start.size()}"
+    rawdiff = poly - start
+    diff = rawdiff + (rawdiff == 0).float() * DEPOLY_EPSILON
+    ratio = torch.div(diff, -start)
+    closest = torch.argmax(ratio, 1)
+    #r = start.gather(1,closest.unsqueeze(1))
+    facs = start * torch.log(1-ratio) / diff
+
+    result = facs.gather(1,closest.unsqueeze(1)) * diff
+    #print("depo",fac, ratio[closest//C,closest%C])
+    if torch.any(torch.isnan(result)):
+        print("depolytopize fail")
+        print(R, C, poly[:3,], start[:3,])
+        print(diff[:3,],ratio[:3,],closest[:3,])
+        print("2depolytopize fail")
+        #print(r,facs,result)
+        #print(1-ratio[closest//C,closest%C])
+        #print(diff[closest//C,closest%C])
+    return result.view(-1,R,C)[:,:(R-1),:(C-1)]
+
 
 def depolytopize(R, C, poly, start):
     assert poly.size() == start.size(), f"depoly fail {R},{C},{poly.size()},{start.size()}"
@@ -147,7 +173,6 @@ def depolytopize(R, C, poly, start):
         print(1-ratio[closest//C,closest%C])
         print(diff[closest//C,closest%C])
     return result[:(R-1),:(C-1)]
-
 
 def dummyPrecinct(R, C, i=0, israndom=True):
 

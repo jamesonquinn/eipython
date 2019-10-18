@@ -28,7 +28,7 @@ from pyro.contrib.autoguide import AutoDiagonalNormal
 from pyro.infer.mcmc import NUTS
 #from pyro.infer.mcmc.api import MCMC
 import numpy as np
-import pandas as pd
+import pandas
 
 if True:#False:#
     from utilities import myhessian
@@ -86,7 +86,7 @@ EVIL_HACK_EPSILON = 0.00000001 #OMG this is evil
 
 
 
-data = pd.read_csv('input_data/effects_errors.csv')
+data = pandas.read_csv('input_data/effects_errors.csv')
 echs_x = torch.tensor(data.effects)
 echs_errors = torch.tensor(data.errors)
 N = len(echs_x)

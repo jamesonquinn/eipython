@@ -15,15 +15,16 @@ def isPowerOfTwo (x):
     # is for the case when x is 0
     return (x>0 and (not(x & (x - 1))) )
 
-def dp(key, *args, do=1, n = 10, break=False):
-    global PRINT_COUNTS[key] += 1
+def dp(key, *args, do=1, n = 10, brk=False):
+    global PRINT_COUNTS
+    PRINT_COUNTS[key] += 1
     if do:
         if PRINT_COUNTS[key] - n < 1:
             print(key,"line",inspect.currentframe().f_back.f_lineno,PRINT_COUNTS[key],*args)
         elif isPowerOfTwo(PRINT_COUNTS[key]):
             print(key,"line",inspect.currentframe().f_back.f_lineno,PRINT_COUNTS[key])
 
-    if break:
+    if brk:
         pdb.set_trace()
 
 def getDebugCount(key):
