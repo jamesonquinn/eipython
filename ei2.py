@@ -31,7 +31,7 @@ from pyro import poutine
 
 
 from utilities import myhessian
-from utilities.rank1torch import optimize_Q
+from utilities.rank1torch_vectorized import optimize_Q
 from utilities import go_or_nogo
 from utilities.cmult import CMult
 from utilities import polytopize
@@ -318,9 +318,13 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     if True: #preserve indent from above line for now
         #precalculation - logits to pi
 
-        dp("amosize",[a.size() for a in [pi,vs,torch.sum(vs,1)]])
         #get ŷ^(0)
-        Q, iters = optimize_Q(R,C,pi,vs/torch.sum(vs,1).unsqueeze(1),ns/torch.sum(ns,1).unsqueeze(1),tolerance=.01,maxiters=3)
+        normvs = vs/torch.sum(vs,1).unsqueeze(1)
+        normns = ns/torch.sum(vs,1).unsqueeze(1)
+
+        dp("amosize",[a.size() for a in [pi,normvs, normns]])
+
+        Q, iters = optimize_Q(P,R,C,pi,normvs,normns,tolerance=.01,maxiters=3)
         # TODO: include those sums in preprocessing
         #dp(f"optimize_Q {p}:{iters}")
         ystar = Q*tots
