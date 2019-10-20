@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 from __future__ import print_function
-from utilities.debugGizmos import *
+from utilities.debugGismos import *
 dp('base:Yes, I will run.')
 
 from importlib import reload
@@ -31,7 +31,7 @@ from pyro import poutine
 
 
 from utilities import myhessian
-from utilities.rank1torch_vectorized import optimize_Q
+from utilities.rank1torch import optimize_Q
 from utilities import go_or_nogo
 from utilities.cmult import CMult
 from utilities import polytopize
@@ -82,6 +82,18 @@ if MINIMAL_DEBUG:
     pyrosample = lambda x,y,infer=None : y.sample()
 else:
     pyrosample = pyro.sample
+
+class EIData:
+    def __init__(self,ns,vs):
+        self.ns = ns
+        self.vs = vs
+        ju,nk , indeps, tots = process_dataU(ns,vs)
+        self.indeps = indeps
+        self.tots = tots
+
+    @reify
+    def aprop(self):
+        pass
 
 def model(data=None, scale=1., include_nuisance=True, do_print=False):
     """
@@ -299,6 +311,10 @@ def guide(data, scale, include_nuisance=True, do_print=False):
 
 
     #Amortize stars
+    ystar = []
+    wstar = [] #P  * ((R-1) * (C-1)
+    ystar2 = [] #reconstituted as a function of wstar
+    eprcstars = [] #P  * (R * C)
 
     logittotals = ec2 + erc2
     #dp("sizes1 ",P,R,C,eprc.size(),ec.size(),erc.size(),logittotals.size())
@@ -314,39 +330,38 @@ def guide(data, scale, include_nuisance=True, do_print=False):
 
     #dp("guide:pre-p")
 
-    #for p in prepare_ps:#pyro.plate('precinctsg2', P):
-    if True: #preserve indent from above line for now
+    for p in prepare_ps:#pyro.plate('precinctsg2', P):
         #precalculation - logits to pi
 
+
         #get ŷ^(0)
-        normvs = vs/torch.sum(vs,1).unsqueeze(1)
-        normns = ns/torch.sum(vs,1).unsqueeze(1)
-
-        dp("amosize",[a.size() for a in [pi,normvs, normns]])
-
-        Q, iters = optimize_Q(P,R,C,pi,normvs,normns,tolerance=.01,maxiters=3)
-        # TODO: include those sums in preprocessing
+        Q, iters = optimize_Q(R,C,pi[p],vs[p]/torch.sum(vs[p]),ns[p]/torch.sum(ns[p]),tolerance=.01,maxiters=3)
         #dp(f"optimize_Q {p}:{iters}")
-        ystar = Q*tots
+        ystar.append(Q*tots[p])
+        if p==0:
+            pass
+            #dp("p0", Q,tots[p])
 
         #depolytopize
-        wstar.append(depolytopize(R,C,ystar,indeps))
+        wstar.append(depolytopize(R,C,ystar[p],indeps[p]))
 
-        ystar2.append(polytopize(R,C,wstar,indeps))
+        ystar2.append(polytopize(R,C,wstar[p],indeps[p]))
 
+        QbyR = Q/torch.sum(Q,-1).unsqueeze(-1)
+        logresidual = torch.log(QbyR / pi[p])
+        eprcstar = logresidual * eprcstar_hessian_point_fraction
 
         #get ν̂^(0)
         if include_nuisance:
-            QbyR = Q/torch.sum(Q,1).unsqueeze(1)
-            logresidual = torch.log(QbyR / pi)
-            eprcstars = logresidual * eprcstar_hessian_point_fraction
+            eprcstars.append(eprcstar)
             #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
 
 
-    pstar_data.update(y=ystar2)
+    pstar_data.update(y=torch.cat([y.unsqueeze(0) for y in ystar2],0))
     #dp("y is",pstar_data["y"].size(),ystar[-1].size(),ystar[0][0,0],ystar2[0][0,0])
     if include_nuisance:
-        logits = expand_and_center(ecstar_raw) + expand_and_center(ercstar_raw) + eprcstars
+        eprcstar = torch.cat([eprc.unsqueeze(0) for eprc in eprcstars],0)
+        logits = expand_and_center(ecstar_raw) + expand_and_center(ercstar_raw) + eprcstar
     else:
 
         logits = (expand_and_center(ecstar_raw) + expand_and_center(ercstar_raw)).repeat(P,1,1)
@@ -627,7 +642,8 @@ wreg = torch.tensor(data.white_reg)
 breg = torch.tensor(data.black_reg)
 oreg = torch.tensor(data.other_reg)
 
-ns = torch.stack([wreg, breg, oreg],1).float()
+ns = torch.stack([wreg, breg, oreg],1).double()
+
 
 def trainGuide():
     resetDebugCounts()
