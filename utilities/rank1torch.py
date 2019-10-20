@@ -34,7 +34,7 @@ def rowsum(array):
 SHRINK_FAC = .99
 # main function: returns [Q,i], where i is the number of iterations required
 def optimize_Q(R,C,pi,v,d,tolerance=tolerance,maxiters=30):
-
+    
     # Some auxiliary matrices
         # M is the matrix of linear constraints on Q (not counting the inequalities)
     M_top = torch.eye(C)

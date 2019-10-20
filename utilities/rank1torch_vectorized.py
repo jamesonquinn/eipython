@@ -48,7 +48,7 @@ def make_diag(batch_of_vectors):
 #   U, R, C, maxiters, tolerance are non-tensor scalars
 #   pi is U-by-R-by-C; in [0,1], rows add to 1
 #   v is U-by-C; adds up to 1 along C
-#   d is U-by-R; adds 
+#   d is U-by-R; adds up to 1 along R
 def optimize_Q(U,R,C,pi,v,d,tolerance=tolerance,maxiters=maxiters):
 
     # Some auxiliary matrices
