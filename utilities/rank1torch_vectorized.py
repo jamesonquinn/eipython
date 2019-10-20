@@ -9,8 +9,8 @@ import numpy as np
 np.random.seed(1234)
 import torch
 
-print("torch version",torch.__version__)
-print("torch.solve",torch.solve)
+#print("torch version",torch.__version__)
+#print("torch.solve",torch.solve)
 
 ############################
 
@@ -18,9 +18,9 @@ print("torch.solve",torch.solve)
 
 R = 3
 C = 2
-U = 100
-SHRINK_FAC = .99
+U = 7
 
+shrinkage = torch.tensor(.99)
 tolerance = .001  #default
 numtests = 50     #default
 maxiters = 3      #default
@@ -49,7 +49,7 @@ def make_diag(batch_of_vectors):
 #   pi is U-by-R-by-C; in [0,1], rows add to 1
 #   v is U-by-C; adds up to 1 along C
 #   d is U-by-R; adds up to 1 along R
-def optimize_Q(U,R,C,pi,v,d,tolerance=tolerance,maxiters=maxiters):
+def optimize_Q(U,R,C,pi,v,d,shrinkage = shrinkage,tolerance=tolerance,maxiters=maxiters):
 
     # Some auxiliary matrices
         # M is the matrix of linear constraints on Q (not counting the inequalities)
@@ -103,9 +103,10 @@ def optimize_Q(U,R,C,pi,v,d,tolerance=tolerance,maxiters=maxiters):
 
         # figure out error (how far Q lies from ker M, the hyperplane we want it to lie on)
         Q = torch.matmul(make_diag(alpha), torch.matmul(pi,make_diag(beta)))
-        errorQ = torch.matmul(D,(Q-ind).reshape(U,R*C,1)).reshape(U,R,C)
+        errorQ = torch.matmul(D,(Q-ind).view(U,R*C,1)).view(U,R,C)
         #print(f"Error in Q:\n{errorQ}")
 
+    # Check for nan's 
     if torch.any(torch.isnan(Q-errorQ)):
         print("optimize_Q error: nan")
         print(pi_beta,M_beta,alpha,alpha_pi)
@@ -115,20 +116,25 @@ def optimize_Q(U,R,C,pi,v,d,tolerance=tolerance,maxiters=maxiters):
 
 
     Q = Q - errorQ
-    for j in range(10):
-        # vector of length U that shows number of neg entries in Q_u
-        numQneg = torch.sum(torch.gt(-Q,0),dim=(-1,-2))
-        if torch.equal(numQneg,torch.zeros(U)):
-            break
-        else:
-           ### NOT DONE #####
-           print("optimize_Q SHRINK_FAC", j, Q)
-            #print(ind)
-            #min_index = Q.view(-1).argmin(0)
-            #indymin = ind.view(-1)[min_index]
-            #fac = SHRINK_FAC * indymin / (indymin - Q.view(-1)[min_index])
-            #print(fac)
-            Q = (Q - ind) * fac.detach() + ind
+    
+    # Deal with possible negative entries in Q:
+    Qrc = Q.view(U,R*C)
+    # vector of length U whose u-th entry is 1 is Q[u] has all positive entries, 0 otherwise
+    Q_ok = (Qrc>0).all(1).type_as(Q)
+    if torch.equal(Q_ok,torch.ones(U)) ==False:
+        # print(Qrc)
+        # print(Q_ok)
+        # convert ind to U-by-RC tensor
+        ind_rc = ind.view(U,R*C)
+        # Qmin and Qmin_ind are U-tensors, u-th entry is min of Qrc[u] and its index
+        Qrc_min, Qrc_minind = Qrc.min(1)
+        # ind_min is a U-tensor, u-th entry is entry of ind_rc[u] at index of min(Qrc[u])
+        ind_min = torch.gather(ind_rc,1,Qrc_minind.unsqueeze(1)).squeeze(1)
+        # fac is shrink factor (1 is Q[u] is all positive)
+        fac = torch.max(Q_ok,shrinkage) * ind_min / (ind_min - torch.min(Qrc_min,torch.zeros(U)))
+        # print(fac)
+        fac = fac.unsqueeze(1).unsqueeze(2)
+        Q = (Q - ind) * fac.detach() + ind
 
     return [Q, i]
 
@@ -166,7 +172,7 @@ def test_solver(numtests=numtests, maxiters = maxiters, verbose=False):
         d = rowsum(trueQ)
 
     # Solve the problem
-        [Q,i] = optimize_Q(U,R,C,pi,v,d,tolerance,maxiters)
+        [Q,i] = optimize_Q(U,R,C,pi,v,d,shrinkage,tolerance,maxiters)
         if torch.min(Q)<0:
             print(f"Oh no! In test {n+1}, Q has some negative entries:")
             for u in range(U):
