@@ -49,39 +49,43 @@ def make_diag(batch_of_vectors):
 #   pi is U-by-R-by-C; in [0,1], rows add to 1
 #   v is U-by-C; adds up to 1 along C
 #   d is U-by-R; adds up to 1 along R
-def optimize_Q(U,R,C,pi,v,d,shrinkage = shrinkage,tolerance=tolerance,maxiters=maxiters):
+def optimize_Q(U,R,C,pi,v,d,
+            shrinkage = shrinkage,tolerance=tolerance,maxiters=maxiters,
+            M=None, D=None, v_d=None, ind=None, init_beta_errorQ=None):
 
-    # Some auxiliary matrices
-        # M is the matrix of linear constraints on Q (not counting the inequalities)
-        # M is (R+C-1)-by-RC
-    M_top = torch.eye(C)
-    if R>2:
-      M_bottom = torch.cat((torch.ones(1,C),torch.zeros(R-2,C)),0)
-    else: #i.e. if R=2
-      M_bottom = torch.ones(1,C)
-    for r in range(1,R):
-        M_top = torch.cat((M_top,torch.eye(C)),1)
-        bottom_new = torch.zeros(R-1,C)
-        if r<R-1:
-            bottom_new[r]=torch.ones(1,C)
-        M_bottom = torch.cat((M_bottom, bottom_new),1)
-    M = torch.cat((M_top,M_bottom),0)
+    if M is not None:
+        # Some auxiliary matrices
+            # M is the matrix of linear constraints on Q (not counting the inequalities)
+            # M is (R+C-1)-by-RC
+        M_top = torch.eye(C)
+        if R>2:
+          M_bottom = torch.cat((torch.ones(1,C),torch.zeros(R-2,C)),0)
+        else: #i.e. if R=2
+          M_bottom = torch.ones(1,C)
+        for r in range(1,R):
+            M_top = torch.cat((M_top,torch.eye(C)),1)
+            bottom_new = torch.zeros(R-1,C)
+            if r<R-1:
+                bottom_new[r]=torch.ones(1,C)
+            M_bottom = torch.cat((M_bottom, bottom_new),1)
+        M = torch.cat((M_top,M_bottom),0)
 
-    # Matrix D = M^T*(M*M^T)^{-1}*M
-        # D is the matrx of projection to orthogonal complement of ker M;
-        # it helps us obtain the nearest Q that actually satisfies the linear constraints
-    D = torch.inverse(torch.matmul(M,transpose(M)))
-    D=torch.matmul(transpose(M),torch.matmul(D,M))
+    if D is not None:
+        # Matrix D = M^T*(M*M^T)^{-1}*M
+            # D is the matrx of projection to orthogonal complement of ker M;
+            # it helps us obtain the nearest Q that actually satisfies the linear constraints
+        D = torch.inverse(torch.matmul(M,transpose(M)))
+        D=torch.matmul(transpose(M),torch.matmul(D,M))
 
 
     # Other stuff we'll need
-    v_d = torch.unsqueeze(torch.cat((v,d),-1),-1)
-    ind = torch.matmul(torch.unsqueeze(d,-1),torch.unsqueeze(v,-2))
+    if (v_d is not None) or (ind is not None):
+        v_d = torch.unsqueeze(torch.cat((v,d),-1),-1)
+        ind = torch.matmul(torch.unsqueeze(d,-1),torch.unsqueeze(v,-2))
 
     # OK, let's get started!
     # Start with a bad guess for beta and a very high error...
-    beta = torch.ones(U,C)
-    errorQ=torch.ones(U,R,C)
+    beta,errorQ = init_beta_errorQ or (torch.ones(U,C), torch.ones(U,R,C))
 
     # Iterate while the error (i.e. distance from Q to constraint space) is above the tolerance level
     i=0
@@ -106,7 +110,7 @@ def optimize_Q(U,R,C,pi,v,d,shrinkage = shrinkage,tolerance=tolerance,maxiters=m
         errorQ = torch.matmul(D,(Q-ind).view(U,R*C,1)).view(U,R,C)
         #print(f"Error in Q:\n{errorQ}")
 
-    # Check for nan's 
+    # Check for nan's
     if torch.any(torch.isnan(Q-errorQ)):
         print("optimize_Q error: nan")
         print(pi_beta,M_beta,alpha,alpha_pi)
@@ -116,7 +120,7 @@ def optimize_Q(U,R,C,pi,v,d,shrinkage = shrinkage,tolerance=tolerance,maxiters=m
 
 
     Q = Q - errorQ
-    
+
     # Deal with possible negative entries in Q:
     Qrc = Q.view(U,R*C)
     # vector of length U whose u-th entry is 1 is Q[u] has all positive entries, 0 otherwise
@@ -137,6 +141,11 @@ def optimize_Q(U,R,C,pi,v,d,shrinkage = shrinkage,tolerance=tolerance,maxiters=m
         Q = (Q - ind) * fac.detach() + ind
 
     return [Q, i]
+
+def optimize_Q_objectly(pi,data,**kwargs):
+    return optimize_Q(data.U,data.R,data.C,pi,data.nvs,data.nns,
+                M=data.M, D=data.D, v_d=data.v_d, ind=data.nind, init_beta_errorQ=data.init_beta_errorQ,
+                **kwargs)
 
 def test_solver(numtests=numtests, maxiters = maxiters, verbose=False):
     ##################################################################

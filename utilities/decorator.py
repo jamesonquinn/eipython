@@ -27,12 +27,15 @@ class reify(object):
             >>> f.jammy
             2
     """
-    def __init__(self, wrapped):
+    def __init__(self, wrapped, name=None):
         self.wrapped = wrapped
-        update_wrapper(self, wrapped)
+        self.name = name or wrapped.__name__
+        if not name: # don't bother if it's hard, because this...
+            update_wrapper(self, wrapped) #...only matters for reflection, which we don't actually do.or
+
     def __get__(self, inst, objtype=None):
         if inst is None:
             return self
         val = self.wrapped(inst)
-        setattr(inst, self.wrapped.__name__, val)
+        setattr(inst, self.name, val)
         return val

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 from __future__ import print_function
-from utilities.debugGismos import *
+from utilities.debugGizmos import *
 dp('base:Yes, I will run.')
 
 from importlib import reload
@@ -30,8 +30,9 @@ from pyro.optim import ClippedAdam
 from pyro import poutine
 
 
+from utilities.decorator import reify
 from utilities import myhessian
-from utilities.rank1torch import optimize_Q
+from utilities.rank1torch_vectorized import optimize_Q_objectly
 from utilities import go_or_nogo
 from utilities.cmult import CMult
 from utilities import polytopize
@@ -77,6 +78,9 @@ NSTEPS = 5001
 SUBSET_SIZE = 5
 BIG_PRIME = 73 #Wow, that's big!
 
+FAKE_VOTERS_PER_RACE = 1
+FAKE_VOTERS_PER_REAL_PARTY = .5 #remainder go into nonvoting party
+
 MINIMAL_DEBUG = False
 if MINIMAL_DEBUG:
     pyrosample = lambda x,y,infer=None : y.sample()
@@ -87,13 +91,127 @@ class EIData:
     def __init__(self,ns,vs):
         self.ns = ns
         self.vs = vs
-        ju,nk , indeps, tots = process_dataU(ns,vs)
-        self.indeps = indeps
-        self.tots = tots
 
     @reify
-    def aprop(self):
-        pass
+    def tots(self):
+        return torch.sum(ns,1)
+
+    @reify
+    def indeps(self):
+        assert approx_eq(self.tots,torch.sum(self.vs,1)), f'#print("sums",{self.tots},{torch.sum(self.vs,1)})'
+        return torch.matmul(torch.unsqueeze(self.nns,-1),torch.unsqueeze(self.nvs,-2)) / self.tots.unsqueeze(-1).unsqueeze(-1)
+
+    @reify
+    def nns(self): #normalized ns
+        return self.ns/self.tots.unsqueeze(1)
+
+
+    @reify
+    def nvs(self): #normalized ns
+        return self.vs/torch.self.tots.unsqueeze(1)
+
+    @reify
+    def U(self):
+        return self.ns.size()[0]
+
+    @reify
+    def R(self):
+        return self.ns.size()[1]
+
+    @reify
+    def C(self):
+        try:
+            return self.vs.size()[1]
+        except:
+            return 3
+
+    @reify
+    def M(self):
+        # M is the matrix of linear constraints on Q (not counting the inequalities)
+        # M is (R+C-1)-by-RC
+        R,C = self.R,self.C
+        M_top = torch.eye(C)
+        if R>2:
+          M_bottom = torch.cat((torch.ones(1,C),torch.zeros(R-2,C)),0)
+        else: #i.e. if R==2
+          M_bottom = torch.ones(1,C)
+        for r in range(1,R):
+            M_top = torch.cat((M_top,torch.eye(C)),1)
+            bottom_new = torch.zeros(R-1,C)
+            if r<R-1:
+                bottom_new[r]=torch.ones(1,C)
+            M_bottom = torch.cat((M_bottom, bottom_new),1)
+        M = torch.cat((M_top,M_bottom),0)
+        return M
+
+    @reify
+    def D(self):
+        # Matrix D = M^T*(M*M^T)^{-1}*M
+            # D is the matrx of projection to orthogonal complement of ker M;
+            # it helps us obtain the nearest Q that actually satisfies the linear constraints
+        M = self.M
+        D = torch.inverse(torch.matmul(M,transpose(M)))
+        D=torch.matmul(transpose(M),torch.matmul(D,M))
+        return D
+
+    @reify
+    def v_d(self):
+        return torch.unsqueeze(torch.cat((self.nvs,self.nns),-1),-1)
+
+    @reify
+    def nind(self):
+        return  torch.matmul(torch.unsqueeze(self.nns,-1),torch.unsqueeze(self.nvs,-2))
+
+    @reify #NOTE: code duplicated in EISubData
+    def init_beta_errorQ(self):
+        return (torch.ones(self.U,self.C),torch.ones(self.U,self.R,self.C))
+
+    @reify #NOTE: code duplicated in EISubData
+    def getStuff(self):
+        return (self.U, self.R, self.C, self.ns, self.vs)
+
+def sub(**kwargs): #I really hate typing quotation markes
+    for k,v in kwargs.items():
+        if v: #subset
+            return reify(lambda self: getattr(self.full,k).index_select(0,self.indices),k)
+        return reify(lambda self: getattr(self.full,k),k)
+    raise Exception("This shouldn't happen")
+
+class EISubData:
+    def __init__(self, full, indices):
+        self.full = full
+        self.indices = indices
+
+    #BE CAREFUL that variable names match with argument names here; more metaprogramming to make this automatic would be too much trouble
+    #Subsetted attributes (=1)
+    ns = sub(ns=1)
+    vs = sub(vs=1)
+    indeps = sub(indeps=1)
+    tots = sub(tots=1)
+    nns = sub(nns=1)
+    nvs = sub(nvs=1)
+    v_d = sub(v_d=1)
+    nind = sub(nind=1)
+
+    #verbatim attributes (=0)
+    M = sub(M=0)
+    D = sub(D=0)
+    R = sub(R=0)
+    C = sub(C=0)
+
+    @reify
+    def U(self):
+        return len(self.indices)
+
+    @reify
+    def init_beta_errorQ(self):
+        return (torch.ones(self.U,self.C),torch.ones(self.U,self.R,self.C))
+
+    @reify
+    def getStuff(self):
+        return (self.U, self.R, self.C, self.ns, self.vs)
+
+
 
 def model(data=None, scale=1., include_nuisance=True, do_print=False):
     """
@@ -104,30 +222,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False):
             -if vs is None, create & return data from model, with that ns
             -otherwise, model conditions on that vs (ie, use for density, not sampling)
     """
-    print("model:begin",scale,include_nuisance)
-    if data is None:
-        P, R, C = 30, 4, 3
-        P, R, C = 30, 3, 2
-        ns = torch.zeros(P,R)
-        for p in range(P):
-            for r in range(R):
-                ns[p,r] = 20 * (p*r - 5*(r+1-R) + 6) + ((p-15)*(r-1))^2
-                ns[p,r] = 20 * (p*r - 5*(r+1-R) + 6) + ((p-1)*(r-1))^2
-        vs = None
-
-
-                    # pyrosample('precinctSizes',
-                    #         dist.NegativeBinomial(p*r - 5*(r+1-R) + 6, .95))
-    else:
-        ns, vs, indeps, tots = data
-        if vs is None:
-            C = 3
-        else:
-            assert len(ns)==len(vs)
-            C = len(vs[0])
-        # Hyperparams.
-        P = len(ns)
-        R = len(ns[0])
+    P, R, C, ns, vs = data.getStuff
 
     prepare_ps = range(P)
     ps_plate = pyro.plate('all_sampled_ps',P)
@@ -161,7 +256,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False):
     else:
         logits = torch.zeros(P,R,C) #dummy for print statements. TODO:remove
 
-    if data is None:
+    if vs is None:
         erc = torch.zeros([R,C])
         erc[0] = ts(range(C))
         erc[1,0] = ts(2.)
@@ -181,9 +276,14 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False):
             y = torch.zeros(P,R,C)
             for p in p_tensor:
                 for r in range(R):
-                    tmp = dist.Multinomial(int(ns[p,r]),logits=logits[p,r]).sample()
-                    #dp(f"y_{p}_{r}: {tmp} {y[p,r]}")
-                    y[p,r] = tmp
+                    #dp("modsize",[a for a in [ns[p,r], logits[p,r]]])
+                    try:
+                        tmp = dist.Multinomial(int(ns[p,r]),logits=logits[p,r]).sample()
+                        #dp(f"y_{p}_{r}: {tmp} {y[p,r]}")
+                        y[p,r] = tmp
+                    except:
+                        dp("modsize2",p,r,[a for a in [ns[p,r], logits[p,r]]])
+                        raise
         else:
             if not torch.all(torch.isfinite(logits)):
                 dp("logits!!!")
@@ -208,7 +308,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False):
         dp(f"y[0]:{y[0]}")
         vs = torch.sum(y,1)
 
-        return (ns,vs)
+        return EIData(ns,vs)
 
     dp("model:end")
 
@@ -243,7 +343,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     ##################################################################
     # Set up plates / weights
     ##################################################################
-    ns, vs, indeps, tots = data
+    ns, vs, indeps, tots = data.ns, data.vs, data.indeps, data.tots
     P = len(ns)
     R = len(ns[1])
     C = len(vs[1])
@@ -334,9 +434,12 @@ def guide(data, scale, include_nuisance=True, do_print=False):
         #precalculation - logits to pi
 
 
-        #get ŷ^(0)
-        Q, iters = optimize_Q(R,C,pi[p],vs[p]/torch.sum(vs[p]),ns[p]/torch.sum(ns[p]),tolerance=.01,maxiters=3)
-        #dp(f"optimize_Q {p}:{iters}")
+        dp("amosize",[a.size() for a in [pi,normvs, normns]])
+
+        Q, iters = optimize_Q_objectly(pi,data,tolerance=.01,maxiters=3)
+
+        #get ŷ^(0
+        #dp(f"optimize_Q_objectly {p}:{iters}")
         ystar.append(Q*tots[p])
         if p==0:
             pass
@@ -625,14 +728,11 @@ def guide(data, scale, include_nuisance=True, do_print=False):
 def get_subset(data,size,i):
 
     ns, vs, indeps, tots = data
-    P = len(ns)
+    P = data.U
     indices = ts([((i*size + j)* BIG_PRIME) % P for j in range(size)])
-    subset = (ns.index_select(0,indices) , vs.index_select(0,indices),
-                [indeps[p] for p in indices], [tots[p] for p in indices])
-    scale = torch.sum(ns) / torch.sum(subset[0]) #likelihood impact of a precinct proportional to n
-    #dp(f"scale:{scale}")
+    scale = P / size #likelihood impact of a precinct proportional to n
     dp("scale",scale)
-    return(subset,scale)
+    return (EISubData(data,indices),scale)
 
 
 
@@ -642,7 +742,9 @@ wreg = torch.tensor(data.white_reg)
 breg = torch.tensor(data.black_reg)
 oreg = torch.tensor(data.other_reg)
 
-ns = torch.stack([wreg, breg, oreg],1).double()
+fixed_reg = [r + FAKE_VOTERS_PER_RACE for r in [wreg, breg, oreg]]
+ns = torch.stack(fixed_reg,1).double()
+DUMMY_DATA = EIData(ns,None)
 
 
 def trainGuide():
@@ -650,7 +752,7 @@ def trainGuide():
 
     # Let's generate voting data. I'm conditioning concentration=1 for numerical stability.
 
-    data = model()
+    data = model(DUMMY_DATA)
     processed_data = process_data(data) #precalculate independence points
     #dp(data)
 
