@@ -85,7 +85,7 @@ def optimize_Q(U,R,C,pi,v,d,
 
     # OK, let's get started!
     # Start with a bad guess for beta and a very high error...
-    beta,errorQ = init_beta_errorQ or (torch.ones(U,C), torch.ones(U,R,C))
+    beta,errorQ = (torch.ones(U,C), torch.ones(U,R,C)) if init_beta_errorQ is None else init_beta_errorQ
 
     # Iterate while the error (i.e. distance from Q to constraint space) is above the tolerance level
     i=0

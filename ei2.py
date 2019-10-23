@@ -32,12 +32,12 @@ from pyro import poutine
 
 from utilities.decorator import reify
 from utilities import myhessian
-from utilities.rank1torch_vectorized import optimize_Q_objectly
+from utilities.rank1torch_vectorized import optimize_Q_objectly, transpose
 from utilities import go_or_nogo
 from utilities.cmult import CMult
 from utilities import polytopize
 reload(polytopize)
-from utilities.polytopize import get_indep, polytopize, depolytopize, to_subspace, process_data
+from utilities.polytopize import get_indep, polytopizeU, depolytopizeU, to_subspace, process_data, approx_eq
 from utilities.posdef import *
 
 use_cuda = torch.cuda.is_available()
@@ -78,7 +78,7 @@ NSTEPS = 5001
 SUBSET_SIZE = 5
 BIG_PRIME = 73 #Wow, that's big!
 
-FAKE_VOTERS_PER_RACE = 1
+FAKE_VOTERS_PER_RACE = 1.
 FAKE_VOTERS_PER_REAL_PARTY = .5 #remainder go into nonvoting party
 
 MINIMAL_DEBUG = False
@@ -88,27 +88,36 @@ else:
     pyrosample = pyro.sample
 
 class EIData:
-    def __init__(self,ns,vs):
-        self.ns = ns
-        self.vs = vs
+    def __init__(self,ns,vs,ids = None):
+        self.ns = ns.float()
+        self.vs = vs if vs is None else vs.float()
+        if ids is None:
+            self.ids=list(range(self.U))
+        else:
+            assert len(ids)==self.U
+            self.ids = ids
 
     @reify
     def tots(self):
-        return torch.sum(ns,1)
+        dp("tots",[(a.dtype,a.device) for a in [self.ns, torch.sum(ns,1)]])
+        return torch.sum(self.ns,1)
 
     @reify
     def indeps(self):
         assert approx_eq(self.tots,torch.sum(self.vs,1)), f'#print("sums",{self.tots},{torch.sum(self.vs,1)})'
-        return torch.matmul(torch.unsqueeze(self.nns,-1),torch.unsqueeze(self.nvs,-2)) / self.tots.unsqueeze(-1).unsqueeze(-1)
+        indeps = torch.matmul(torch.unsqueeze(self.nns,-1),torch.unsqueeze(self.nvs,-2)) / self.tots.unsqueeze(-1).unsqueeze(-1)
+        dp("indeps",indeps.size())
+        return indeps.view(-1,self.R*self.C)
 
     @reify
     def nns(self): #normalized ns
+        dp("nns",[a.dtype for a in [self.ns, self.tots]])
         return self.ns/self.tots.unsqueeze(1)
 
 
     @reify
     def nvs(self): #normalized ns
-        return self.vs/torch.self.tots.unsqueeze(1)
+        return self.vs/self.tots.unsqueeze(1)
 
     @reify
     def U(self):
@@ -170,7 +179,8 @@ class EIData:
     def getStuff(self):
         return (self.U, self.R, self.C, self.ns, self.vs)
 
-def sub(**kwargs): #I really hate typing quotation markes
+#A "decorator"-ish thingy to make it easy to tell EISubData to look it up in full data.
+def sub(**kwargs): #I really hate typing quotation marks
     for k,v in kwargs.items():
         if v: #subset
             return reify(lambda self: getattr(self.full,k).index_select(0,self.indices),k)
@@ -308,7 +318,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False):
         dp(f"y[0]:{y[0]}")
         vs = torch.sum(y,1)
 
-        return EIData(ns,vs)
+        return EIData(ns,vs,data.ids)
 
     dp("model:end")
 
@@ -411,10 +421,6 @@ def guide(data, scale, include_nuisance=True, do_print=False):
 
 
     #Amortize stars
-    ystar = []
-    wstar = [] #P  * ((R-1) * (C-1)
-    ystar2 = [] #reconstituted as a function of wstar
-    eprcstars = [] #P  * (R * C)
 
     logittotals = ec2 + erc2
     #dp("sizes1 ",P,R,C,eprc.size(),ec.size(),erc.size(),logittotals.size())
@@ -429,42 +435,41 @@ def guide(data, scale, include_nuisance=True, do_print=False):
 
 
     #dp("guide:pre-p")
-
-    for p in prepare_ps:#pyro.plate('precinctsg2', P):
+    if True: #don't deindent yet
+    #for p in prepare_ps:#pyro.plate('precinctsg2', P):
         #precalculation - logits to pi
 
 
-        dp("amosize",[a.size() for a in [pi,normvs, normns]])
+        dp("amosize",[a.size() for a in [pi,data.nvs, data.nns]])
 
         Q, iters = optimize_Q_objectly(pi,data,tolerance=.01,maxiters=3)
 
         #get ŷ^(0
         #dp(f"optimize_Q_objectly {p}:{iters}")
-        ystar.append(Q*tots[p])
-        if p==0:
-            pass
-            #dp("p0", Q,tots[p])
+        ystars = Q*tots.unsqueeze(-1).unsqueeze(-1)
 
         #depolytopize
-        wstar.append(depolytopize(R,C,ystar[p],indeps[p]))
+        wstars = depolytopizeU(R,C,ystars,indeps)
+        wstars_list = [wstar for wstar in wstars] #separate tensor so sparse hessian works... I know, this seems crazy.
+        wstars2 = torch.stack(wstars_list)
 
-        ystar2.append(polytopize(R,C,wstar[p],indeps[p]))
+        ystar2 = polytopizeU(R,C,wstars2,indeps)
 
-        QbyR = Q/torch.sum(Q,-1).unsqueeze(-1)
-        logresidual = torch.log(QbyR / pi[p])
-        eprcstar = logresidual * eprcstar_hessian_point_fraction
 
         #get ν̂^(0)
         if include_nuisance:
-            eprcstars.append(eprcstar)
+            QbyR = Q/torch.sum(Q,-1).unsqueeze(-1)
+            logresidual = torch.log(QbyR / pi)
+            eprcstars = logresidual * eprcstar_hessian_point_fraction
             #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
+            eprcstars_list = [eprcstar for eprcstar in eprcstars]
+            eprcstars2 = torch.stack(eprcstars_list)
 
 
-    pstar_data.update(y=torch.cat([y.unsqueeze(0) for y in ystar2],0))
+    pstar_data.update(y=ystar2)
     #dp("y is",pstar_data["y"].size(),ystar[-1].size(),ystar[0][0,0],ystar2[0][0,0])
     if include_nuisance:
-        eprcstar = torch.cat([eprc.unsqueeze(0) for eprc in eprcstars],0)
-        logits = expand_and_center(ecstar_raw) + expand_and_center(ercstar_raw) + eprcstar
+        logits = expand_and_center(ecstar_raw) + expand_and_center(ercstar_raw) + eprcstars2
     else:
 
         logits = (expand_and_center(ecstar_raw) + expand_and_center(ercstar_raw)).repeat(P,1,1)
@@ -511,8 +516,8 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     if include_nuisance:
         tensors_per_unit = 2 #tensors, not elements=(R-1)*(C-1) + R*C
         dims_per_unit = (R-1)*(C-1) + R*C
-        for w,eprc,logit in zip(wstar,
-                        eprcstars, #This is NOT the center of the distribution; tstar's `logits`
+        for w,eprc,logit in zip(wstars_list,
+                        eprcstars_list, #This is NOT the center of the distribution; tstar's `logits`
                                 #However, the Hessian wrt `eprcstars` should equal that wrt `logits`
                                 #And using `logits` here wouldn't work because it's not upstream on the autodiff graph
                         logits):
@@ -521,8 +526,8 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     else:
         tensors_per_unit = 1 #tensors, not elements=(R-1)*(C-1)
         dims_per_unit = (R-1)*(C-1)
-        hessian_stars_in_sampling_order.extend(wstar) #`wstar` is already a list, not a tensor, so this works
-        mean_stars_in_sampling_order.extend(wstar) #`wstar` is already a list, not a tensor, so this works
+        hessian_stars_in_sampling_order.extend(wstars_list) #`wstars_list` is already a list, not a tensor, so this works
+        mean_stars_in_sampling_order.extend(wstars_list) #`wstars_list` is already a list, not a tensor, so this works
     full_dims = sum(star.numel() for star in mean_stars_in_sampling_order) #doesn't matter which one, hessian_... would be fine
 
     #dp("lp:::",log_posterior)
@@ -725,15 +730,6 @@ def guide(data, scale, include_nuisance=True, do_print=False):
 
 
 
-def get_subset(data,size,i):
-
-    ns, vs, indeps, tots = data
-    P = data.U
-    indices = ts([((i*size + j)* BIG_PRIME) % P for j in range(size)])
-    scale = P / size #likelihood impact of a precinct proportional to n
-    dp("scale",scale)
-    return (EISubData(data,indices),scale)
-
 
 
 data = pandas.read_csv('input_data/NC_precincts_2016_with_sample.csv')
@@ -742,18 +738,117 @@ wreg = torch.tensor(data.white_reg)
 breg = torch.tensor(data.black_reg)
 oreg = torch.tensor(data.other_reg)
 
-fixed_reg = [r + FAKE_VOTERS_PER_RACE for r in [wreg, breg, oreg]]
-ns = torch.stack(fixed_reg,1).double()
-DUMMY_DATA = EIData(ns,None)
+def makePrecinctID(*args):
+    return ":".join(args)
+
+precinct_unique = [makePrecinctID(county,precinct) for (county,precinct) in zip(data.county,data.precinct)]
+
+fixed_reg = [r.float() + FAKE_VOTERS_PER_RACE for r in [wreg, breg, oreg]]
+ns = torch.stack(fixed_reg,1).float()
+DUMMY_DATA = EIData(ns,None,precinct_unique)
 
 
-def trainGuide():
+def nameWithParams(filebase, data, S=None):
+    if S is None:
+        filename = (f"{filebase}_N{data.U}.csv")
+    else:
+        filename = (f"{filebase}_N{data.U}_S{S}.csv")
+    return filename
+
+def saveScenario(data,filename):
+    """
+    Note: for both saveScenario and loadScenario, file format is as follows: (without comments)
+
+    var,u,i,val,id    #field names
+    R,,,3,            #value of R — num races
+    C,,,3,            #value of C — num "candidates"
+    U,,,1000,         #value of U — num precincts
+    v,0,0,10,HOKE:p2  #10 votes for cand 0 in precinct 0. also, id for precinct 0; only present in cand 0 line
+    v,0,1,10,         #10 votes for cand 1 in precinct 0.
+    ...
+    v,2,999,33        #33 votes for cand 2 in precinct 999
+    n,0,0,50          #50 voters of race 0 in precinct 0
+    ....
+    n,2,999,111       #111 voters of race 2 in precinct 999
+
+    """
+    assert not (os.path.exists(filename)) #don't just blindly overwrite!
+    with open(filename,"w", newline="\n") as file:
+        writer = csv.writer(file)
+        writer.writerow([u"var",u"u",u"i",u"val",u"id"])
+        writer.writerow([u"R",u"",u"",data.R])
+        writer.writerow([u"C",u"",u"",data.C])
+        writer.writerow([u"U",u"",u"",data.U])
+        for u, (pvs, id) in enumerate(zip(data.vs, data.ids)):
+            for i, v in enumerate(pvs):
+                if i==0:
+                    writer.writerow([u"v",u,i,v,id])
+                else:
+                    writer.writerow([u"v",u,i,v,u""])
+        #
+        for u, pns in enumerate(data.ns):
+            for i, n in enumerate(pns):
+                writer.writerow([u"v",u,i,n,u""])
+
+def loadScenario(filename): #Throws error on failure; use inside a try block.
+    with open(filename,"r") as file:
+        reader = csv.reader(file)
+        header = next(reader)
+        vs, ns = (None, None)
+        for line in lines:
+            var, u, i, val, id = line
+            if var==u"R":
+                R = val
+                continue
+            if var==u"C":
+                C = val
+                continue
+            if var==u"U":
+                U = val
+                continue
+            if var==u"v":
+                if vs is None:
+                    vs = -torch.ones(U,C)
+                    ids = [None] * U
+                vs[u,i] = float(val)
+                if id != "":
+                    ids[u] = id
+                continue
+            if var==u"n":
+                if ns is None:
+                    ns = -torch.ones(U,R)
+                vs[u,i] = float(val)
+                continue
+        #
+        assert torch.all(ns>0) #race counts strictly positive
+        assert torch.none(vs<0) #vote counts non-negative
+        assert all(ids) #ids all exist
+    data = EIData(ns,vs,ids)
+    return data
+
+def createOrLoadScenario(dummy_data = DUMMY_DATA,
+            filebase="eiresults/"):
+    filename = nameWithParams(filebase + "scenario", dummy_data)
+    try:
+        loadScenario(filename)
+        print(filename, "from file")
+    except Exception as e:
+        print("exception:",e)
+        assert not (os.path.exists(filename)) #don't just blindly overwrite!
+        data = model(dummy_data)
+        saveScenario(data,filename)
+        print(filename, "created")
+    return data
+
+def trainGuide(subsample_n = SUBSET_SIZE,
+            filebase = "eiresults/"):
     resetDebugCounts()
 
     # Let's generate voting data. I'm conditioning concentration=1 for numerical stability.
 
-    data = model(DUMMY_DATA)
-    processed_data = process_data(data) #precalculate independence points
+    data = createOrLoadScenario(DUMMY_DATA,filebase)
+    N = data.U
+    scale = N / subsample_n
     #dp(data)
 
 
@@ -762,9 +857,22 @@ def trainGuide():
 
     pyro.clear_param_store()
     losses = []
+
+
+    cur_perm = torch.randperm(N)
+    used_up = 0
     for i in range(NSTEPS):
-        subset, scale = get_subset(processed_data,SUBSET_SIZE,i)
-        dp("svi.step(...",i,scale)
+
+        if subsample_n < N:
+            if (used_up + subsample_n) > N:
+                cur_perm = torch.randperm(N)
+                used_up = 0
+            indices = cur_perm[used_up:used_up + subsample_n]
+            used_up = used_up + subsample_n
+        else:
+            indices = torch.tensor(range(N))
+        subset =  EISubData(data,indices)
+        dp("svi.step(...",i,scale,subset.indeps.size())
         loss = svi.step(subset,scale,True,do_print=(i % 10 == 0))
         losses.append(loss)
         if i % 10 == 0:

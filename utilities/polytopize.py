@@ -37,7 +37,7 @@ def approx_eq(a,b):
     #print("So:",torch.all(torch.lt(torch.abs(torch.add(a, -b)), MIN_DIFF)))
     #print("So2:",torch.all(torch.lt(torch.abs(torch.add(a, -b)), MIN_DIFF))==
     #        torch.all(torch.lt(zs(1),1)))
-    return(torch.all(torch.lt(torch.abs(torch.add(a, -b)), MIN_DIFF)))
+    return(torch.all(torch.lt(torch.abs(torch.add(a.float(), -b.float())), MIN_DIFF)))
 
 def get_indep(R, C, ns, vs): #note, not-voting is a candidate
     assert len(ns)==R
