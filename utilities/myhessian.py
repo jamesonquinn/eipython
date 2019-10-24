@@ -4,7 +4,7 @@ Computes the Hessian
 '''
 import torch
 from hessian.gradient import gradient
-from .posdef import *
+from .arrowhead_precision import *
 
 def mygradient(output, inputs, allow_unused=False):
     '''
@@ -170,7 +170,7 @@ def arrowhead_hessian_precision(output_raw, inputs, headsize, blocksize, allow_u
     ... the full rows for all elements of x1, x2, and x3 are calculated,
     but [yn,ym], [yn,zm], and [zm,zm] elements are not.
 
-    This returns an ArrowheadPrecision object, as defined in posdef.py
+    This returns an ArrowheadPrecision object, as defined in arrowhead_precision.py
     WARNING: This object does NOT have correct weights, psil, or psig!!!!!
     '''
     assert output_raw.ndimension() == 0

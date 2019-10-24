@@ -1,7 +1,7 @@
 from __future__ import print_function
 import torch
 import math
-from debugGizmos import *
+from .debugGizmos import *
 
 epsilon = torch.tensor(0.00001,requires_grad=True)
 psi=torch.tensor(0.1, requires_grad=True)
@@ -23,7 +23,7 @@ def make_diag(batch_of_vectors):
     return torch.squeeze(torch.diag_embed(batch_of_vectors),-3)
 
 def get_diag(batch_of_matrices):
-    return torch.diagonal(batch_of_matrices,dim1 = -2, dim2 = -1)   
+    return torch.diagonal(batch_of_matrices,dim1 = -2, dim2 = -1)
 
 def zeros_and_one(U,k):
    v = torch.zeros(U,k+1)
@@ -35,17 +35,17 @@ def zeros_and_one(U,k):
 #    U is an integer
 #    M is a U-by-n-by-n tensor (the program figures out n by itself)
 #    psi is an n tensor
-def boost(U,M, psi):
+def _boost(U,M, psi):
    n=M.size()[1]
    psi1 = (psi+torch.ones(n))
-      
+
    M_abs = torch.abs(M)
    d_abs = get_diag(M_abs)
    # eta = max diagonal element
    eta = torch.max(d_abs, dim=1)[0]
    # zeta = max off-diagonal element
    zeta = torch.max((M_abs - make_diag(d_abs)).view(U,-1),1)[0]
-   beta2 = torch.max(torch.stack((eta, zeta**2/math.sqrt(n^2-1)),1),1)[0]      
+   beta2 = torch.max(torch.stack((eta, zeta**2/math.sqrt(n^2-1)),1),1)[0]
    LT=[]
    D=[]
    A=M
@@ -64,9 +64,9 @@ def boost(U,M, psi):
 
 
    L = torch.stack(LT,2)
-   D = make_diag(torch.stack(D,1))
+   dp("wtf",-1,len(D),[d.size() for d in D+[L]])
+   Dvecs = torch.cat([d.unsqueeze(1) for d in D],1)
+   D = make_diag(Dvecs)
    LDLT = torch.matmul(L,torch.matmul(D,transpose(L)))
-      
-   return L,D, LDLT   
-      
 
+   return L,Dvecs, LDLT

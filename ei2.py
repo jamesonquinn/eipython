@@ -38,7 +38,7 @@ from utilities.cmult import CMult
 from utilities import polytopize
 reload(polytopize)
 from utilities.polytopize import get_indep, polytopizeU, depolytopizeU, to_subspace, process_data, approx_eq
-from utilities.posdef import *
+from utilities.arrowhead_precision import *
 
 use_cuda = torch.cuda.is_available()
 if use_cuda:
@@ -80,6 +80,8 @@ BIG_PRIME = 73 #Wow, that's big!
 
 FAKE_VOTERS_PER_RACE = 1.
 FAKE_VOTERS_PER_REAL_PARTY = .5 #remainder go into nonvoting party
+
+BASE_PSI = .01
 
 MINIMAL_DEBUG = False
 if MINIMAL_DEBUG:
@@ -515,6 +517,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     #add pstar_data to stars_in_sampling_order — but don't get it from pstar_data because it comes in wrong format
     if include_nuisance:
         tensors_per_unit = 2 #tensors, not elements=(R-1)*(C-1) + R*C
+        dp(u"lam sizes",R,C,[a.size() for a in [wstars_list[0],eprcstars_list[0]]])
         dims_per_unit = (R-1)*(C-1) + R*C
         for w,eprc,logit in zip(wstars_list,
                         eprcstars_list, #This is NOT the center of the distribution; tstar's `logits`
@@ -551,6 +554,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     precinctpsi = pyro.param('precinctpsi',BASE_PSI * torch.ones(dims_per_unit),
                 constraint=constraints.positive)
 
+    dp("setpsis",[a.size() for a in [globalpsi,precinctpsi]])
     big_arrow.setpsis(globalpsi,precinctpsi)
     big_arrow.weights = [scale] * P
 
@@ -568,7 +572,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     #dp(-neg_big_hessian[:6,:3])
 
     gamma = pyrosample('gamma',
-                    dist.MultivariateNormal(gamma_mean, precision_matrix=big_arrow.marginal_gg()),
+                    dist.OMTMultivariateNormal(gamma_mean, torch.cholesky(big_arrow.marginal_gg_cov())),
                     infer={'is_auxiliary': True})
     g_delta = gamma - gamma_mean
 
@@ -617,7 +621,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
         conditional_mean, conditional_cov = big_arrow.conditional_ll_mcov(p,g_delta,
                                 all_means.index_select(0,precinct_indices))
 
-        precinct_cov = big_arrow.llinvs[p] #for Newton's method, not for sampling
+        precinct_cov = big_arrow.llinvs[p] #for Newton's method, not for sampling #TODO: This is actually the same as conditional_cov; remove?
 
         precinct_grad = big_grad.index_select(0,precinct_indices) #[gamma_dims + pp*(R-1)*(C-1): gamma_dims + (pp+1)*(R-1)*(C-1)]
 
@@ -634,7 +638,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
 
         try:
             pstuff = pyrosample(f"pstuff_{p}",
-                            dist.MultivariateNormal(adjusted_mean, conditional_cov),
+                            dist.OMTMultivariateNormal(adjusted_mean, torch.cholesky(conditional_cov)),
                             infer={'is_auxiliary': True})
 
         except:
@@ -776,35 +780,39 @@ def saveScenario(data,filename):
     with open(filename,"w", newline="\n") as file:
         writer = csv.writer(file)
         writer.writerow([u"var",u"u",u"i",u"val",u"id"])
-        writer.writerow([u"R",u"",u"",data.R])
-        writer.writerow([u"C",u"",u"",data.C])
-        writer.writerow([u"U",u"",u"",data.U])
+        writer.writerow([u"R",u"",u"",data.R,u""])
+        writer.writerow([u"C",u"",u"",data.C,u""])
+        writer.writerow([u"U",u"",u"",data.U,u""])
         for u, (pvs, id) in enumerate(zip(data.vs, data.ids)):
             for i, v in enumerate(pvs):
                 if i==0:
-                    writer.writerow([u"v",u,i,v,id])
+                    writer.writerow([u"v",u,i,float(v),id])
                 else:
-                    writer.writerow([u"v",u,i,v,u""])
+                    writer.writerow([u"v",u,i,float(v),u""])
         #
         for u, pns in enumerate(data.ns):
             for i, n in enumerate(pns):
-                writer.writerow([u"v",u,i,n,u""])
+                writer.writerow([u"n",u,i,float(n),u""])
 
 def loadScenario(filename): #Throws error on failure; use inside a try block.
     with open(filename,"r") as file:
         reader = csv.reader(file)
         header = next(reader)
         vs, ns = (None, None)
-        for line in lines:
+        for line in reader:
             var, u, i, val, id = line
+            u, i = [int(a) for a in [u or 0,i or 0]]
             if var==u"R":
-                R = val
+                dp("R",type(val),val)
+                R = int(val)
                 continue
             if var==u"C":
-                C = val
+                dp("C",type(val),val)
+                C = int(val)
                 continue
             if var==u"U":
-                U = val
+                dp("U",type(val),val)
+                U = int(val)
                 continue
             if var==u"v":
                 if vs is None:
@@ -817,11 +825,13 @@ def loadScenario(filename): #Throws error on failure; use inside a try block.
             if var==u"n":
                 if ns is None:
                     ns = -torch.ones(U,R)
-                vs[u,i] = float(val)
+                ns[u,i] = float(val)
                 continue
         #
+        #dp("ns:",ns)
+        #dp("vs:",vs)
         assert torch.all(ns>0) #race counts strictly positive
-        assert torch.none(vs<0) #vote counts non-negative
+        assert torch.all(vs+.1>0) #vote counts non-negative
         assert all(ids) #ids all exist
     data = EIData(ns,vs,ids)
     return data
@@ -830,9 +840,9 @@ def createOrLoadScenario(dummy_data = DUMMY_DATA,
             filebase="eiresults/"):
     filename = nameWithParams(filebase + "scenario", dummy_data)
     try:
-        loadScenario(filename)
+        data = loadScenario(filename)
         print(filename, "from file")
-    except Exception as e:
+    except IOError as e:
         print("exception:",e)
         assert not (os.path.exists(filename)) #don't just blindly overwrite!
         data = model(dummy_data)

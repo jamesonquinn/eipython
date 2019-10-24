@@ -20,7 +20,7 @@ def dp(key, *args, do=1, n = 10, brk=False):
     PRINT_COUNTS[key] += 1
     if do:
         if PRINT_COUNTS[key] - n < 1:
-            print(key,"line",inspect.currentframe().f_back.f_lineno,PRINT_COUNTS[key],*args)
+            print(key,"line",inspect.currentframe().f_back.f_lineno,PRINT_COUNTS[key],":",*args)
         elif isPowerOfTwo(PRINT_COUNTS[key]):
             print(key,"line",inspect.currentframe().f_back.f_lineno,PRINT_COUNTS[key])
 

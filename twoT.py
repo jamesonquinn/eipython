@@ -34,7 +34,7 @@ from utilities.polytopize import approx_eq
 from utilities.lambertw import lambertw
 from utilities import go_or_nogo
 from utilities.draw_ellipses import confidence_ellipse
-from utilities.posdef import *
+from utilities.boost_sdd import *
 ts = torch.tensor
 
 pyro.enable_validation(True)
