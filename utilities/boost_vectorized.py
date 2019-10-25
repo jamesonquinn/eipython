@@ -3,8 +3,6 @@ import torch
 import math
 from .debugGizmos import *
 
-epsilon = torch.tensor(0.00001,requires_grad=True)
-psi=torch.tensor(0.1, requires_grad=True)
 
 S = torch.tensor([[2.,5.,0.],[5.,4.,1.],[0.,1.,3.]], requires_grad=True)
 C = torch.tensor([[2.,1.,0.],[1.,4.,2.],[0.,2.,3.]], requires_grad=True)
@@ -51,7 +49,7 @@ def _boost(U,M, psi):
    A=M
    for k in range(n):
       if k==n-1:
-         d=torch.abs(A.squeeze())*psi1[k]
+         d=torch.abs(A[:,0,0])*psi1[k]
          D.append(d)
          LT.append(zeros_and_one(U,k))
       else:
