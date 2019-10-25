@@ -410,7 +410,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     erc2r = ercstar_raw.detach().requires_grad_()
     ec2 = expand_and_center(ec2r)
     erc2 = expand_and_center(erc2r)
-    dp("sizes",[it.size() for it in [ec2r,erc2r,ec2,erc2,]])
+    dp("sizes",sizes(ec2r,erc2r,ec2,erc2))
 
     if include_nuisance:
         sdprc2 = logsdprcstar.detach().requires_grad_()
@@ -442,7 +442,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
         #precalculation - logits to pi
 
 
-        dp("amosize",[a.size() for a in [pi,data.nvs, data.nns]])
+        dp("amosize",sizes(pi,data.nvs, data.nns))
 
         Q, iters = optimize_Q_objectly(pi,data,tolerance=.01,maxiters=3)
 
@@ -455,7 +455,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
         wstars_list = [wstar for wstar in wstars] #separate tensor so sparse hessian works... I know, this seems crazy.
         wstars2 = torch.stack(wstars_list)
 
-        ystar2 = polytopizeU(R,C,wstars2,indeps)
+        ystars2 = polytopizeU(R,C,wstars2,indeps)
 
 
         #get ν̂^(0)
@@ -468,8 +468,15 @@ def guide(data, scale, include_nuisance=True, do_print=False):
             eprcstars2 = torch.stack(eprcstars_list)
 
 
-    pstar_data.update(y=ystar2)
-    #dp("y is",pstar_data["y"].size(),ystar[-1].size(),ystar[0][0,0],ystar2[0][0,0])
+    dp("w and nu",sizes(ystars,wstars,wstars2,ystars2,eprcstars,eprcstars2))
+    if include_nuisance:
+        dp("w and nu 2",torch.sum(ystars-ystars2),
+                    torch.sum(eprcstars- eprcstars2),
+                    torch.sum(wstars-wstars2))
+        dp("w3", ystars[0], ystars2[0], wstars2[0])
+
+    pstar_data.update(y=ystars2)
+    #dp("y is",pstar_data["y"].size(),ystar[-1].size(),ystar[0][0,0],ystars2[0][0,0])
     if include_nuisance:
         logits = expand_and_center(ecstar_raw) + expand_and_center(ercstar_raw) + eprcstars2
     else:
@@ -517,7 +524,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     #add pstar_data to stars_in_sampling_order — but don't get it from pstar_data because it comes in wrong format
     if include_nuisance:
         tensors_per_unit = 2 #tensors, not elements=(R-1)*(C-1) + R*C
-        dp(u"lam sizes",R,C,[a.size() for a in [wstars_list[0],eprcstars_list[0]]])
+        dp(u"lam sizes",R,C,sizes(wstars_list[0],eprcstars_list[0]))
         dims_per_unit = (R-1)*(C-1) + R*C
         for w,eprc,logit in zip(wstars_list,
                         eprcstars_list, #This is NOT the center of the distribution; tstar's `logits`
@@ -554,7 +561,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     precinctpsi = pyro.param('precinctpsi',BASE_PSI * torch.ones(dims_per_unit),
                 constraint=constraints.positive)
 
-    dp("setpsis",[a.size() for a in [globalpsi,precinctpsi]])
+    dp("setpsis",sizes(globalpsi,precinctpsi))
     big_arrow.setpsis(globalpsi,precinctpsi)
     big_arrow.weights = [scale] * P
 

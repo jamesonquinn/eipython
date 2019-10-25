@@ -15,12 +15,12 @@ import torch
 ts = torch.tensor
 mt = torch.empty
 zs = torch.zeros
+import torch.distributions as dist
 from torch.distributions import constraints
 from matplotlib import pyplot
 #matplotlib inline
 
 import pyro
-import pyro.distributions as dist
 from pyro import poutine
 from pyro.contrib.autoguide import AutoDelta
 from pyro.optim import Adam
@@ -102,12 +102,16 @@ def polytopize(R, C, raw, start, do_aug=True):
         raise
     closest = torch.argmax(ratio)
     r = start[closest//C,closest%C]
-    shrinkfac = r * (1 - torch.exp(-ratio[closest//C,closest%C])) / aug2[closest//C,closest%C]
+    edgedir = -r * aug2 / aug2[closest//C,closest%C]
+    edgepoint = start + edgedir
+
+    backoff = torch.exp(-ratio[closest//C,closest%C])
     #print("ptope",start,closest//C,closest%C,
+
     #        ratio[closest//C,closest%C],aug2[closest//C,closest%C])
     #print(aug2,closest//C,closest%C,r,shrinkfac)
     #print("shrink:",shrinkfac)
-    return start - shrinkfac * aug2
+    return edgepoint - backoff * edgedir
 
 
 def polytopizeU(R, C, raw, start):
@@ -120,15 +124,17 @@ def polytopizeU(R, C, raw, start):
         print(f"line 67:{R},{C},{raw.size()},{start.size()}")
         raise
     closest = torch.argmax(ratio, 1)
+    r = start.gather(1,closest.unsqueeze(1))
+    edgedir = -r * aug2 / aug2.gather(1,closest.unsqueeze(1))
+    edgepoint = start + edgedir
 
-    all_shrinkfacs = start * (1 - torch.exp(-ratio)) / aug2
-    #dp("Sizes..",[a.size() for a in (raw,start,aug1,aug2,ratio,all_shrinkfacs,closest.unsqueeze(1))])
-    correct_shrinkfacs = all_shrinkfacs.gather(1,closest.unsqueeze(1))
+    backoff = torch.exp(-ratio.gather(1,closest.unsqueeze(1)))
     #print("ptope",start,closest//C,closest%C,
+
     #        ratio[closest//C,closest%C],aug2[closest//C,closest%C])
     #print(aug2,closest//C,closest%C,r,shrinkfac)
     #print("shrink:",shrinkfac)
-    return (start - correct_shrinkfacs * aug2).view(-1,R,C)
+    return (edgepoint - backoff * edgedir).view(-1,R,C)
 
 DEPOLY_EPSILON = 1e-9
 def depolytopizeU(R, C, rawpoly, start):
@@ -136,10 +142,12 @@ def depolytopizeU(R, C, rawpoly, start):
     assert poly.size() == start.size(), f"depoly fail {R},{C},{poly.size()},{start.size()}"
     rawdiff = poly - start
     diff = rawdiff + (rawdiff == 0).float() * DEPOLY_EPSILON
-    ratio = torch.div(diff, -start)
+    #ratio = torch.div(diff, -start)
+    ratio = torch.div(poly, -start)
     closest = torch.argmax(ratio, 1)
     #r = start.gather(1,closest.unsqueeze(1))
-    facs = start * torch.log(1-ratio) / diff
+    #facs = start * torch.log(1-ratio) / diff
+    facs = start * torch.log(-ratio) / diff
 
     result = facs.gather(1,closest.unsqueeze(1)) * diff
     #print("depo",fac, ratio[closest//C,closest%C])
@@ -175,10 +183,10 @@ def depolytopize(R, C, poly, start):
     return result[:(R-1),:(C-1)]
 
 def dummyPrecinct(R, C, i=0, israndom=True):
-
+    dp("Dummy!")
     if israndom:
-        ns = pyro.distributions.Exponential(1.).sample(torch.Size([R]))
-        vs = pyro.distributions.Exponential(1.).sample(torch.Size([C]))
+        ns = dist.Exponential(.01).sample(torch.Size([R]))
+        vs = dist.Exponential(.01).sample(torch.Size([C]))
     else:
         #print("Not random")
         ns = ts([r+i+1. for r in range(R)])
@@ -189,17 +197,46 @@ def dummyPrecinct(R, C, i=0, israndom=True):
     indep = get_indep(R,C,ns,vs)
     return(ns,vs,indep)
 
-def test_funs(R, C, innerReps=2, outerReps=2, israndom=True):
+def test_funs(R, C, innerReps=4, outerReps=4, israndom=True):
     for i in range(outerReps):
         ns,vs,indep = dummyPrecinct(R,C,i,israndom)
         for j in range(innerReps):
             loc = pyro.distributions.Normal(0.,4.).sample(torch.Size([R-1,C-1]))
             polytopedLoc = polytopize(R,C,loc,indep)
+            depolytopedLoc = depolytopize(R,C,polytopedLoc,indep)
             try:
                 assert approx_eq(ns, torch.sum(polytopedLoc, dim=1).view(R)) , "ns fail"
                 assert approx_eq(vs, torch.sum(polytopedLoc, dim=0).view(C)) , "vs fail"
                 assert torch.all(torch.ge(polytopedLoc,0)) , "ge fail"
+                assert approx_eq(loc,depolytopedLoc) , "round-trip fail"
+                dp("  ((success))")
             except Exception as e:
                 print(e)
-                print("loc",loc)
-                print("polytopedLoc",polytopedLoc)
+                print("  loc",loc)
+                print("  indep",indep.view(R,C))
+                print("  polytopedLoc",polytopedLoc)
+                print("  depolytopedLoc",depolytopedLoc)
+
+def test_funsU(U, R, C, innerReps=16, outerReps=16, israndom=True):
+    resetDebugCounts()
+    for i in range(outerReps):
+        ns,vs,indep = zip(*[dummyPrecinct(R,C,i,israndom) for u in range(U)])
+        ns,vs,indep = [torch.stack(a) for a in [ns,vs,indep]]
+        indep = indep.view(U,R*C)
+        for j in range(innerReps):
+            loc = pyro.distributions.Normal(0.,4.).sample(torch.Size([U,R-1,C-1]))
+            polytopedLoc = polytopizeU(R,C,loc,indep)
+            depolytopedLoc = depolytopizeU(R,C,polytopedLoc,indep)
+            try:
+                assert approx_eq(ns, torch.sum(polytopedLoc, dim=2)) , "ns fail"
+                assert approx_eq(vs, torch.sum(polytopedLoc, dim=1)) , "vs fail"
+                assert torch.all(torch.ge(polytopedLoc,0)) , ">=0 fail"
+                assert approx_eq(loc,depolytopedLoc) , "round-trip fail"
+                dp("  ((success))")
+            except Exception as e:
+                dp("  (fail)")
+                print(e)
+                print("  loc",loc[0])
+                print("  indep",indep[0].view(R,C))
+                print("  polytopedLoc",polytopedLoc[0])
+                print("  depolytopedLoc",depolytopedLoc[0])

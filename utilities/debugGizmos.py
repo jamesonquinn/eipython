@@ -2,6 +2,7 @@
 from collections import defaultdict
 import inspect
 import pdb
+import torch
 
 def lineno():
     """Returns the current line number in our program."""
@@ -34,3 +35,19 @@ def resetDebugCounts():
     for key in PRINT_COUNTS:
         if type(key) == str and key[:4] != "base":
             PRINT_COUNTS[key] = 0
+
+def sizes(*l):
+    result = ""
+    for i, a in enumerate(l):
+        nanny =  bool(torch.any(torch.isnan(a)))
+        result = result + f"""\n    Size {i}: {list(a.size())}; {"NANny" if nanny else "noNAN"}"""
+        if nanny:
+            result = result +  f"""\n     """
+            for d in range(len(a.size())):
+                result = result + "  " + str(d) + ":"
+                for j in range(a.size()[d]):
+                    if torch.any(torch.isnan(a.index_select(d, torch.tensor([j])))):
+                        result = result + "X"
+                    else:
+                        result = result + "."
+    return result
