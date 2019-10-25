@@ -74,7 +74,7 @@ RECENTER_PRIOR_STRENGTH = 2.
 
 
 
-NSTEPS = 5001
+NSTEPS = 5 # 1000
 SUBSET_SIZE = 5
 BIG_PRIME = 73 #Wow, that's big!
 
@@ -101,19 +101,19 @@ class EIData:
 
     @reify
     def tots(self):
-        dp("tots",[(a.dtype,a.device) for a in [self.ns, torch.sum(ns,1)]])
+        #dp("tots",[(a.dtype,a.device) for a in [self.ns, torch.sum(ns,1)]])
         return torch.sum(self.ns,1)
 
     @reify
     def indeps(self):
         assert approx_eq(self.tots,torch.sum(self.vs,1)), f'#print("sums",{self.tots},{torch.sum(self.vs,1)})'
         indeps = torch.matmul(torch.unsqueeze(self.nns,-1),torch.unsqueeze(self.nvs,-2)) / self.tots.unsqueeze(-1).unsqueeze(-1)
-        dp("indeps",indeps.size())
+        #dp("indeps",indeps.size())
         return indeps.view(-1,self.R*self.C)
 
     @reify
     def nns(self): #normalized ns
-        dp("nns",[a.dtype for a in [self.ns, self.tots]])
+        #dp("nns",[a.dtype for a in [self.ns, self.tots]])
         return self.ns/self.tots.unsqueeze(1)
 
 
@@ -410,7 +410,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     erc2r = ercstar_raw.detach().requires_grad_()
     ec2 = expand_and_center(ec2r)
     erc2 = expand_and_center(erc2r)
-    dp("sizes",sizes(ec2r,erc2r,ec2,erc2))
+    #dp("sizes",sizes(ec2r,erc2r,ec2,erc2))
 
     if include_nuisance:
         sdprc2 = logsdprcstar.detach().requires_grad_()
@@ -442,7 +442,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
         #precalculation - logits to pi
 
 
-        dp("amosize",sizes(pi,data.nvs, data.nns))
+        #dp("amosize",sizes(pi,data.nvs, data.nns))
 
         Q, iters = optimize_Q_objectly(pi,data,tolerance=.01,maxiters=3)
 
@@ -468,12 +468,12 @@ def guide(data, scale, include_nuisance=True, do_print=False):
             eprcstars2 = torch.stack(eprcstars_list)
 
 
-    dp("w and nu",sizes(ystars,wstars,wstars2,ystars2,eprcstars,eprcstars2))
-    if include_nuisance:
-        dp("w and nu 2",torch.sum(ystars-ystars2),
-                    torch.sum(eprcstars- eprcstars2),
-                    torch.sum(wstars-wstars2))
-        dp("w3", ystars[0], ystars2[0], wstars2[0])
+    #dp("w and nu",sizes(ystars,wstars,wstars2,ystars2,eprcstars,eprcstars2))
+    #if include_nuisance:
+        #dp("w and nu 2",torch.sum(ystars-ystars2),
+        #            torch.sum(eprcstars- eprcstars2),
+        #            torch.sum(wstars-wstars2))
+        #dp("w3", ystars[0], ystars2[0], wstars2[0])
 
     pstar_data.update(y=ystars2)
     #dp("y is",pstar_data["y"].size(),ystar[-1].size(),ystar[0][0,0],ystars2[0][0,0])
@@ -524,7 +524,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     #add pstar_data to stars_in_sampling_order — but don't get it from pstar_data because it comes in wrong format
     if include_nuisance:
         tensors_per_unit = 2 #tensors, not elements=(R-1)*(C-1) + R*C
-        dp(u"lam sizes",R,C,sizes(wstars_list[0],eprcstars_list[0]))
+        #dp(u"lam sizes",R,C,sizes(wstars_list[0],eprcstars_list[0]))
         dims_per_unit = (R-1)*(C-1) + R*C
         for w,eprc,logit in zip(wstars_list,
                         eprcstars_list, #This is NOT the center of the distribution; tstar's `logits`
@@ -561,7 +561,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     precinctpsi = pyro.param('precinctpsi',BASE_PSI * torch.ones(dims_per_unit),
                 constraint=constraints.positive)
 
-    dp("setpsis",sizes(globalpsi,precinctpsi))
+    #dp("setpsis",sizes(globalpsi,precinctpsi))
     big_arrow.setpsis(globalpsi,precinctpsi)
     big_arrow.weights = [scale] * P
 
@@ -614,7 +614,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     #        'precinct_newton_step_multiplier_logit',ts(0.))
     #epnsml = torch.exp(precinct_newton_step_multiplier_logit)
     step_mult = MAX_NEWTON_STEP #* epnsml / (1 + epnsml)
-    ysamps = []
+    wsamps = []
     logit_samps = []
     adjusted_means = []
     global_indices = ts(range(gamma_dims))
@@ -660,15 +660,17 @@ def guide(data, scale, include_nuisance=True, do_print=False):
             print("mean",adjusted_mean.size())
             raise
         w_raw = pstuff[:(R-1)*(C-1)]
-        y = polytopize(R,C,w_raw.view(R-1,C-1),indeps[p])
-        ysamps.append(y.view(1,R,C))
+        wsamps.append(w_raw.view(R-1,C-1))
+        #y = polytopize(R,C,w_raw.view(R-1,C-1),indeps[p])
+        #ysamps.append(y.view(1,R,C))
 
         if include_nuisance:
             logit = pstuff[(R-1)*(C-1):].view(1,R,C)
             logit_samps.append(logit)
 
     with all_sampled_ps():
-        ys = torch.cat(ysamps,0)
+        ws = torch.stack(wsamps)
+        ys = polytopizeU(R,C,ws,indeps)
         if not torch.all(torch.isfinite(ys)):
             for p in range(P):
                 if not torch.all(torch.isfinite(ys[p,:,:])):
@@ -857,8 +859,22 @@ def createOrLoadScenario(dummy_data = DUMMY_DATA,
         print(filename, "created")
     return data
 
+def saveFit(fitted_model_info, data, subsample_n, nparticles,nsteps,filebase="eiresults/funnyname_"):
+    i = 0
+    while True:
+        filename = nameWithParams(filebase+"fit_"+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
+                data,subsample_n)
+        if not os.path.exists(filename):
+            break
+        print("file exists:",filename)
+        i += 1
+    with open(filename, "w") as output:
+        output.write(jsonize(fitted_model_info))
+    #print("saveFit", filename)
+
 def trainGuide(subsample_n = SUBSET_SIZE,
-            filebase = "eiresults/"):
+            filebase = "eiresults/",
+            nparticles=1): #honestly if I use nparticles, I should rewrite model&guide to both be over multiple samples. But including here now because it's easy.
     resetDebugCounts()
 
     # Let's generate voting data. I'm conditioning concentration=1 for numerical stability.
@@ -870,14 +886,16 @@ def trainGuide(subsample_n = SUBSET_SIZE,
 
 
     # Now let's train the guide.
-    svi = SVI(model, guide, ClippedAdam({'lr': 0.005}), Trace_ELBO())
+    svi = SVI(model, guide, ClippedAdam({'lr': 0.005}), Trace_ELBO(nparticles))
 
     pyro.clear_param_store()
     losses = []
+    mean_losses = [] #(moving average)
 
 
     cur_perm = torch.randperm(N)
     used_up = 0
+
     for i in range(NSTEPS):
 
         if subsample_n < N:
@@ -891,6 +909,10 @@ def trainGuide(subsample_n = SUBSET_SIZE,
         subset =  EISubData(data,indices)
         dp("svi.step(...",i,scale,subset.indeps.size())
         loss = svi.step(subset,scale,True,do_print=(i % 10 == 0))
+        if len(losses)==0:
+            mean_losses.append(loss)
+        else:
+            mean_losses.append((mean_losses[-1] * 49. + loss) / 50.)
         losses.append(loss)
         if i % 10 == 0:
             reload(go_or_nogo)
@@ -906,14 +928,22 @@ def trainGuide(subsample_n = SUBSET_SIZE,
     plt.xlabel('epoch')
     plt.ylabel('loss')
 
+    fitted_model_info = guide(data, 1., True)
+    fitted_model_info.update(
+                    mean_loss = mean_losses[-1],
+                    final_loss = loss
+                    )
+
+    if True:
+        dataToSave = subset
+    else:
+        dataToSave = data
+    saveFit(fitted_model_info, dataToSave, subsample_n, nparticles,i,filebase=filebase)
     ##
-    pyroStore = pyro.get_param_store()
-    for (key, val) in sorted(pyroStore.items()):
-        print(f"{key}:\n{val}")
 
-    ns, vs = data
-    # print("ystar[0]:",
-    #     polytopize(4,3,pyroStore["wstar_0"],
-    #                get_indep(4,3,ns[0],vs[0])))
-
+    for (key, val) in sorted(pyro.get_param_store().items()):
+        if sum(val.size()) > 1:
+            print(f"{key}:\n{val[:10]} (10 elems)")
+        else:
+            print(f"{key}:\n{val}")
     return(svi,losses,data)

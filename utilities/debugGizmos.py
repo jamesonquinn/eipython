@@ -51,3 +51,24 @@ def sizes(*l):
                     else:
                         result = result + "."
     return result
+
+
+def jsonizable(thing):
+    #print("jsonizable...",thing)
+    #print("type",type(thing), type(thing) is FUCKING_TENSOR_TYPE, type(thing) == type(torch.tensor(1.)))
+    if isinstance(thing, Mapping):
+        return dict([(key, jsonizable(val)) for (key, val) in thing.items()])
+    elif torch.is_tensor(thing):
+        t = thing.tolist()
+        #print("not tense",t)
+        return(t)
+    return thing
+
+def jsonize(thing):
+    #print("jsonizing")
+    t = jsonizable(thing)
+
+    #print("jsonizing 2", t)
+    return(json.dumps(t, indent=2, sort_keys=True))
+
+    #print("jsonized")

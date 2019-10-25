@@ -62,7 +62,6 @@ def _boost(U,M, psi):
 
 
    L = torch.stack(LT,2)
-   dp("wtf",-1,len(D),[d.size() for d in D+[L]])
    Dvecs = torch.cat([d.unsqueeze(1) for d in D],1)
    D = make_diag(Dvecs)
    LDLT = torch.matmul(L,torch.matmul(D,transpose(L)))
