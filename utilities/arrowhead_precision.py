@@ -117,7 +117,7 @@ class ArrowheadPrecision:
         dp("btc 2", mgg.unsqueeze(0).size(), self.psig.size())
         self._mgg_chol, self._mgg = boost_to_chol(mgg.unsqueeze(0),self.psig, include_sym=True)
         #self.gg_cov = torch.cholesky_inverse(self._mgg_chol)
-        self.gg_cov = torch.inverse(self._mgg)
+        self.gg_cov = torch.inverse(self._mgg[0])
         return self.gg_cov
 
     def conditional_ll_mcov(self,i,g_delta,l_mean):
