@@ -1,0 +1,43 @@
+/***********************************************************************************
+* name:     layout_voter_stats.txt
+* purpose:  Information related to voter registration statistics.
+* updated:  11/03/2016
+***********************************************************************************/
+
+
+------------------------------------------------------------------------------------
+-- File layout: since 2002 elections
+-- File format: TAB delimited
+------------------------------------------------------------------------------------
+Voter stats table:
+county_desc			varchar(15) 
+precinct_abbrv			char(6) 
+age				varchar(32) 
+party_cd			char(3)  
+race_code			char(3) 
+ethnic_code			char(3) 
+sex_code			varchar(1) 
+total_voters			int
+election_date			varchar(10)
+stats_type			varchar(10) 
+update_date			datetime
+
+------------------------------------------------------------------------------------
+
+Race_code:
+
+label	description
+B  	BLACK or AFRICAN AMERICAN                                   
+I  	AMERICAN INDIAN or ALASKA NATIVE                            
+O  	OTHER                                                       
+W  	WHITE                                                       
+U  	UNDESIGNATED                                                
+A  	ASIAN                                                       
+M  	TWO or MORE RACES                                           
+
+Ethnic_code:
+
+label	description
+HL 	HISPANIC or LATINO
+NL 	NOT HISPANIC or NOT LATINO
+UN 	UNDESIGNATED
