@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import print_function
 from utilities.debugGizmos import *
+from utilities.debugGizmos import jsonize
+dp("exists?",jsonize)
 dp('base:Yes, I will run.')
 
 from importlib import reload
@@ -41,7 +43,7 @@ from utilities.polytopize import get_indep, polytopizeU, depolytopizeU, to_subsp
 from utilities.arrowhead_precision import *
 
 use_cuda = torch.cuda.is_available()
-if use_cuda:
+if False:#use_cuda:
     torch.set_default_tensor_type("torch.cuda.FloatTensor")
 
 ts = torch.tensor
@@ -74,14 +76,16 @@ RECENTER_PRIOR_STRENGTH = 2.
 
 
 
-NSTEPS = 5 # 1000
-SUBSET_SIZE = 5
+NSTEPS = 1000
+SUBSET_SIZE = 30
 BIG_PRIME = 73 #Wow, that's big!
 
 FAKE_VOTERS_PER_RACE = 1.
 FAKE_VOTERS_PER_REAL_PARTY = .5 #remainder go into nonvoting party
 
 BASE_PSI = .01
+
+QUICKIE_SAVE = (NSTEPS < 20) #save subset; faster
 
 MINIMAL_DEBUG = False
 if MINIMAL_DEBUG:
@@ -249,8 +253,6 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False):
         sdprc = pyrosample('sdprc', dist.Exponential(.2))
 
     if vs is None:
-        sdc = .2
-        sdrc = .4
         sdprc = .6
     #dp(f"sdprc in model:{sdprc}")
 
@@ -269,11 +271,19 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False):
         logits = torch.zeros(P,R,C) #dummy for print statements. TODO:remove
 
     if vs is None:
-        erc = torch.zeros([R,C])
-        erc[0] = ts(range(C))
-        erc[1,0] = ts(2.)
-        ec = torch.zeros(C)
-        ec[1] = .5
+        ecraw = torch.zeros(C-1)
+        ecraw[0] = .5
+        ecraw[1] = -.25
+        ec = expand_and_center(ecraw)
+        ercraw = torch.zeros(R-1,C-1)
+        ercraw[0,0] = -1.
+        ercraw[1,0] = -.5
+        ercraw[1,1] = 1.
+        erc = expand_and_center(ercraw)
+        logits = ec+erc
+        sdc = ec.std()
+        sdrc = erc.std()
+        lp("Standard deviations:", sdc,sdrc,sdprc)
 
     # with pyro.plate('candidatesm', C):
     #     ec = pyrosample('ec', dist.Normal(0,sdc))
@@ -733,7 +743,6 @@ def guide(data, scale, include_nuisance=True, do_print=False):
         aa_gamma_star_data = gamma_star_data,
         fstar_data = fstar_data,
         pstar_data = pstar_data,
-        a_hess_center = hess_center,
         all_means = all_means,
         big_arrow = big_arrow,
         big_grad = big_grad,
@@ -921,6 +930,12 @@ def trainGuide(subsample_n = SUBSET_SIZE,
                 pass
             else:
                 break
+            try:
+                if mean_losses[-1] < mean_losses[-50]:
+                    lp("Cutoff reached",mean_losses[-1], mean_losses[-50])
+                    break
+            except Exception as e:
+                pass
 
     ##
 
@@ -928,16 +943,16 @@ def trainGuide(subsample_n = SUBSET_SIZE,
     plt.xlabel('epoch')
     plt.ylabel('loss')
 
-    fitted_model_info = guide(data, 1., True)
+    if QUICKIE_SAVE:
+        dataToSave = subset
+    else:
+        dataToSave = data
+    fitted_model_info = guide(dataToSave, 1., True)
     fitted_model_info.update(
                     mean_loss = mean_losses[-1],
                     final_loss = loss
                     )
 
-    if True:
-        dataToSave = subset
-    else:
-        dataToSave = data
     saveFit(fitted_model_info, dataToSave, subsample_n, nparticles,i,filebase=filebase)
     ##
 

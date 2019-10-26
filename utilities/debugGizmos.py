@@ -1,8 +1,9 @@
 
-from collections import defaultdict
+from collections import defaultdict,Mapping
 import inspect
 import pdb
 import torch
+import json
 
 def lineno():
     """Returns the current line number in our program."""
@@ -56,8 +57,15 @@ def sizes(*l):
 def jsonizable(thing):
     #print("jsonizable...",thing)
     #print("type",type(thing), type(thing) is FUCKING_TENSOR_TYPE, type(thing) == type(torch.tensor(1.)))
+    try:
+        return jsonizable(thing.to_jsonable())
+    except Exception as e:
+        pass#print(e)
     if isinstance(thing, Mapping):
+        dp("jsonizable",[(k,type(t)) for (k,t) in thing.items()])
         return dict([(key, jsonizable(val)) for (key, val) in thing.items()])
+    elif type(thing)==list:
+        return [jsonizable(a) for a in thing]
     elif torch.is_tensor(thing):
         t = thing.tolist()
         #print("not tense",t)
