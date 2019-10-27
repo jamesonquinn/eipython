@@ -477,7 +477,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
         if include_nuisance:
             QbyR = Q/torch.sum(Q,-1).unsqueeze(-1)
             logresidual = torch.log(QbyR / pi)
-            eprcstars = logresidual * eprcstar_hessian_point_fraction
+            eprcstars = logresidual.detach() * eprcstar_hessian_point_fraction
             #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
             eprcstars_list = [eprcstar for eprcstar in eprcstars]
             eprcstars2 = torch.stack(eprcstars_list)
