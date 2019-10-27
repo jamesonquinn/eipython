@@ -55,7 +55,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "0.9.1"
+EI_VERSION = "0.9.2"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -71,7 +71,7 @@ BUNCHFAC = 35
 
 ADJUST_SCALE = .05
 GLOBAL_NU_ELASTICITY_MULTIPLIER = 1. #1. #Used only in the next two lines
-MAX_NEWTON_STEP = .0*GLOBAL_NU_ELASTICITY_MULTIPLIER #currently, just taking this much of a step, hard-coded
+MAX_NEWTON_STEP = .95*GLOBAL_NU_ELASTICITY_MULTIPLIER #currently, just taking this much of a step, hard-coded
 EPRCstar_HESSIAN_POINT_FRACTION = .95*GLOBAL_NU_ELASTICITY_MULTIPLIER
 RECENTER_PRIOR_STRENGTH = 2.
 
