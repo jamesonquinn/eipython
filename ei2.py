@@ -55,7 +55,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "0.9.2"
+EI_VERSION = "0.9.3"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -72,12 +72,14 @@ BUNCHFAC = 35
 ADJUST_SCALE = .05
 GLOBAL_NU_ELASTICITY_MULTIPLIER = 1. #1. #Used only in the next two lines
 MAX_NEWTON_STEP = .95*GLOBAL_NU_ELASTICITY_MULTIPLIER #currently, just taking this much of a step, hard-coded
+MAX_NEWTON_STEP_W = MAX_NEWTON_STEP
+MAX_NEWTON_STEP_NU = MAX_NEWTON_STEP
 EPRCstar_HESSIAN_POINT_FRACTION = .95*GLOBAL_NU_ELASTICITY_MULTIPLIER
 RECENTER_PRIOR_STRENGTH = 2.
 
 
 
-NSTEPS = 1000
+NSTEPS = 5000
 SUBSET_SIZE = 40
 BIG_PRIME = 73 #Wow, that's big!
 
@@ -647,7 +649,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
 
         #dp("precinct:::",gamma_1p_hess.size(),precinct_cov.size(),big_grad.size(),precinct_grad.size(),)
         if include_nuisance:
-            adjusted_mean = conditional_mean + step_mult * torch.mv(precinct_cov, precinct_grad)
+            adjusted_mean = conditional_mean + step_mult * torch.mv(precinct_cov.detach(), precinct_grad.detach())
                                  #one (partial, as defined by step_mult) step of Newton's method
                                  #Note: this applies to both ws and nus (eprcs). I was worried about whether that was circular logic but I talked with Mira and we both think it's actually principled.
         else:
