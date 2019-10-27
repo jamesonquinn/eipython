@@ -55,7 +55,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "0.9"
+EI_VERSION = "0.9.1"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -70,9 +70,9 @@ BUNCHFAC = 35
 #P=30, BUNCHFAC = 9999: 189/51 2346..1708..1175..864..746
 
 ADJUST_SCALE = .05
-GLOBAL_NU_ELASTICITY_MULTIPLIER = 0. #1. #Used only in the next two lines
-MAX_NEWTON_STEP = .7*GLOBAL_NU_ELASTICITY_MULTIPLIER #currently, just taking this much of a step, hard-coded
-EPRCstar_HESSIAN_POINT_FRACTION = .5*GLOBAL_NU_ELASTICITY_MULTIPLIER
+GLOBAL_NU_ELASTICITY_MULTIPLIER = 1. #1. #Used only in the next two lines
+MAX_NEWTON_STEP = .0*GLOBAL_NU_ELASTICITY_MULTIPLIER #currently, just taking this much of a step, hard-coded
+EPRCstar_HESSIAN_POINT_FRACTION = .95*GLOBAL_NU_ELASTICITY_MULTIPLIER
 RECENTER_PRIOR_STRENGTH = 2.
 
 
@@ -961,6 +961,10 @@ def trainGuide(subsample_n = SUBSET_SIZE,
     fitted_model_info.update(
                     aacomment = "(add manually later)",
                     aaversion = EI_VERSION,
+                    aaelasticity= dict(
+                        MAX_NEWTON_STEP = MAX_NEWTON_STEP,
+                        EPRCstar_HESSIAN_POINT_FRACTION = EPRCstar_HESSIAN_POINT_FRACTION
+                    ),
                     mean_loss = mean_losses[-1],
                     final_loss = loss
                     )
