@@ -55,7 +55,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-
+EI_VERSION = "0.9"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -70,14 +70,15 @@ BUNCHFAC = 35
 #P=30, BUNCHFAC = 9999: 189/51 2346..1708..1175..864..746
 
 ADJUST_SCALE = .05
-MAX_NEWTON_STEP = .7 #currently, just taking this much of a step, hard-coded
-EPRCstar_HESSIAN_POINT_FRACTION = .5
+GLOBAL_NU_ELASTICITY_MULTIPLIER = 0. #1. #Used only in the next two lines
+MAX_NEWTON_STEP = .7*GLOBAL_NU_ELASTICITY_MULTIPLIER #currently, just taking this much of a step, hard-coded
+EPRCstar_HESSIAN_POINT_FRACTION = .5*GLOBAL_NU_ELASTICITY_MULTIPLIER
 RECENTER_PRIOR_STRENGTH = 2.
 
 
 
 NSTEPS = 1000
-SUBSET_SIZE = 30
+SUBSET_SIZE = 40
 BIG_PRIME = 73 #Wow, that's big!
 
 FAKE_VOTERS_PER_RACE = 1.
@@ -86,6 +87,8 @@ FAKE_VOTERS_PER_REAL_PARTY = .5 #remainder go into nonvoting party
 BASE_PSI = .01
 
 QUICKIE_SAVE = (NSTEPS < 20) #save subset; faster
+CUTOFF_WINDOW = 350
+EXP_RUNNING_MEAN_WINDOW = 100
 
 MINIMAL_DEBUG = False
 if MINIMAL_DEBUG:
@@ -248,9 +251,9 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False):
             yield p
 
     sdc = 5
-    sdrc = pyrosample('sdrc', dist.Exponential(.2))
+    sdrc = pyrosample('sdrc', dist.LogNormal(0.,5.))
     if include_nuisance:
-        sdprc = pyrosample('sdprc', dist.Exponential(.2))
+        sdprc = pyrosample('sdprc', dist.LogNormal(0.,5.))
 
     if vs is None:
         sdprc = .6
@@ -280,10 +283,10 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False):
         ercraw[1,0] = -.5
         ercraw[1,1] = 1.
         erc = expand_and_center(ercraw)
-        logits = ec+erc
+        logits = (ec+erc).repeat(P,1,1)
         sdc = ec.std()
         sdrc = erc.std()
-        lp("Standard deviations:", sdc,sdrc,sdprc)
+        dp("Standard deviations:", sdc,sdrc,sdprc, sizes(logits))
 
     # with pyro.plate('candidatesm', C):
     #     ec = pyrosample('ec', dist.Normal(0,sdc))
@@ -716,11 +719,13 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     ##################################################################
 
     def fix_ec_grad():
+        dp("fixgrad",1)
         ecstar_raw.grad = ecstar_raw.grad + ec2r.grad
         #dp("mode_star.grad",mode_star.grad)
     ecstar_raw.fix_grad = fix_ec_grad
 
     def fix_erc_grad():
+        dp("fixgrad",2)
         ercstar_raw.grad = ercstar_raw.grad + erc2r.grad
         #dp("mode_star.grad",mode_star.grad)
     ercstar_raw.fix_grad = fix_erc_grad
@@ -921,7 +926,12 @@ def trainGuide(subsample_n = SUBSET_SIZE,
         if len(losses)==0:
             mean_losses.append(loss)
         else:
-            mean_losses.append((mean_losses[-1] * 49. + loss) / 50.)
+            mean_losses.append((
+                                    mean_losses[-1] * (EXP_RUNNING_MEAN_WINDOW - 1)
+                                    + min(
+                                        loss,
+                                        mean_losses[-1]*math.sqrt(EXP_RUNNING_MEAN_WINDOW)))
+                                / EXP_RUNNING_MEAN_WINDOW)
         losses.append(loss)
         if i % 10 == 0:
             reload(go_or_nogo)
@@ -931,8 +941,8 @@ def trainGuide(subsample_n = SUBSET_SIZE,
             else:
                 break
             try:
-                if mean_losses[-1] < mean_losses[-50]:
-                    lp("Cutoff reached",mean_losses[-1], mean_losses[-50])
+                if mean_losses[-1] > mean_losses[-CUTOFF_WINDOW]:
+                    dp("Cutoff reached",mean_losses[-1], mean_losses[-CUTOFF_WINDOW])
                     break
             except Exception as e:
                 pass
@@ -949,6 +959,8 @@ def trainGuide(subsample_n = SUBSET_SIZE,
         dataToSave = data
     fitted_model_info = guide(dataToSave, 1., True)
     fitted_model_info.update(
+                    aacomment = "(add manually later)",
+                    aaversion = EI_VERSION,
                     mean_loss = mean_losses[-1],
                     final_loss = loss
                     )
