@@ -66,4 +66,6 @@ def _boost(U,M, psi):
    D = make_diag(Dvecs)
    LDLT = torch.matmul(L,torch.matmul(D,transpose(L)))
 
+   if torch.any(torch.isnan(L)):
+        import pdb; pdb.set_trace()
    return L,Dvecs, LDLT

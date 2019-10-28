@@ -37,7 +37,7 @@ def approx_eq(a,b):
     #print("So:",torch.all(torch.lt(torch.abs(torch.add(a, -b)), MIN_DIFF)))
     #print("So2:",torch.all(torch.lt(torch.abs(torch.add(a, -b)), MIN_DIFF))==
     #        torch.all(torch.lt(zs(1),1)))
-    return(torch.all(torch.lt(torch.abs(torch.add(a.float(), -b.float())), MIN_DIFF)))
+    return(torch.all(torch.lt(torch.abs(torch.add(a.type(TTYPE), -b.type(TTYPE))), MIN_DIFF)))
 
 def get_indep(R, C, ns, vs): #note, not-voting is a candidate
     assert len(ns)==R
@@ -141,7 +141,7 @@ def depolytopizeU(R, C, rawpoly, start):
     poly = rawpoly.view(-1,R*C)
     assert poly.size() == start.size(), f"depoly fail {R},{C},{poly.size()},{start.size()}"
     rawdiff = poly - start
-    diff = rawdiff + (rawdiff == 0).float() * DEPOLY_EPSILON
+    diff = rawdiff + (rawdiff == 0).type(TTYPE) * DEPOLY_EPSILON
     #ratio = torch.div(diff, -start)
     ratio = torch.div(poly, -start)
     closest = torch.argmax(ratio, 1)

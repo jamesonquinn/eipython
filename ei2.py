@@ -43,8 +43,8 @@ from utilities.polytopize import get_indep, polytopizeU, depolytopizeU, to_subsp
 from utilities.arrowhead_precision import *
 
 use_cuda = torch.cuda.is_available()
-if False:#use_cuda:
-    torch.set_default_tensor_type("torch.cuda.FloatTensor")
+
+
 
 ts = torch.tensor
 
@@ -55,7 +55,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "0.10..0"
+EI_VERSION = "0.10..1"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -72,14 +72,14 @@ BUNCHFAC = 35
 ADJUST_SCALE = .05
 GLOBAL_NU_ELASTICITY_MULTIPLIER = 1. #1. #Used only in the next two lines
 MAX_NEWTON_STEP = .95*GLOBAL_NU_ELASTICITY_MULTIPLIER #currently, just taking this much of a step, hard-coded
-NU_DETACHED_FRACTION = .25
+NU_DETACHED_FRACTION = 1#.25
 EPRCstar_HESSIAN_POINT_FRACTION = .95*GLOBAL_NU_ELASTICITY_MULTIPLIER
 RECENTER_PRIOR_STRENGTH = 2.
 
 
 
 NSTEPS = 5000
-SUBSET_SIZE = 42
+SUBSET_SIZE = 8
 BIG_PRIME = 73 #Wow, that's big!
 
 FAKE_VOTERS_PER_RACE = 1.
@@ -99,8 +99,8 @@ else:
 
 class EIData:
     def __init__(self,ns,vs,ids = None):
-        self.ns = ns.float()
-        self.vs = vs if vs is None else vs.float()
+        self.ns = ns.type(TTYPE)
+        self.vs = vs if vs is None else vs.type(TTYPE)
         if ids is None:
             self.ids=list(range(self.U))
         else:
@@ -230,6 +230,10 @@ class EISubData:
     @reify
     def getStuff(self):
         return (self.U, self.R, self.C, self.ns, self.vs)
+
+    @reify
+    def ids(self):
+        return [self.full.ids[i] for i in self.indices]
 
 def legible_values(R,C):
     ecraw = torch.zeros(C-1)
@@ -461,7 +465,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
 
         dp("amosize",sizes(pi,data.nvs, data.nns))
 
-        Q, iters = optimize_Q_objectly(pi,data,tolerance=.01,maxiters=3)
+        Q, iters = optimize_Q_objectly(pi,data,tolerance=.01,maxiters=2)
 
         #get ŷ^(0
         #dp(f"optimize_Q_objectly {p}:{iters}")
@@ -480,7 +484,10 @@ def guide(data, scale, include_nuisance=True, do_print=False):
             QbyR = Q/torch.sum(Q,-1).unsqueeze(-1)
             logresidual = torch.log(QbyR / pi)
             eprcstars_raw = logresidual * eprcstar_hessian_point_fraction
-            eprcstars = eprcstars_raw.detach() * NU_DETACHED_FRACTION + eprcstars_raw * (1 - NU_DETACHED_FRACTION)
+            if NU_DETACHED_FRACTION != 1:
+                eprcstars = eprcstars_raw.detach() * NU_DETACHED_FRACTION + eprcstars_raw * (1 - NU_DETACHED_FRACTION)
+            else:
+                eprcstars = eprcstars_raw.detach().requires_grad_(True)
             #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
             eprcstars_list = [eprcstar for eprcstar in eprcstars]
             eprcstars2 = torch.stack(eprcstars_list)
@@ -723,8 +730,40 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     # ensure gradients get to the right place
     ##################################################################
 
+    intermediate_vars = [
+                pi,
+                    Q,
+                    ystars,
+                    wstars,
+                    wstars2,
+
+                    ystars2 ,
+
+
+                        logresidual,
+                        eprcstars_raw ,
+                            eprcstars ,
+                        eprcstars2 ,g_delta,
+                        ws,
+                        ys,
+                        logit_samp_tensor]
+    [eachvar.retain_grad() for eachvar in
+        intermediate_vars
+    ]
+
+
+
+
     def fix_ec_grad():
         dp("fixgrad",1)
+        if torch.any(torch.isnan(ecstar_raw.grad)) or torch.any(torch.isnan(ec2r.grad)):
+            dp("ecstar_raw.grad",sizes(ecstar_raw.grad,ec2r.grad))
+            #dp("2sp",[type(iv) for iv in intermediate_vars])
+            dp("2s",sizes(*[(iv.grad if iv.grad is not None else torch.tensor([])) for iv in intermediate_vars]))
+            dp("scoper",sizes(tots,vs,ns,indeps,ecstar_raw ,
+                ercstar_raw))
+            dat =[data,big_arrow,big_grad]
+            import pdb; pdb.set_trace()
         ecstar_raw.grad = ecstar_raw.grad + ec2r.grad
         #dp("mode_star.grad",mode_star.grad)
     ecstar_raw.fix_grad = fix_ec_grad
@@ -732,6 +771,12 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     def fix_erc_grad():
         dp("fixgrad",2)
         ercstar_raw.grad = ercstar_raw.grad + erc2r.grad
+        if torch.any(torch.isnan(ercstar_raw.grad)) or torch.any(torch.isnan(erc2r.grad)):
+            dp("ercstar_raw.grad",sizes(ercstar_raw.grad,erc2r.grad))
+            #dp("2s2p",[type(iv) for iv in intermediate_vars])
+            dp("2s2",sizes(*[(iv.grad if iv.grad is not None else torch.tensor([])) for iv in intermediate_vars]))
+
+            #import pdb; pdb.set_trace()
         #dp("mode_star.grad",mode_star.grad)
     ercstar_raw.fix_grad = fix_erc_grad
 
@@ -766,6 +811,43 @@ def guide(data, scale, include_nuisance=True, do_print=False):
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 data = pandas.read_csv('input_data/NC_precincts_2016_with_sample.csv')
   #,county,precinct,white_reg,black_reg,other_reg,test
 wreg = torch.tensor(data.white_reg)
@@ -777,8 +859,8 @@ def makePrecinctID(*args):
 
 precinct_unique = [makePrecinctID(county,precinct) for (county,precinct) in zip(data.county,data.precinct)]
 
-fixed_reg = [r.float() + FAKE_VOTERS_PER_RACE for r in [wreg, breg, oreg]]
-ns = torch.stack(fixed_reg,1).float()
+fixed_reg = [r.type(TTYPE) + FAKE_VOTERS_PER_RACE for r in [wreg, breg, oreg]]
+ns = torch.stack(fixed_reg,1).type(TTYPE)
 DUMMY_DATA = EIData(ns,None,precinct_unique)
 
 

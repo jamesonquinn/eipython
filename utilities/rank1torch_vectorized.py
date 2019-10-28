@@ -1,4 +1,5 @@
 
+from utilities.debugGizmos import *
 # THIS FILE CONTAINS A BATCH ALGORITHM FOR FINDING THE APPROXIMATE MLE (Q)
 # OF A MATRIX OF MULTINOMIAL PROBABILITIES (PI), SUBJECT TO CONSTRAINTS ON
 # THE ROWS AND COLUMNS OF Q.
@@ -96,6 +97,7 @@ def optimize_Q(U,R,C,pi,v,d,
         #adjust alpha based on current beta
         pi_beta =  torch.matmul(pi,make_diag(beta))
         M_beta = torch.cat((transpose(pi_beta),make_diag(rowsum(pi_beta))),-2)
+        dp("types?",[a.dtype for a in [M_beta,v_d]])
         alpha, junk = torch.solve(torch.matmul(transpose(M_beta),v_d), torch.matmul(transpose(M_beta),M_beta))
         alpha = torch.squeeze(alpha,-1)
 

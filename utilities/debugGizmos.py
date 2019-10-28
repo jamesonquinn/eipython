@@ -6,6 +6,13 @@ import torch
 import json
 import numpy as np
 
+if False:#use_cuda:
+    torch.set_default_tensor_type("torch.cuda.FloatTensor")
+    TTYPE = torch.float32
+else:
+    torch.set_default_tensor_type("torch.DoubleTensor")
+    TTYPE = torch.float64
+    
 def lineno():
     """Returns the current line number in our program."""
     return inspect.currentframe().f_back.f_lineno
