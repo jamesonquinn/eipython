@@ -1,7 +1,7 @@
 from __future__ import print_function
 import torch
 import math
-from .debugGizmos import *
+#from .debugGizmos import *
 
 
 S = torch.tensor([[2.,5.,0.],[5.,4.,1.],[0.,1.,3.]], requires_grad=True)
@@ -35,7 +35,7 @@ def zeros_and_one(U,k):
 #    psi is an n tensor
 def _boost(U,M, psi):
    n=M.size()[1]
-   psi1 = (psi+torch.ones(n))
+   psi1 = psi+torch.ones(n)
 
    M_abs = torch.abs(M)
    d_abs = get_diag(M_abs)
@@ -49,13 +49,13 @@ def _boost(U,M, psi):
    A=M
    for k in range(n):
       if k==n-1:
-         d=torch.abs(A[:,0,0])*psi1[k]
+         d=torch.max(torch.stack((torch.ones(U)*psi[k], torch.abs(A[:,0,0])*psi1[k]),1),1)[0]
          D.append(d)
          LT.append(zeros_and_one(U,k))
       else:
          c = A[:,0,1:n-k]
          cmax = torch.max(torch.abs(c),1)[0]
-         d = torch.max(torch.stack((torch.abs(A[:,0,0])*psi1[k], cmax**2/beta2),1),1)[0]
+         d = torch.max(torch.stack((torch.ones(U)*psi[k], torch.abs(A[:,0,0])*psi1[k], cmax**2/beta2),1),1)[0]
          D.append(d)
          LT.append(torch.cat((zeros_and_one(U,k), c/d.unsqueeze(1)),1))
          A = A[:,1:n-k,1:n-k]-torch.matmul(c.unsqueeze(2),c.unsqueeze(1))/d.unsqueeze(1).unsqueeze(2)
