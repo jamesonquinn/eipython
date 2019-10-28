@@ -55,7 +55,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "0.9.4"
+EI_VERSION = "0.9.5"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -72,15 +72,14 @@ BUNCHFAC = 35
 ADJUST_SCALE = .05
 GLOBAL_NU_ELASTICITY_MULTIPLIER = 1. #1. #Used only in the next two lines
 MAX_NEWTON_STEP = .95*GLOBAL_NU_ELASTICITY_MULTIPLIER #currently, just taking this much of a step, hard-coded
-MAX_NEWTON_STEP_W = MAX_NEWTON_STEP
-MAX_NEWTON_STEP_NU = MAX_NEWTON_STEP
+NU_DETACHED_FRACTION = .5
 EPRCstar_HESSIAN_POINT_FRACTION = .95*GLOBAL_NU_ELASTICITY_MULTIPLIER
 RECENTER_PRIOR_STRENGTH = 2.
 
 
 
 NSTEPS = 5000
-SUBSET_SIZE = 40
+SUBSET_SIZE = 42
 BIG_PRIME = 73 #Wow, that's big!
 
 FAKE_VOTERS_PER_RACE = 1.
@@ -477,7 +476,8 @@ def guide(data, scale, include_nuisance=True, do_print=False):
         if include_nuisance:
             QbyR = Q/torch.sum(Q,-1).unsqueeze(-1)
             logresidual = torch.log(QbyR / pi)
-            eprcstars = logresidual.detach() * eprcstar_hessian_point_fraction
+            eprcstars_raw = logresidual * eprcstar_hessian_point_fraction
+            eprcstars = eprcstars_raw.detach() * NU_DETACHED_FRACTION + eprcstars_raw * (1 - NU_DETACHED_FRACTION)
             #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
             eprcstars_list = [eprcstar for eprcstar in eprcstars]
             eprcstars2 = torch.stack(eprcstars_list)
@@ -965,7 +965,8 @@ def trainGuide(subsample_n = SUBSET_SIZE,
                     aaversion = EI_VERSION,
                     aaelasticity= dict(
                         MAX_NEWTON_STEP = MAX_NEWTON_STEP,
-                        EPRCstar_HESSIAN_POINT_FRACTION = EPRCstar_HESSIAN_POINT_FRACTION
+                        EPRCstar_HESSIAN_POINT_FRACTION = EPRCstar_HESSIAN_POINT_FRACTION,
+                        NU_DETACHED_FRACTION = NU_DETACHED_FRACTION
                     ),
                     mean_loss = mean_losses[-1],
                     final_loss = loss
