@@ -3,6 +3,9 @@ import pyro
 go = True
 # go = False
 
+BREAK_NOW = False
+# BREAK_NOW = True
+
 
 NUM_BETWEEN_PRINT = 100
 

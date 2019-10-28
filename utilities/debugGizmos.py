@@ -4,6 +4,7 @@ import inspect
 import pdb
 import torch
 import json
+import numpy as np
 
 def lineno():
     """Returns the current line number in our program."""
@@ -53,6 +54,11 @@ def sizes(*l):
                         result = result + "."
     return result
 
+def dets(M):
+    result = ""
+    for i in range(1,M.size()[0]):
+        result = result + f"\n    {i}: {np.linalg.det(M[:i,:i].detach())}"
+    return result
 
 def jsonizable(thing):
     #print("jsonizable...",thing)
