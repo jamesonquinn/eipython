@@ -92,6 +92,7 @@ SIM_SIGMA_NU = .05
 
 PSEUDOVOTERS_PER_CELL = 1.
 
+DEBUG_ARROWHEAD = True
 
 class EIData:
     def __init__(self,ns,vs,ids = None):
@@ -353,13 +354,15 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, *args, **k
 
 
 
-def expand_and_center(tens):
+def expand_and_center(tens, return_ldaj=False):
     result = tens
     for i,n in enumerate(tens.size()):
         result = torch.cat([result,
                     -torch.sum(result,i).unsqueeze(i)]
                 ,i)
 
+    if return_ldaj:
+        return (result,0.) #Not actually zero, but constant, so whatevs.
     return result
 
 
@@ -469,6 +472,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
     pi = pi_raw / torch.sum(pi_raw,-1).unsqueeze(-1)
 
 
+    log_jacobian_adjustment = torch.tensor([0.])
 
     #dp("guide:pre-p")
     if True: #don't deindent yet
@@ -492,7 +496,8 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
         wstars_list = [wstar for wstar in wstars] #separate tensor so sparse hessian works... I know, this seems crazy.
         wstars2 = torch.stack(wstars_list)
 
-        ystars2 = polytopizeU(R,C,wstars2,indeps)
+        ystars2,ldaj = polytopizeU(R,C,wstars2,indeps,return_ldaj=True)
+        log_jacobian_adjustment -= ldaj
 
 
         #get ν̂^(0)
@@ -536,7 +541,6 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
     #Start with gamma
 
     transformed_star_data = OrderedDict()
-    log_jacobian_adjustment = 0
     for k,v in chain(gamma_star_data.items(),pstar_data.items(),fstar_data.items()):
         if k in transformation:
             transformed_star_data[k],ldaj = transformation[k](v,return_ldaj=True)
@@ -806,7 +810,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
     # Return values, debugging, cleanup.
     ##################################################################
 
-    if True: #debug arrowheads
+    if DEBUG_ARROWHEAD: #debug arrowheads
         mini_indices = torch.tensor(range(2))
         mini_data = EISubData(data,mini_indices)
         mini_transformed_star_data = OrderedDict()
