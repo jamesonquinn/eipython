@@ -114,7 +114,7 @@ def polytopize(R, C, raw, start, do_aug=True):
     return edgepoint - backoff * edgedir
 
 
-def polytopizeU(R, C, raw, start):
+def polytopizeU(R, C, raw, start, return_ldaj=False):
     aug1 = torch.cat((raw,-raw.sum(1).unsqueeze(1)),1)
     aug2 = torch.cat((aug1,-aug1.sum(2).unsqueeze(2)),2).view(-1,R*C)
 
@@ -128,13 +128,17 @@ def polytopizeU(R, C, raw, start):
     edgedir = -r * aug2 / aug2.gather(1,closest.unsqueeze(1))
     edgepoint = start + edgedir
 
-    backoff = torch.exp(-ratio.gather(1,closest.unsqueeze(1)))
+    closest_ratio = ratio.gather(1,closest.unsqueeze(1))
+    backoff = torch.exp(-closest_ratio)
     #print("ptope",start,closest//C,closest%C,
 
     #        ratio[closest//C,closest%C],aug2[closest//C,closest%C])
     #print(aug2,closest//C,closest%C,r,shrinkfac)
     #print("shrink:",shrinkfac)
-    return (edgepoint - backoff * edgedir).view(-1,R,C)
+    result = (edgepoint - backoff * edgedir).view(-1,R,C)
+    if return_ldaj: # log det abs jacobian
+        return (result, torch.sum(closest_ratio)) #I hope that's right. TODO: Double-check (with Mira?)
+    return result
 
 DEPOLY_EPSILON = 1e-9
 def depolytopizeU(R, C, rawpoly, start):

@@ -9,7 +9,7 @@ def boost_to_chol(Ms,psi,include_sym=False): #Ms is a tensor of matrices
     U = Ms.size()[0]
     L,Dvecs, LDLT = _boost(U,Ms,psi)
     Lchol = torch.matmul(L, make_diag(torch.sqrt(Dvecs)))
-    dp("b_t_c", U,sizes(Ms,psi,L,Dvecs,LDLT,Lchol))
+    #dp("b_t_c", U,sizes(Ms,psi,L,Dvecs,LDLT,Lchol))
     if include_sym:
         return (Lchol,LDLT)
     return Lchol
@@ -86,7 +86,7 @@ class ArrowheadPrecision:
     def calc_lls(self):
         if self.lls is not None:
             return
-        dp("calc_lls",sizes(self.gg,self.gls[0],self.raw_lls[0],self.psig,self.psil))
+        #dp("calc_lls",sizes(self.gg,self.gls[0],self.raw_lls[0],self.psig,self.psil))
         self.U = len(self.weights)
         self.vecweights = torch.stack([torch.tensor(w) for w in self.weights]).view(self.U,1,1)
         self.vecraw_lls = torch.stack(self.raw_lls)
@@ -108,7 +108,7 @@ class ArrowheadPrecision:
         self.vecgls = torch.stack(self.gls)
         inner = torch.matmul(self.vecgls,self.llinvs)
         transp = transpose(self.vecgls)
-        dp("inner si",sizes(self.gg,inner,self.vecgls,self.llinvs,transp))
+        #dp("inner si",sizes(self.gg,inner,self.vecgls,self.llinvs,transp))
         mgg = self.gg - torch.sum(torch.matmul(inner,transp)
                                             ,0)
         #print("marginal")
@@ -118,8 +118,8 @@ class ArrowheadPrecision:
         self._mgg_chol, self._mgg = boost_to_chol(mgg.unsqueeze(0),self.psig, include_sym=True)
         #self.gg_cov = torch.cholesky_inverse(self._mgg_chol)
         self.gg_cov = torch.inverse(self._mgg[0])
-        dp("mgg sizes",sizes(self.gg,self._mgg,self.gg_cov))
-        dp("mggcov",self._mgg[0],dets(self._mgg[0]),dets(self.gg_cov))
+        #dp("mgg sizes",sizes(self.gg,self._mgg,self.gg_cov))
+        #dp("mggcov",self._mgg[0],dets(self._mgg[0]),dets(self.gg_cov))
         return self.gg_cov
 
     def conditional_ll_mcov(self,i,g_delta,l_mean):

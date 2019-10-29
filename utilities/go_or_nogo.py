@@ -9,14 +9,16 @@ BREAK_NOW = False
 
 NUM_BETWEEN_PRINT = 100
 
-def printstuff(i,loss):
-    print(f'epoch {i} loss = {loss};'+
-        f' logsdrcstar = {pyro.get_param_store()["logsdrcstar"]};')
-    print(f' ercstar = {pyro.get_param_store()["ercstar_raw"]}')
-    try:
-        print(f' corrstar = {pyro.get_param_store()["corrstar"]}')
-    except:
-        pass
+def printstuff(i,loss,mean_losses,*args):
+    print(f' ecstar = {pyro.get_param_store()["ecstar_raw"]}')
+    if False:
+        print(f'epoch {i} loss = {loss};'+
+            f' logsdrcstar = {pyro.get_param_store()["logsdrcstar"]};')
+        print(f' ercstar = {pyro.get_param_store()["ercstar_raw"]}')
+        try:
+            print(f' corrstar = {pyro.get_param_store()["corrstar"]}')
+        except:
+            pass
     #print(f' pnsml = {pyro.get_param_store()["precinct_newton_step_multiplier_logit"]}')
 
 def demoprintstuff(i,loss,mean_loss=None,*args):

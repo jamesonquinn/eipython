@@ -12,7 +12,7 @@ if False:#use_cuda:
 else:
     torch.set_default_tensor_type("torch.DoubleTensor")
     TTYPE = torch.float64
-    
+
 def lineno():
     """Returns the current line number in our program."""
     return inspect.currentframe().f_back.f_lineno
@@ -36,6 +36,9 @@ def dp(key, *args, do=1, n = 10, brk=False):
 
     if brk:
         pdb.set_trace()
+
+def ddp(*args,**kwargs):
+    dp(*args,**kwargs)
 
 def getDebugCount(key):
     return PRINT_COUNTS[key]

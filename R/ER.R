@@ -23,4 +23,6 @@ eiwide[,n0f:=n_0/n]
 eiwide[,n1f:=n_1/n]
 eiwide[,n2f:=n_2/n]
 lm(v0f ~ n0f + n1f + n2f,eiwide)
-lm(v0f ~ n0f + n1f + n2f,eiwide)
+lm(v0f ~ n0f,eiwide)
+lm(v0f ~ n1f,eiwide)
+lm(v0f ~ n2f,eiwide)

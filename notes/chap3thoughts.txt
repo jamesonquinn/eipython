@@ -1,0 +1,85 @@
+
+Standard deviations: line 41 1 : tensor(0.4330) tensor(0.9354)
+tensor([ 0.5000, -0.2500, -0.2500])
+ tensor([[-1.0000,  0.0000,  1.0000],
+        [-0.5000,  1.0000, -0.5000],
+        [ 1.5000, -1.0000, -0.5000]])
+ tensor([[-0.5000, -0.2500,  0.7500],
+        [ 0.0000,  0.7500, -0.7500],
+        [ 2.0000, -1.2500, -0.7500]])
+Standard deviations: line 41 2 : tensor(0.4330) tensor(0.9354)
+R line 41 1 : <class 'str'> 3
+C line 41 1 : <class 'str'> 3
+U line 41 1 : <class 'str'> 527
+eiresults/scenario_N527.csv from file
+svi.step(... line 41 1 : 0 26.35 torch.Size([20, 9])
+guide:begin line 41 1 : 26.35 True
+types? line 100 1 : [torch.float64, torch.float64]
+types? line 100 2 : [torch.float64, torch.float64]
+model:end line 41 1 :
+lp:  line 41 1 : tensor(-1653064.6835, grad_fn=<AddBackward0>) 542
+> c:\users\jameson\dropbox\eipython\eipython\ei2.py(800)guide()
+-> if do_print:
+(Pdb) logits[1]
+tensor([[-0.4542, -0.2751,  0.7452],
+        [ 0.0479,  0.6968, -0.6438],
+        [ 2.0207, -2.5808, -0.8146]], grad_fn=<SelectBackward>)
+(Pdb) inits
+{'logsdrcstar': tensor(-0.0668, requires_grad=True), 'logsdprcstar': tensor(-2.9957, requires_grad=True), 'ecstar_raw': tensor([ 0.5000, -0.2500], requires_grad=True), 'ercstar_raw': tensor([[-1.0000,  0.0000],
+        [-0.5000,  1.0000]])}
+(Pdb) logsdprcstar
+tensor(-2.9957, requires_grad=True)
+(Pdb) logits[2]
+tensor([[-0.5125, -0.2803,  0.7641],
+        [ 0.0051,  0.7341, -0.6942],
+        [ 1.9868, -1.1282, -0.6440]], grad_fn=<SelectBackward>)
+(Pdb) ns[1]
+tensor([1138.,   49.,   59.])
+(Pdb) vs[1]
+tensor([288., 266., 692.])
+(Pdb) Q[1]
+tensor([[1.7417e-01, 1.9265e-01, 5.4651e-01],
+        [1.2118e-02, 2.0735e-02, 6.4720e-03],
+        [4.4854e-02, 1.0109e-04, 2.3960e-03]], grad_fn=<SelectBackward>)
+(Pdb) ystars[1]
+tensor([[2.1701e+02, 2.4004e+02, 6.8095e+02],
+        [1.5100e+01, 2.5836e+01, 8.0641e+00],
+        [5.5889e+01, 1.2596e-01, 2.9854e+00]], grad_fn=<SelectBackward>)
+(Pdb) logresidual[1]
+tensor([[ 0.0964, -0.0528, -0.0101],
+        [ 0.1008, -0.1121,  0.2236],
+        [ 0.0436, -2.8016, -0.1360]], grad_fn=<SelectBackward>)
+
+
+That outlier at (2,1): I guess it's normal for optimize_Q to be unlike logits near the boundary. But it's maybe a problem. Newton is pulling this in considerably but still an outlier.
+
+Possible quick fix: set EPRCstar_HESSIAN_POINT_FRACTION to something ~0, MAX_NEWTON_STEP to something ~1. Deeper fix: some kind of transformation on residuals? Hmmm... I can think of a good one, using ys and sdprc... a quickie rough precision-weighted average using Poisson approximation...
+
+
+Hmm. Talked to Mira, and we realized that this is a real problem with optimize_Q, not just with the residuals. So here's my plan:
+
+1. Fix the residuals, using some approximations (poisson for beta-ish likelihood, normal for lognormal prior)
+2. Figure out the direct impact of that fix on the estimate of Y
+3. Reduce dimension
+
+....
+
+hmmm... Let me try just adding pseudovoters...
+
+logresidual with .5 pseudovoters:
+tensor([[ 0.0973, -0.0520, -0.0107],
+        [ 0.1032, -0.1231,  0.2536],
+        [ 0.0274, -1.2234, -0.0063]], grad_fn=<SelectBackward>)
+
+with .75:
+tensor([[ 0.0978, -0.0517, -0.0110],
+        [ 0.1044, -0.1283,  0.2676],
+        [ 0.0195, -0.8996,  0.0507]], grad_fn=<SelectBackward>)
+
+1:
+tensor([[ 0.0983, -0.0513, -0.0113],
+        [ 0.1055, -0.1335,  0.2811],
+        [ 0.0117, -0.6607,  0.1033]], grad_fn=<SelectBackward>)
+
+
+Let's go with 1. Time for a run.

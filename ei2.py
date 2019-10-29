@@ -55,7 +55,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "0.10..1"
+EI_VERSION = "0.10..3"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -69,17 +69,13 @@ BUNCHFAC = 35
 #P=30, BUNCHFAC = 9999: 42/11
 #P=30, BUNCHFAC = 9999: 189/51 2346..1708..1175..864..746
 
-ADJUST_SCALE = .05
-GLOBAL_NU_ELASTICITY_MULTIPLIER = 1. #1. #Used only in the next two lines
-MAX_NEWTON_STEP = .95*GLOBAL_NU_ELASTICITY_MULTIPLIER #currently, just taking this much of a step, hard-coded
-NU_DETACHED_FRACTION = 1#.25
-EPRCstar_HESSIAN_POINT_FRACTION = .95*GLOBAL_NU_ELASTICITY_MULTIPLIER
-RECENTER_PRIOR_STRENGTH = 2.
+MAX_NEWTON_STEP = .95 #currently, just taking this much of a step, hard-coded
+NEW_DETACHED_FRACTION = .9 #as in Newton, get it?
 
 
 
 NSTEPS = 5000
-SUBSET_SIZE = 8
+SUBSET_SIZE = 20
 BIG_PRIME = 73 #Wow, that's big!
 
 FAKE_VOTERS_PER_RACE = 1.
@@ -88,14 +84,14 @@ FAKE_VOTERS_PER_REAL_PARTY = .5 #remainder go into nonvoting party
 BASE_PSI = .01
 
 QUICKIE_SAVE = (NSTEPS < 20) #save subset; faster
-CUTOFF_WINDOW = 350
-EXP_RUNNING_MEAN_WINDOW = 100
+CUTOFF_WINDOW = 500
+EXP_RUNNING_MEAN_WINDOW = 150
 
-MINIMAL_DEBUG = False
-if MINIMAL_DEBUG:
-    pyrosample = lambda x,y,infer=None : y.sample()
-else:
-    pyrosample = pyro.sample
+
+SIM_SIGMA_NU = .05
+
+PSEUDOVOTERS_PER_CELL = 1.
+
 
 class EIData:
     def __init__(self,ns,vs,ids = None):
@@ -115,7 +111,9 @@ class EIData:
     @reify
     def indeps(self):
         assert approx_eq(self.tots,torch.sum(self.vs,1)), f'#print("sums",{self.tots},{torch.sum(self.vs,1)})'
-        indeps = torch.matmul(torch.unsqueeze(self.ns,-1),torch.unsqueeze(self.vs,-2)) / self.tots.unsqueeze(-1).unsqueeze(-1)
+        indeps = (torch.matmul(torch.unsqueeze(self.ns + self.C*PSEUDOVOTERS_PER_CELL,-1),
+                                torch.unsqueeze(self.vs + self.R*PSEUDOVOTERS_PER_CELL,-2)) /
+                    (self.tots + self.R*self.C*PSEUDOVOTERS_PER_CELL).unsqueeze(-1).unsqueeze(-1))
         #dp("indeps",indeps.size())
         return indeps.view(-1,self.R*self.C)
 
@@ -247,10 +245,10 @@ def legible_values(R,C):
     erc = expand_and_center(ercraw)
     sdc = ec.std()
     sdrc = erc.std()
-    dp("Standard deviations:", sdc,sdrc)
+    ddp("Standard deviations:", sdc,sdrc)
     return (ec, erc)
 
-def model(data=None, scale=1., include_nuisance=True, do_print=False):
+def model(data=None, scale=1., include_nuisance=True, do_print=False, *args, **kwargs):
     """
 
     Notes:
@@ -269,27 +267,27 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False):
             yield p
 
     sdc = 5
-    sdrc = pyrosample('sdrc', dist.LogNormal(0.,5.))
+    sdrc = pyro.sample('sdrc', dist.LogNormal(0.,5.))
     if include_nuisance:
-        sdprc = pyrosample('sdprc', dist.LogNormal(0.,5.))
+        sdprc = pyro.sample('sdprc', dist.LogNormal(0.,5.))
 
     if vs is None:
-        sdprc = .05
+        sdprc = SIM_SIGMA_NU
     #dp(f"sdprc in model:{sdprc}")
 
     #This is NOT used for data, but instead as a way to sneak a "prior" into the guide to improve identification.
-    #param_residual=pyrosample('param_residual', dist.Normal(0.,1.))
+    #param_residual=pyro.sample('param_residual', dist.Normal(0.,1.))
 
 
-    ec = pyrosample('ec', dist.Normal(torch.zeros(C),sdc).to_event(1))
-    erc = pyrosample('erc', dist.Normal(torch.zeros(R,C),sdrc).to_event(2))
+    ec = pyro.sample('ec', dist.Normal(torch.zeros(C),sdc).to_event(1))
+    erc = pyro.sample('erc', dist.Normal(torch.zeros(R,C),sdrc).to_event(2))
     if vs is None:
         ec,erc = legible_values(R,C)
 
     if include_nuisance:
         with all_sampled_ps() as p_tensor:
             logits = (
-                pyrosample(f'logits', dist.Normal((ec + erc).expand(P,R,C), sdprc).to_event(2))
+                pyro.sample(f'logits', dist.Normal((ec + erc).expand(P,R,C), sdprc).to_event(2))
                 ) #eprc.size() == [P,R,C] because plate dimension happens on left
         #dp("Model: sampling eprc",eprc[0,0,0])
     else:
@@ -297,12 +295,12 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False):
 
 
     # with pyro.plate('candidatesm', C):
-    #     ec = pyrosample('ec', dist.Normal(0,sdc))
+    #     ec = pyro.sample('ec', dist.Normal(0,sdc))
     #     with pyro.plate('rgroupsm', R):
-    #         erc = pyrosample('erc', dist.Normal(0,sdrc))
+    #         erc = pyro.sample('erc', dist.Normal(0,sdrc))
     #         if include_nuisance:
     #             with pyro.plate('precinctsm', P):
-    #                 eprc = pyrosample('eprc', dist.Normal(0,sdprc))
+    #                 eprc = pyro.sample('eprc', dist.Normal(0,sdprc))
 
     with all_sampled_ps() as p_tensor:#pyro.plate('precinctsm2', P):
         if vs is None:
@@ -315,35 +313,43 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False):
                         #dp(f"y_{p}_{r}: {tmp} {y[p,r]}")
                         y[p,r] = tmp
                     except:
-                        dp("modsize2",p,r,[a for a in [ns[p,r], logits[p,r]]])
+                        ddp("modsize2",p,r,[a for a in [ns[p,r], logits[p,r]]])
                         raise
         else:
             if not torch.all(torch.isfinite(logits)):
-                dp("logits!!!")
+                #dp("logits!!!")
                 for p in range(P):
                     if not torch.all(torch.isfinite(logits[p])):
-                        dp("nan in logits[p]",p)
-                        dp(logits[p])
-                        dp(ec)
-                        dp(erc)
+                        ddp("nan in logits[p]",p)
+                        ddp(logits[p])
+                        ddp(ec)
+                        ddp(erc)
             y = pyro.sample(f"y",
                         CMult(1000,logits=logits).to_event(1))
                         #dim P, R, C from plate, to_event, CMult
                         #note that n is totally fake — sums are what matter.
                         #TODO: fix CMult so this fakery isn't necessary.
-            dp("model y",scale,y.size(),y[0,:2,:2])
+            try:
+                yy = y - PSEUDOVOTERS_PER_CELL
+                assert approx_eq(torch.sum(yy,1),vs)
+                assert approx_eq(torch.sum(yy,2),ns)
+            except Exception as e:
+                print("Unequal...")
+                print(torch.sum(yy,1)[1],vs[1])
+                import pdb; pdb.set_trace()
+            #dp("model y",scale,y.size(),y[0,:2,:2])
             #dp("ldim",logits.size(),y[0,0,0])
 
     if vs is None:
         #
-        dp(f"ec:{ec}")
-        dp(f"erc:{erc}")
-        dp(f"y[0]:{y[0]}")
+        ddp(f"ec:{ec}")
+        ddp(f"erc:{erc}")
+        ddp(f"y[0]:{y[0]}")
         vs = torch.sum(y,1)
 
         return EIData(ns,vs,data.ids)
 
-    dp("model:end")
+    ddp("model:end")
 
 
 
@@ -357,6 +363,8 @@ def expand_and_center(tens):
     return result
 
 
+def get_param(inits,name,default,*args,**kwargs):
+    return pyro.param(name,inits.get(name,default),*args,**kwargs)
 
 
 # This function is to guess a good starting point for eprcstar. But removing for now because:
@@ -369,8 +377,15 @@ def expand_and_center(tens):
 #     pweighted_Q = pi_p + (Q2-pi_p) * Q_precision / (Q_precision + pi_precision)
 #     return (torch.log(pweighted_Q/pi_p))
 
-def guide(data, scale, include_nuisance=True, do_print=False):
-    dp("guide:begin",scale,include_nuisance)
+def exp_ldaj(t,return_ldaj=False):
+    result = torch.exp(t)
+    if return_ldaj:
+        return (result,torch.sum(t))
+    return result
+
+def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
+            *args, **kwargs):
+    ddp("guide:begin",scale,include_nuisance)
 
 
     ##################################################################
@@ -397,22 +412,21 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     pstar_data = OrderedDict()
     transformation = defaultdict(lambda: lambda x: x) #factory of identity functions
 
-    logsdrcstar = pyro.param('logsdrcstar',ts(-1.))
+    logsdrcstar = get_param(inits,'logsdrcstar',ts(-1.))
     fstar_data.update(sdrc=logsdrcstar)
-    transformation.update(sdrc=torch.exp)
+    transformation.update(sdrc=exp_ldaj)
     if include_nuisance:
-        logsdprcstar = pyro.param('logsdprcstar',ts(-1.))
+        logsdprcstar = get_param(inits,'logsdprcstar',ts(-1.))
         fstar_data.update(sdprc=logsdprcstar)
-        transformation.update(sdprc=torch.exp)
+        transformation.update(sdprc=exp_ldaj)
         eprcstar_startingpoint = torch.zeros(P,R,C,requires_grad =True) #not a pyro param...
         #eprcstar_startingpoint[p].requires_grad_(True) #...so we have to do this manually
 
-    ecstar_raw = pyro.param('ecstar_raw', torch.zeros(C-1))
-    ercstar_raw = pyro.param('ercstar_raw', torch.zeros(R-1,C-1))
+    ecstar_raw = get_param(inits,'ecstar_raw', torch.zeros(C-1))
+    ercstar_raw = get_param(inits,'ercstar_raw', torch.zeros(R-1,C-1))
     gamma_star_data.update(ec=ecstar_raw,erc=ercstar_raw)
     transformation.update(ec=expand_and_center, erc=expand_and_center)
 
-    eprcstar_hessian_point_fraction = EPRCstar_HESSIAN_POINT_FRACTION #pyro.param("eprcstar_fraction",ts(0.5),constraint=constraints.interval(0.0, 1.0))
     # with pyro.plate('candidatesg', C):
     #     ecstar = pyro.param('ecstar', ts(0.))
     #     with pyro.plate('rgroupsg', R):
@@ -429,18 +443,17 @@ def guide(data, scale, include_nuisance=True, do_print=False):
 
     ec2r = ecstar_raw.detach().requires_grad_()
     erc2r = ercstar_raw.detach().requires_grad_()
+    lsdprc2r = logsdprcstar.detach().requires_grad_() #Not gonna put grad back???
+
     ec2 = expand_and_center(ec2r)
     erc2 = expand_and_center(erc2r)
-    dp("sizes",sizes(ec2r,erc2r,ec2,erc2))
+    lsdprc2 = torch.exp(lsdprc2r)
+    #dp("sizes",sizes(ec2r,erc2r,ec2,erc2))
 
     if include_nuisance:
         sdprc2 = logsdprcstar.detach().requires_grad_()
 
-    #Including expand_and_center makes erc not identifiable
-    #We could  "impose a prior" as follows, but instead, we'll just allow things to wander off.
-    # recentering_amount = (RECENTER_PRIOR_STRENGTH *
-    #         torch.mean((ercstar - expand_and_center(ercstar))**2)/torch.exp(logsdrcstar))
-    # pyrosample('param_residual', dist.Delta(recentering_amount))
+    #Including expand_and_center makes erc not identifiable; this is an issue for writeup, not coding
 
 
     #Amortize stars
@@ -463,13 +476,16 @@ def guide(data, scale, include_nuisance=True, do_print=False):
         #precalculation - logits to pi
 
 
-        dp("amosize",sizes(pi,data.nvs, data.nns))
+        #dp("amosize",sizes(pi,data.nvs, data.nns))
 
-        Q, iters = optimize_Q_objectly(pi,data,tolerance=.01,maxiters=2)
+        Qraw, iters = optimize_Q_objectly(pi,data,tolerance=.01,maxiters=2)
+
 
         #get ŷ^(0
         #dp(f"optimize_Q_objectly {p}:{iters}")
-        ystars = Q*tots.unsqueeze(-1).unsqueeze(-1)
+        toots = tots.view(P,1,1)
+        Q = Qraw + PSEUDOVOTERS_PER_CELL / toots
+        ystars = Q*toots
 
         #depolytopize
         wstars = depolytopizeU(R,C,ystars,indeps)
@@ -482,23 +498,23 @@ def guide(data, scale, include_nuisance=True, do_print=False):
         #get ν̂^(0)
         if include_nuisance:
             QbyR = Q/torch.sum(Q,-1).unsqueeze(-1)
-            logresidual = torch.log(QbyR / pi)
-            eprcstars_raw = logresidual * eprcstar_hessian_point_fraction
-            if NU_DETACHED_FRACTION != 1:
-                eprcstars = eprcstars_raw.detach() * NU_DETACHED_FRACTION + eprcstars_raw * (1 - NU_DETACHED_FRACTION)
-            else:
-                eprcstars = eprcstars_raw.detach().requires_grad_(True)
+            logresidual_raw = torch.log(QbyR / pi)
+            lrsd = torch.log((torch.sqrt(ystars)+ystars)/torch.sum(ystars,-1).unsqueeze(-1)) - logresidual_raw
+                #1 sd up, rescaled, logged, minus orig; rough estimate of sd of likelihood of logresidual
+            lrprec = lrsd ** 2 #sd to precision
+            eprcstars = logresidual_raw*lrprec/(lrprec + 1/lsdprc2**2)
+
             #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
             eprcstars_list = [eprcstar for eprcstar in eprcstars]
             eprcstars2 = torch.stack(eprcstars_list)
 
 
-    dp("w and nu",sizes(ystars,wstars,wstars2,ystars2,eprcstars,eprcstars2))
-    if include_nuisance:
-        dp("w and nu 2",torch.sum(ystars-ystars2),
+    #dp("w and nu",sizes(ystars,wstars,wstars2,ystars2,eprcstars,eprcstars2))
+    if False:#include_nuisance:
+        ddp("w and nu 2",torch.sum(ystars-ystars2),
                     torch.sum(eprcstars- eprcstars2),
                     torch.sum(wstars-wstars2))
-        dp("w3", ystars[0], ystars2[0], wstars2[0])
+        ddp("w3", ystars[0], ystars2[0], wstars2[0])
 
     pstar_data.update(y=ystars2)
     #dp("y is",pstar_data["y"].size(),ystar[-1].size(),ystar[0][0,0],ystars2[0][0,0])
@@ -520,9 +536,11 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     #Start with gamma
 
     transformed_star_data = OrderedDict()
+    log_jacobian_adjustment = 0
     for k,v in chain(gamma_star_data.items(),pstar_data.items(),fstar_data.items()):
         if k in transformation:
-            transformed_star_data[k] = transformation[k](v)
+            transformed_star_data[k],ldaj = transformation[k](v,return_ldaj=True)
+            log_jacobian_adjustment -= ldaj
         else:
             transformed_star_data[k] = v
 
@@ -532,8 +550,8 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     #dp("line ",lineno())
     mytrace = poutine.block(poutine.trace(hess_center).get_trace)(data, scale, include_nuisance)
     #dp("line ",lineno(),P,R,C)
-    log_posterior = mytrace.log_prob_sum()
-    dp("lp: ",log_posterior,lineno())
+    log_posterior = mytrace.log_prob_sum()+log_jacobian_adjustment
+    ddp("lp: ",log_posterior,log_jacobian_adjustment,lineno())
 
 
 
@@ -549,7 +567,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     #add pstar_data to stars_in_sampling_order — but don't get it from pstar_data because it comes in wrong format
     if include_nuisance:
         tensors_per_unit = 2 #tensors, not elements=(R-1)*(C-1) + R*C
-        dp(u"lam sizes",R,C,sizes(wstars_list[0],eprcstars_list[0]))
+        #dpu"lam sizes",R,C,sizes(wstars_list[0],eprcstars_list[0]))
         dims_per_unit = (R-1)*(C-1) + R*C
         for w,eprc,logit in zip(wstars_list,
                         eprcstars_list, #This is NOT the center of the distribution; tstar's `logits`
@@ -580,13 +598,13 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     ##################################################################
 
     #declare global-level psi params
-    globalpsi = pyro.param('globalpsi',torch.ones(gamma_dims)*BASE_PSI,
+    globalpsi = get_param(inits,'globalpsi',torch.ones(gamma_dims)*BASE_PSI,
                 constraint=constraints.positive)
     #declare precinct-level psi params
-    precinctpsi = pyro.param('precinctpsi',BASE_PSI * torch.ones(dims_per_unit),
+    precinctpsi = get_param(inits,'precinctpsi',BASE_PSI * torch.ones(dims_per_unit),
                 constraint=constraints.positive)
 
-    dp("setpsis",sizes(globalpsi,precinctpsi))
+    #dp"setpsis",sizes(globalpsi,precinctpsi))
     big_arrow.setpsis(globalpsi,precinctpsi)
     big_arrow.weights = [scale] * P
 
@@ -603,7 +621,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     #dp(gamma_info[:3,:3])
     #dp(-neg_big_hessian[:6,:3])
 
-    gamma = pyrosample('gamma',
+    gamma = pyro.sample('gamma',
                     dist.OMTMultivariateNormal(gamma_mean, torch.cholesky(big_arrow.marginal_gg_cov())),
                     infer={'is_auxiliary': True})
     g_delta = gamma - gamma_mean
@@ -616,16 +634,16 @@ def guide(data, scale, include_nuisance=True, do_print=False):
         #dp(f"adding {pname} from gamma ({elems}, {pstar.size()}, {tmpgamma.size()}, {pdat})" )
 
         if pname in transformation:
-            pyrosample(pname, dist.Delta(transformation[pname](pdat.view(pstar.size())))
+            pyro.sample(pname, dist.Delta(transformation[pname](pdat.view(pstar.size())))
                                 .to_event(len(list(pstar.size())))) #TODO: reshape after transformation, not just before???
         else:
-            pyrosample(pname, dist.Delta(pdat.view(pstar.size()))
+            pyro.sample(pname, dist.Delta(pdat.view(pstar.size()))
                                 .to_event(len(list(pstar.size()))))
     assert list(tmpgamma.size())[0] == 0
 
 
     for k,v in fstar_data.items():
-        pyrosample(k, dist.Delta(transformation[k](v)))
+        pyro.sample(k, dist.Delta(transformation[k](v)))
 
 
 
@@ -659,7 +677,8 @@ def guide(data, scale, include_nuisance=True, do_print=False):
 
         #dp("precinct:::",gamma_1p_hess.size(),precinct_cov.size(),big_grad.size(),precinct_grad.size(),)
         if include_nuisance:
-            adjusted_mean = conditional_mean + step_mult * torch.mv(precinct_cov.detach(), precinct_grad.detach())
+            adjusted_mean_raw = conditional_mean + step_mult * torch.mv(precinct_cov.detach(), precinct_grad.detach())
+            adjusted_mean = adjusted_mean_raw.detach() * NEW_DETACHED_FRACTION + adjusted_mean_raw * (1 - NEW_DETACHED_FRACTION)
                                  #one (partial, as defined by step_mult) step of Newton's method
                                  #Note: this applies to both ws and nus (eprcs). I was worried about whether that was circular logic but I talked with Mira and we both think it's actually principled.
         else:
@@ -669,12 +688,12 @@ def guide(data, scale, include_nuisance=True, do_print=False):
         adjusted_means.append(adjusted_mean)
 
         try:
-            pstuff = pyrosample(f"pstuff_{p}",
+            pstuff = pyro.sample(f"pstuff_{p}",
                             dist.OMTMultivariateNormal(adjusted_mean, torch.cholesky(conditional_cov)),
                             infer={'is_auxiliary': True})
 
         except:
-            dp("error sampling pstuff",p,conditional_cov.size())
+            ddp("error sampling pstuff",p,conditional_cov.size())
             print(conditional_cov)
             rawp = big_arrow.raw_lls[p]
             print(rawp)
@@ -699,30 +718,30 @@ def guide(data, scale, include_nuisance=True, do_print=False):
         if not torch.all(torch.isfinite(ys)):
             for p in range(P):
                 if not torch.all(torch.isfinite(ys[p,:,:])):
-                    dp("nan in ys for precinct",p)
+                    ddp("nan in ys for precinct",p)
                     print(ys[p,:,:])
                     if include_nuisance:
                         print(logit_samps[p])
                     #
-                    dp("ns",ns[p])
-                    dp("vs",vs[p])
-                    dp("ecstar",ecstar)
-                    dp("ercstar",ercstar)
+                    ddp("ns",ns[p])
+                    ddp("vs",vs[p])
+                    ddp("ecstar",ecstar)
+                    ddp("ercstar",ercstar)
         pyro.sample("y", dist.Delta(ys).to_event(2))
 
         if include_nuisance:
             logit_samp_tensor = torch.cat(logit_samps,0)
             if not torch.all(torch.isfinite(logit_samp_tensor)):
-                dp("logits!!")
+                ddp("logits!!")
                 for p in range(P):
                     if not torch.all(torch.isfinite(logit_samp_tensor[p,:,:])):
-                        dp("nan in nus for precinct",p)
+                        ddp("nan in nus for precinct",p)
                         print(logit_samp_tensor[p])
                         print(ysamps[p])
-                        dp("ns",ns[p])
-                        dp("vs",vs[p])
-                        dp("ecstar",ecstar)
-                        dp("ercstar",ercstar)
+                        ddp("ns",ns[p])
+                        ddp("vs",vs[p])
+                        ddp("ecstar",ecstar)
+                        ddp("ercstar",ercstar)
             pyro.sample("logits", dist.Delta(logit_samp_tensor).to_event(2))
 
 
@@ -740,8 +759,7 @@ def guide(data, scale, include_nuisance=True, do_print=False):
                     ystars2 ,
 
 
-                        logresidual,
-                        eprcstars_raw ,
+                        logresidual_raw,
                             eprcstars ,
                         eprcstars2 ,g_delta,
                         ws,
@@ -755,12 +773,12 @@ def guide(data, scale, include_nuisance=True, do_print=False):
 
 
     def fix_ec_grad():
-        dp("fixgrad",1)
+        #dp"fixgrad",1)
         if torch.any(torch.isnan(ecstar_raw.grad)) or torch.any(torch.isnan(ec2r.grad)):
-            dp("ecstar_raw.grad",sizes(ecstar_raw.grad,ec2r.grad))
+            ddp("ecstar_raw.grad",sizes(ecstar_raw.grad,ec2r.grad))
             #dp("2sp",[type(iv) for iv in intermediate_vars])
-            dp("2s",sizes(*[(iv.grad if iv.grad is not None else torch.tensor([])) for iv in intermediate_vars]))
-            dp("scoper",sizes(tots,vs,ns,indeps,ecstar_raw ,
+            ddp("2s",sizes(*[(iv.grad if iv.grad is not None else torch.tensor([])) for iv in intermediate_vars]))
+            ddp("scoper",sizes(tots,vs,ns,indeps,ecstar_raw ,
                 ercstar_raw))
             dat =[data,big_arrow,big_grad]
             import pdb; pdb.set_trace()
@@ -769,12 +787,12 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     ecstar_raw.fix_grad = fix_ec_grad
 
     def fix_erc_grad():
-        dp("fixgrad",2)
+        #dp"fixgrad",2)
         ercstar_raw.grad = ercstar_raw.grad + erc2r.grad
         if torch.any(torch.isnan(ercstar_raw.grad)) or torch.any(torch.isnan(erc2r.grad)):
-            dp("ercstar_raw.grad",sizes(ercstar_raw.grad,erc2r.grad))
+            ddp("ercstar_raw.grad",sizes(ercstar_raw.grad,erc2r.grad))
             #dp("2s2p",[type(iv) for iv in intermediate_vars])
-            dp("2s2",sizes(*[(iv.grad if iv.grad is not None else torch.tensor([])) for iv in intermediate_vars]))
+            ddp("2s2",sizes(*[(iv.grad if iv.grad is not None else torch.tensor([])) for iv in intermediate_vars]))
 
             #import pdb; pdb.set_trace()
         #dp("mode_star.grad",mode_star.grad)
@@ -788,11 +806,41 @@ def guide(data, scale, include_nuisance=True, do_print=False):
     # Return values, debugging, cleanup.
     ##################################################################
 
+    if True: #debug arrowheads
+        mini_indices = torch.tensor(range(2))
+        mini_data = EISubData(data,mini_indices)
+        mini_transformed_star_data = OrderedDict()
+        for k,v in chain(gamma_star_data.items(),fstar_data.items()):
+            if k in transformation:
+                mini_transformed_star_data[k] = transformation[k](v)
+            else:
+                mini_transformed_star_data[k] = v
+
+        for k,v in pstar_data.items():
+            if k in transformation:
+                mini_transformed_star_data[k] = transformation[k](v).index_select(0,mini_indices)
+            else:
+                mini_transformed_star_data[k] = v.index_select(0,mini_indices)
+
+        mini_hess_center = pyro.condition(model,mini_transformed_star_data)
+        #dp("line ",lineno())
+        mini_mytrace = poutine.block(poutine.trace(mini_hess_center).get_trace)(mini_data, scale, include_nuisance)
+        #dp("line ",lineno(),P,R,C)
+        mini_log_posterior = mini_mytrace.log_prob_sum()
+        ddp("mini_lp: ",mini_log_posterior,lineno())
+
+        mini_hess_center2 = pyro.condition(model,mini_transformed_star_data)
+        #dp("line ",lineno())
+        mini_mytrace2 = poutine.block(poutine.trace(mini_hess_center2).get_trace)(mini_data, 527./2., include_nuisance)
+        #dp("line ",lineno(),P,R,C)
+        mini_log_posterior2 = mini_mytrace2.log_prob_sum()
+        ddp("mini_lp2: ",mini_log_posterior2,lineno())
+        import pdb; pdb.set_trace()
 
     if do_print:
         go_or_nogo.printstuff2()
 
-    dp("guide:end")
+    ddp("guide:end")
 
     if go_or_nogo.BREAK_NOW:
         import pdb; pdb.set_trace()
@@ -915,15 +963,15 @@ def loadScenario(filename): #Throws error on failure; use inside a try block.
             var, u, i, val, id = line
             u, i = [int(a) for a in [u or 0,i or 0]]
             if var==u"R":
-                dp("R",type(val),val)
+                ddp("R",type(val),val)
                 R = int(val)
                 continue
             if var==u"C":
-                dp("C",type(val),val)
+                ddp("C",type(val),val)
                 C = int(val)
                 continue
             if var==u"U":
-                dp("U",type(val),val)
+                ddp("U",type(val),val)
                 U = int(val)
                 continue
             if var==u"v":
@@ -975,9 +1023,23 @@ def saveFit(fitted_model_info, data, subsample_n, nparticles,nsteps,filebase="ei
         output.write(jsonize(fitted_model_info))
     #print("saveFit", filename)
 
+def good_inits(noise=0.):
+    ec,erc = legible_values(3,3)
+    inits = dict(
+            logsdrcstar=torch.log(erc.std()),
+            logsdprcstar=torch.log(torch.tensor(SIM_SIGMA_NU)),
+            ecstar_raw=ec[:2],
+            ercstar_raw=erc[:2,:2],
+            #globalpsi=,
+            #precinctpsi=,
+            )
+    #TODO:noise
+    return inits
+
+
 def trainGuide(subsample_n = SUBSET_SIZE,
             filebase = "eiresults/",
-            nparticles=1): #honestly if I use nparticles, I should rewrite model&guide to both be over multiple samples. But including here now because it's easy.
+            nparticles=1,inits=dict()): #honestly if I use nparticles, I should rewrite model&guide to both be over multiple samples. But including here now because it's easy.
     resetDebugCounts()
 
     # Let's generate voting data. I'm conditioning concentration=1 for numerical stability.
@@ -1010,8 +1072,9 @@ def trainGuide(subsample_n = SUBSET_SIZE,
         else:
             indices = torch.tensor(range(N))
         subset =  EISubData(data,indices)
-        dp("svi.step(...",i,scale,subset.indeps.size())
-        loss = svi.step(subset,scale,True,do_print=(i % 10 == 0))
+        ddp("svi.step(...",i,scale,subset.indeps.size())
+        loss = svi.step(subset,scale,True,do_print=(i % 10 == 0),
+                inits=inits)
         if len(losses)==0:
             mean_losses.append(loss)
         else:
@@ -1024,14 +1087,19 @@ def trainGuide(subsample_n = SUBSET_SIZE,
         losses.append(loss)
         if i % 10 == 0:
             reload(go_or_nogo)
-            go_or_nogo.printstuff(i,loss)
+            go_or_nogo.printstuff(i,loss,mean_losses)
+            curparams = pyro.get_param_store()
+            print(f'epoch {i} loss = {loss:.2E}, mean_loss={mean_losses[-1]:.2E};'+
+                f' sds = {dict(rc=float(curparams["logsdrcstar"]),prc=float(curparams["logsdprcstar"]))};')
+            print(f' logitstar = {expand_and_center(curparams["ercstar_raw"]+curparams["ecstar_raw"])}')
             if go_or_nogo.go:
                 pass
             else:
                 break
             try:
-                if mean_losses[-1] > mean_losses[-CUTOFF_WINDOW]:
-                    dp("Cutoff reached",mean_losses[-1], mean_losses[-CUTOFF_WINDOW])
+                if ((mean_losses[-1] > mean_losses[-CUTOFF_WINDOW])
+                        and (mean_losses[-1] > mean_losses[-CUTOFF_WINDOW//2])):
+                    ddp("Cutoff reached",mean_losses[-1], mean_losses[-CUTOFF_WINDOW])
                     break
             except Exception as e:
                 pass
