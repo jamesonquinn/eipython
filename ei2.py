@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "1.0.01"
+EI_VERSION = "1.0.02"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -68,12 +68,12 @@ BUNCHFAC = 35
 #P=30, BUNCHFAC = 9999: 189/51 2346..1708..1175..864..746
 
 MAX_NEWTON_STEP = .95 #currently, just taking this much of a step, hard-coded
-STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1.001
+STARPOINT_AS_PORTION_OF_NU_ESTIMATE = .99
 NEW_DETACHED_FRACTION = .01 #as in Newton, get it?
 
 
 
-NSTEPS = 50
+NSTEPS = 5000
 SUBSET_SIZE = 20
 BIG_PRIME = 73 #Wow, that's big!
 
