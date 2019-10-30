@@ -125,15 +125,16 @@ def optimize_Q(U,R,C,pi,v,d,
 
     # Deal with possible negative entries in Q:
     Qrc = Q.view(U,R*C)
-    # vector of length U whose u-th entry is 1 is Q[u] has all positive entries, 0 otherwise
+    # vector of length U whose u-th entry is 1 if Q[u] has all positive entries, 0 otherwise
     Q_ok = (Qrc>0).all(1).type_as(Q)
     if torch.equal(Q_ok,torch.ones(U)) ==False:
+        Q_old = Q
         # print(Qrc)
         # print(Q_ok)
         # convert ind to U-by-RC tensor
         ind_rc = ind.view(U,R*C)
         # Qmin and Qmin_ind are U-tensors, u-th entry is min of Qrc[u] and its index
-        Qrc_min, Qrc_minind = Qrc.min(1)
+        Qrc_min, Qrc_minind = (Qrc/ind_rc).min(1)
         # ind_min is a U-tensor, u-th entry is entry of ind_rc[u] at index of min(Qrc[u])
         ind_min = torch.gather(ind_rc,1,Qrc_minind.unsqueeze(1)).squeeze(1)
         # fac is shrink factor (1 is Q[u] is all positive)
@@ -142,6 +143,8 @@ def optimize_Q(U,R,C,pi,v,d,
         fac = fac.unsqueeze(1).unsqueeze(2)
         Q = (Q - ind) * fac.detach() + ind
 
+    if torch.any(Q<0):
+        import pdb; pdb.set_trace()
     return [Q, i]
 
 def optimize_Q_objectly(pi,data,**kwargs):

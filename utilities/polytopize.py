@@ -141,7 +141,7 @@ def polytopizeU(R, C, raw, start, return_ldaj=False):
     return result
 
 DEPOLY_EPSILON = 1e-9
-def depolytopizeU(R, C, rawpoly, start):
+def depolytopizeU(R, C, rawpoly, start, line=None):
     poly = rawpoly.view(-1,R*C)
     assert poly.size() == start.size(), f"depoly fail {R},{C},{poly.size()},{start.size()}"
     rawdiff = poly - start
@@ -156,11 +156,22 @@ def depolytopizeU(R, C, rawpoly, start):
     result = facs.gather(1,closest.unsqueeze(1)) * diff
     #print("depo",fac, ratio[closest//C,closest%C])
     if torch.any(torch.isnan(result)):
-        print("depolytopize fail")
+        print("depolytopizeU fail",line)
         print(R, C, poly[:3,], start[:3,])
         print(diff[:3,],ratio[:3,],closest[:3,])
         print("2depolytopize fail")
-        #print(r,facs,result)
+        for i in range(rawpoly.size()[0]):
+            if torch.any(torch.isnan(result[i])):
+                print("problem index: ",i)
+                
+                print(rawdiff[i])
+                print(diff[i])
+                print(ratio[i])
+                print(closest[i])
+                print(facs[i])
+                print(result[i])
+        print("Breaking")
+        import pdb; pdb.set_trace()
         #print(1-ratio[closest//C,closest%C])
         #print(diff[closest//C,closest%C])
     return result.view(-1,R,C)[:,:(R-1),:(C-1)]
@@ -180,10 +191,10 @@ def depolytopize(R, C, poly, start):
         print("depolytopize fail")
         print(R, C, poly, start)
         print(diff,ratio,closest)
-        print("2depolytopize fail")
-        print(r,fac,result)
-        print(1-ratio[closest//C,closest%C])
-        print(diff[closest//C,closest%C])
+        print("2depolytopize fail...")
+        print("x1",r,fac,result)
+        print("x2",1-ratio[closest//C,closest%C])
+        print("x3",diff[closest//C,closest%C])
     return result[:(R-1),:(C-1)]
 
 def dummyPrecinct(R, C, i=0, israndom=True):

@@ -1,3 +1,6 @@
+
+from utilities.debugGizmos import *
+
 import torch
 from torch._six import inf
 from torch.distributions.distribution import Distribution
@@ -105,6 +108,21 @@ class TorchCMult(TorchDistribution):
         log_powers = (logits * value).sum(-1)
         return log_factorial_n - log_factorial_xs + log_powers
 
+ONE_THIRTIETH = torch.tensor(1/30)
+def lfac_ramanujan(t): #like lgamma(t+1), ignoring constant .5 ln pi
+    return t*torch.log(t)-t+torch.log(8*t**3+4*t**2+t+ONE_THIRTIETH)/6
+def lfac_stirling(t): #like lgamma(t+1), ignoring constant .5 ln pi
+    return t*torch.log(t)
+MULT = 30.
+MIN = 1-1/180
+MINMULT = torch.tensor(MIN * MULT)
+def minny(t):
+    return torch.logsumexp(torch.stack((t*MULT,MINMULT.expand(*t.size()))),0)/MULT
+def lfac_zerosafe(t):
+
+    tsafe = minny(t)
+    return lfac_ramanujan(tsafe)
+
 class CMult(TorchDistribution): #like the above, but without the gamma normalizing constants...
     r"""
     Creates a Continuous Multinomial distribution parameterized by :attr:`total_count` and
@@ -199,8 +217,14 @@ class CMult(TorchDistribution): #like the above, but without the gamma normalizi
             #TODO: ensure sum is exact — because without a normalizing constant, numerical error in the sum could have drastic impact
 
         logits, value = broadcast_all(self.logits.clone(), value)
+
+        log_factorial_xs = lfac_zerosafe(value).sum(-1)
         logits[(value == 0) & (logits == -inf)] = 0
         log_powers = (logits * value).sum(-1)
-        return log_powers
+        result = log_powers - log_factorial_xs
+        if torch.any(torch.isnan(result)):
+            print("cmult nan")
+            import pdb; pdb.set_trace()
+        return result
 #class CMult(TorchCMult, TorchDistributionMixin):#
 #    pass

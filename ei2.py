@@ -2,8 +2,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import print_function
 from utilities.debugGizmos import *
-from utilities.debugGizmos import jsonize
-dp("exists?",jsonize)
 dp('base:Yes, I will run.')
 
 from importlib import reload
@@ -55,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "0.10..3"
+EI_VERSION = "0.10..5"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -92,7 +90,7 @@ SIM_SIGMA_NU = .05
 
 PSEUDOVOTERS_PER_CELL = 1.
 
-DEBUG_ARROWHEAD = True
+DEBUG_ARROWHEAD = False
 
 class EIData:
     def __init__(self,ns,vs,ids = None):
@@ -330,6 +328,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, *args, **k
                         #dim P, R, C from plate, to_event, CMult
                         #note that n is totally fake — sums are what matter.
                         #TODO: fix CMult so this fakery isn't necessary.
+            dp("sampled y",y[0])
             try:
                 yy = y - PSEUDOVOTERS_PER_CELL
                 assert approx_eq(torch.sum(yy,1),vs)
@@ -337,7 +336,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, *args, **k
             except Exception as e:
                 print("Unequal...")
                 print(torch.sum(yy,1)[1],vs[1])
-                import pdb; pdb.set_trace()
+                #import pdb; pdb.set_trace()
             #dp("model y",scale,y.size(),y[0,:2,:2])
             #dp("ldim",logits.size(),y[0,0,0])
 
@@ -350,7 +349,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, *args, **k
 
         return EIData(ns,vs,data.ids)
 
-    ddp("model:end")
+    ddp("model:end", sizes(ns,vs,ec,erc,logits,y))
 
 
 
@@ -472,7 +471,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
     pi = pi_raw / torch.sum(pi_raw,-1).unsqueeze(-1)
 
 
-    log_jacobian_adjustment = torch.tensor([0.])
+    log_jacobian_adjustment = torch.tensor(0.)
 
     #dp("guide:pre-p")
     if True: #don't deindent yet
@@ -482,22 +481,25 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
 
         #dp("amosize",sizes(pi,data.nvs, data.nns))
 
-        Qraw, iters = optimize_Q_objectly(pi,data,tolerance=.01,maxiters=2)
+        Qraw, iters = optimize_Q_objectly(pi,data,tolerance=.01,maxiters=3)
 
 
         #get ŷ^(0
         #dp(f"optimize_Q_objectly {p}:{iters}")
         toots = tots.view(P,1,1)
         Q = Qraw + PSEUDOVOTERS_PER_CELL / toots
-        ystars = Q*toots
+        ystars = Qraw * toots + PSEUDOVOTERS_PER_CELL #TODO: remove inefficiency but I'm just being extra-careful for now.
 
+        if torch.any(ystars < 0):
+            print("ystars < 0")
+            import pdb; pdb.set_trace()
         #depolytopize
-        wstars = depolytopizeU(R,C,ystars,indeps)
+        wstars = depolytopizeU(R,C,ystars,indeps,lineno())
         wstars_list = [wstar for wstar in wstars] #separate tensor so sparse hessian works... I know, this seems crazy.
         wstars2 = torch.stack(wstars_list)
 
         ystars2,ldaj = polytopizeU(R,C,wstars2,indeps,return_ldaj=True)
-        log_jacobian_adjustment -= ldaj
+        log_jacobian_adjustment += ldaj
 
 
         #get ν̂^(0)
@@ -544,7 +546,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
     for k,v in chain(gamma_star_data.items(),pstar_data.items(),fstar_data.items()):
         if k in transformation:
             transformed_star_data[k],ldaj = transformation[k](v,return_ldaj=True)
-            log_jacobian_adjustment -= ldaj
+            log_jacobian_adjustment += ldaj
         else:
             transformed_star_data[k] = v
 
@@ -597,6 +599,12 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
                     return_grad=True)
 
 
+    ##################################################################
+    # Put Jacobian into guide density
+    ##################################################################
+    junk = pyro.sample("jacobian",
+                    dist.Uniform(torch.zeros(1), torch.exp(-log_jacobian_adjustment)),
+                    infer={'is_auxiliary': True}) #there's probably a better way but whatevs.
     ##################################################################
     # Sample gamma (globals)
     ##################################################################
@@ -830,15 +838,27 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
         #dp("line ",lineno())
         mini_mytrace = poutine.block(poutine.trace(mini_hess_center).get_trace)(mini_data, scale, include_nuisance)
         #dp("line ",lineno(),P,R,C)
-        mini_log_posterior = mini_mytrace.log_prob_sum()
+        mini_log_posterior = mini_mytrace.log_prob_sum()+log_jacobian_adjustment
         ddp("mini_lp: ",mini_log_posterior,lineno())
 
+        mini_y = pstar_data["y"].index_select(0,mini_indices)
+        mini_y_delta = torch.zeros_like(mini_y)
+        mini_y_delta[0,0,0] = 10
+        mini_y_delta.requires_grad_(True)
+        mini_y2 = mini_y + mini_y_delta
+        mini_transformed_star_data["y"]=mini_y2
         mini_hess_center2 = pyro.condition(model,mini_transformed_star_data)
         #dp("line ",lineno())
-        mini_mytrace2 = poutine.block(poutine.trace(mini_hess_center2).get_trace)(mini_data, 527./2., include_nuisance)
+        mini_mytrace2 = poutine.block(poutine.trace(mini_hess_center2).get_trace)(mini_data, scale,#527./2.,
+                include_nuisance)
         #dp("line ",lineno(),P,R,C)
-        mini_log_posterior2 = mini_mytrace2.log_prob_sum()
+        mini_log_posterior2 = mini_mytrace2.log_prob_sum()+log_jacobian_adjustment
         ddp("mini_lp2: ",mini_log_posterior2,lineno())
+        mini_h = myhessian.hessian(mini_log_posterior2,mini_y2)
+        print(mini_h)
+        print(myhessian.hessian(mini_log_posterior2,mini_y_delta))
+        print(mini_y2[0])
+        print(mini_y[0])
         import pdb; pdb.set_trace()
 
     if do_print:
