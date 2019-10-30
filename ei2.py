@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "1.0.02"
+EI_VERSION = "1.0.03"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -67,9 +67,9 @@ BUNCHFAC = 35
 #P=30, BUNCHFAC = 9999: 42/11
 #P=30, BUNCHFAC = 9999: 189/51 2346..1708..1175..864..746
 
-MAX_NEWTON_STEP = .95 #currently, just taking this much of a step, hard-coded
-STARPOINT_AS_PORTION_OF_NU_ESTIMATE = .99
-NEW_DETACHED_FRACTION = .01 #as in Newton, get it?
+MAX_NEWTON_STEP = 1. #currently, just taking this much of a step, hard-coded
+STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1.
+NEW_DETACHED_FRACTION = .3 #as in Newton, get it?
 
 
 
@@ -92,6 +92,8 @@ SIM_SIGMA_NU = .05
 PSEUDOVOTERS_PER_CELL = 1.
 
 DEBUG_ARROWHEAD = False
+
+SDPRC_VAR = .1
 
 class EIData:
     def __init__(self,ns,vs,ids = None):
@@ -269,7 +271,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, *args, **k
     sdc = 5
     sdrc = pyro.sample('sdrc', dist.LogNormal(-1.,.75))
     if include_nuisance:
-        sdprc = pyro.sample('sdprc', dist.LogNormal(-3,.75))
+        sdprc = pyro.sample('sdprc', dist.LogNormal(-3,SDPRC_VAR))
 
     if vs is None:
         sdprc = SIM_SIGMA_NU
