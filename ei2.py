@@ -68,8 +68,8 @@ BUNCHFAC = 35
 #P=30, BUNCHFAC = 9999: 189/51 2346..1708..1175..864..746
 
 MAX_NEWTON_STEP = .95 #currently, just taking this much of a step, hard-coded
-STARPOINT_AS_PORTION_OF_NU_ESTIMATE = .5
-NEW_DETACHED_FRACTION = .9 #as in Newton, get it?
+STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1.05
+NEW_DETACHED_FRACTION = .01 #as in Newton, get it?
 
 
 
@@ -269,7 +269,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, *args, **k
     sdc = 5
     sdrc = pyro.sample('sdrc', dist.LogNormal(-1.,.75))
     if include_nuisance:
-        sdprc = pyro.sample('sdprc', dist.LogNormal(-1.,.75))
+        sdprc = pyro.sample('sdprc', dist.LogNormal(-3,.000075))
 
     if vs is None:
         sdprc = SIM_SIGMA_NU
@@ -419,7 +419,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
     fstar_data.update(sdrc=logsdrcstar)
     transformation.update(sdrc=exp_ldaj)
     if include_nuisance:
-        logsdprcstar = get_param(inits,'logsdprcstar',ts(-1.))
+        logsdprcstar = get_param(inits,'logsdprcstar',ts(-3.))
         fstar_data.update(sdprc=logsdprcstar)
         transformation.update(sdprc=exp_ldaj)
         eprcstar_startingpoint = torch.zeros(P,R,C,requires_grad =True) #not a pyro param...
@@ -690,7 +690,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
 
         #dp("precinct:::",gamma_1p_hess.size(),precinct_cov.size(),big_grad.size(),precinct_grad.size(),)
         if include_nuisance:
-            adjusted_mean_raw = conditional_mean + step_mult * torch.mv(precinct_cov.detach(), precinct_grad.detach())
+            adjusted_mean_raw = conditional_mean + step_mult * torch.mv(precinct_cov, precinct_grad)
             adjusted_mean = adjusted_mean_raw.detach() * NEW_DETACHED_FRACTION + adjusted_mean_raw * (1 - NEW_DETACHED_FRACTION)
                                  #one (partial, as defined by step_mult) step of Newton's method
                                  #Note: this applies to both ws and nus (eprcs). I was worried about whether that was circular logic but I talked with Mira and we both think it's actually principled.
