@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "0.10..6"
+EI_VERSION = "1.0.0"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -73,7 +73,7 @@ NEW_DETACHED_FRACTION = .01 #as in Newton, get it?
 
 
 
-NSTEPS = 5000
+NSTEPS = 50
 SUBSET_SIZE = 20
 BIG_PRIME = 73 #Wow, that's big!
 
@@ -269,7 +269,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, *args, **k
     sdc = 5
     sdrc = pyro.sample('sdrc', dist.LogNormal(-1.,.75))
     if include_nuisance:
-        sdprc = pyro.sample('sdprc', dist.LogNormal(-3,.000075))
+        sdprc = pyro.sample('sdprc', dist.LogNormal(-3,.75))
 
     if vs is None:
         sdprc = SIM_SIGMA_NU
@@ -603,9 +603,11 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
     ##################################################################
     # Put Jacobian into guide density
     ##################################################################
-    junk = pyro.sample("jacobian",
-                    dist.Uniform(torch.zeros(1), torch.exp(-log_jacobian_adjustment)),
-                    infer={'is_auxiliary': True}) #there's probably a better way but whatevs.
+    stupid = torch.exp(-log_jacobian_adjustment)
+    if (stupid>0):
+        junk = pyro.sample("jacobian",
+                        dist.Uniform(torch.zeros(1), stupid),
+                        infer={'is_auxiliary': True}) #there's probably a better way but whatevs.
     ##################################################################
     # Sample gamma (globals)
     ##################################################################
