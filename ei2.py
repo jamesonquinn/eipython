@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "1.0.03"
+EI_VERSION = "1.0.04"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -69,7 +69,7 @@ BUNCHFAC = 35
 
 MAX_NEWTON_STEP = 1. #currently, just taking this much of a step, hard-coded
 STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1.
-NEW_DETACHED_FRACTION = .3 #as in Newton, get it?
+NEW_DETACHED_FRACTION = .1 #as in Newton, get it?
 
 
 
@@ -388,6 +388,13 @@ def exp_ldaj(t,return_ldaj=False):
         return (result,torch.sum(t))
     return result
 
+def softmax(t,minval=0.,mult=80.):
+    if minval == 0.:
+        mins = torch.zeros_like(t)
+    else:
+        mins = torch.ones_like(t)*minval*mult
+    return torch.logsumexp(torch.stack((t*mult,mins)),0)/mult
+
 def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
             *args, **kwargs):
     ddp("guide:begin",scale,include_nuisance)
@@ -421,9 +428,9 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
     fstar_data.update(sdrc=logsdrcstar)
     transformation.update(sdrc=exp_ldaj)
     if include_nuisance:
-        logsdprcstar = get_param(inits,'logsdprcstar',ts(-3.))
-        fstar_data.update(sdprc=logsdprcstar)
-        transformation.update(sdprc=exp_ldaj)
+        #logsdprcstar = get_param(inits,'logsdprcstar',ts(-3.))
+        #fstar_data.update(sdprc=logsdprcstar)
+        #transformation.update(sdprc=exp_ldaj)
         eprcstar_startingpoint = torch.zeros(P,R,C,requires_grad =True) #not a pyro param...
         #eprcstar_startingpoint[p].requires_grad_(True) #...so we have to do this manually
 
@@ -448,15 +455,11 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
 
     ec2r = ecstar_raw.detach().requires_grad_()
     erc2r = ercstar_raw.detach().requires_grad_()
-    lsdprc2r = logsdprcstar.detach().requires_grad_() #Not gonna put grad back???
 
     ec2 = expand_and_center(ec2r)
     erc2 = expand_and_center(erc2r)
-    lsdprc2 = torch.exp(lsdprc2r)
     #dp("sizes",sizes(ec2r,erc2r,ec2,erc2))
 
-    if include_nuisance:
-        sdprc2 = logsdprcstar.detach().requires_grad_()
 
     #Including expand_and_center makes erc not identifiable; this is an issue for writeup, not coding
 
@@ -509,11 +512,20 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
         if include_nuisance:
             QbyR = Q/torch.sum(Q,-1).unsqueeze(-1)
             logresidual_raw = torch.log(QbyR / pi)
-            lrsd = torch.log((torch.sqrt(ystars)+ystars)/torch.sum(ystars,-1).unsqueeze(-1)) - logresidual_raw
-                #1 sd up, rescaled, logged, minus orig; rough estimate of sd of likelihood of logresidual
-            lrprec = lrsd ** 2 #sd to precision
-            eprcstars = STARPOINT_AS_PORTION_OF_NU_ESTIMATE* logresidual_raw*lrprec/(lrprec + 1/lsdprc2**2)
+            lr_sd_of_like = torch.log((ystars+torch.sqrt(ystars))/torch.sum(ystars,-1).unsqueeze(-1)) - logresidual_raw
+                #1 sd down, rescaled, logged, minus orig; rough estimate of sd of likelihood of logresidual
 
+            sign_residual = logresidual_raw.sign()
+            abs_residual = logresidual_raw * sign_residual
+            shrunk_residual = softmax(abs_residual - lr_sd_of_like) * sign_residual
+            sdprc = shrunk_residual.std()
+
+            fstar_data.update(sdprc=sdprc)
+            lr_prec_of_like = lr_sd_of_like ** 2 #sd to precision
+
+            eprcstars = STARPOINT_AS_PORTION_OF_NU_ESTIMATE* logresidual_raw*lr_prec_of_like/(lr_prec_of_like + 1/sdprc**2)
+            if do_print:
+                print("sds:",sdprc,eprcstars.std())
             #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
             eprcstars_list = [eprcstar for eprcstar in eprcstars]
             eprcstars2 = torch.stack(eprcstars_list)
@@ -1119,7 +1131,7 @@ def trainGuide(subsample_n = SUBSET_SIZE,
             go_or_nogo.printstuff(i,loss,mean_losses)
             curparams = pyro.get_param_store()
             print(f'epoch {i} loss = {loss:.2E}, mean_loss={mean_losses[-1]:.2E};'+
-                f' sds = {dict(rc=float(curparams["logsdrcstar"]),prc=float(curparams["logsdprcstar"]))};')
+                f' sds = {dict(rc=float(torch.exp(curparams["logsdrcstar"])))};') #",prc=float(curparams["logsdprcstar"]))};')
             print(f' logitstar = {expand_and_center(curparams["ercstar_raw"]+curparams["ecstar_raw"])}')
             if go_or_nogo.go:
                 pass
