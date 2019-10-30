@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "0.10..5"
+EI_VERSION = "0.10..6"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -68,6 +68,7 @@ BUNCHFAC = 35
 #P=30, BUNCHFAC = 9999: 189/51 2346..1708..1175..864..746
 
 MAX_NEWTON_STEP = .95 #currently, just taking this much of a step, hard-coded
+STARPOINT_AS_PORTION_OF_NU_ESTIMATE = .5
 NEW_DETACHED_FRACTION = .9 #as in Newton, get it?
 
 
@@ -266,9 +267,9 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, *args, **k
             yield p
 
     sdc = 5
-    sdrc = pyro.sample('sdrc', dist.LogNormal(0.,5.))
+    sdrc = pyro.sample('sdrc', dist.LogNormal(-1.,.75))
     if include_nuisance:
-        sdprc = pyro.sample('sdprc', dist.LogNormal(0.,5.))
+        sdprc = pyro.sample('sdprc', dist.LogNormal(-1.,.75))
 
     if vs is None:
         sdprc = SIM_SIGMA_NU
@@ -414,7 +415,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
     pstar_data = OrderedDict()
     transformation = defaultdict(lambda: lambda x: x) #factory of identity functions
 
-    logsdrcstar = get_param(inits,'logsdrcstar',ts(-1.))
+    logsdrcstar = get_param(inits,'logsdrcstar',ts(0.))
     fstar_data.update(sdrc=logsdrcstar)
     transformation.update(sdrc=exp_ldaj)
     if include_nuisance:
@@ -509,7 +510,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
             lrsd = torch.log((torch.sqrt(ystars)+ystars)/torch.sum(ystars,-1).unsqueeze(-1)) - logresidual_raw
                 #1 sd up, rescaled, logged, minus orig; rough estimate of sd of likelihood of logresidual
             lrprec = lrsd ** 2 #sd to precision
-            eprcstars = logresidual_raw*lrprec/(lrprec + 1/lsdprc2**2)
+            eprcstars = STARPOINT_AS_PORTION_OF_NU_ESTIMATE* logresidual_raw*lrprec/(lrprec + 1/lsdprc2**2)
 
             #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
             eprcstars_list = [eprcstar for eprcstar in eprcstars]
