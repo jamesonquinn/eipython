@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "1.0.0"
+EI_VERSION = "1.0.01"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -68,7 +68,7 @@ BUNCHFAC = 35
 #P=30, BUNCHFAC = 9999: 189/51 2346..1708..1175..864..746
 
 MAX_NEWTON_STEP = .95 #currently, just taking this much of a step, hard-coded
-STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1.05
+STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1.001
 NEW_DETACHED_FRACTION = .01 #as in Newton, get it?
 
 
@@ -1146,9 +1146,9 @@ def trainGuide(subsample_n = SUBSET_SIZE,
                     aacomment = "(add manually later)",
                     aaversion = EI_VERSION,
                     aaelasticity= dict(
-                        MAX_NEWTON_STEP = MAX_NEWTON_STEP,
-                        EPRCstar_HESSIAN_POINT_FRACTION = EPRCstar_HESSIAN_POINT_FRACTION,
-                        NU_DETACHED_FRACTION = NU_DETACHED_FRACTION
+                        MAX_NEWTON_STEP = MAX_NEWTON_STEP, #currently, just taking this much of a step, hard-coded
+                        STARPOINT_AS_PORTION_OF_NU_ESTIMATE = STARPOINT_AS_PORTION_OF_NU_ESTIMATE,
+                        NEW_DETACHED_FRACTION = NEW_DETACHED_FRACTION #as in Newton, get it?
                     ),
                     mean_loss = mean_losses[-1],
                     final_loss = loss
