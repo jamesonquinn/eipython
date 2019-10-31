@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "1.0.04"
+EI_VERSION = "1.0.05"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -512,7 +512,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
         if include_nuisance:
             QbyR = Q/torch.sum(Q,-1).unsqueeze(-1)
             logresidual_raw = torch.log(QbyR / pi)
-            lr_sd_of_like = torch.log((ystars+torch.sqrt(ystars))/torch.sum(ystars,-1).unsqueeze(-1)) - logresidual_raw
+            lr_sd_of_like = torch.log((ystars+torch.sqrt(ystars))/ystars)
                 #1 sd down, rescaled, logged, minus orig; rough estimate of sd of likelihood of logresidual
 
             sign_residual = logresidual_raw.sign()
@@ -521,14 +521,15 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
             sdprc = shrunk_residual.std()
 
             fstar_data.update(sdprc=sdprc)
-            lr_prec_of_like = lr_sd_of_like ** 2 #sd to precision
+            lr_prec_of_like = lr_sd_of_like ** -2 #sd to precision
 
             eprcstars = STARPOINT_AS_PORTION_OF_NU_ESTIMATE* logresidual_raw*lr_prec_of_like/(lr_prec_of_like + 1/sdprc**2)
             if do_print:
-                print("sds:",sdprc,eprcstars.std())
+                print("sds:",logresidual_raw.std(),sdprc,eprcstars.std())
             #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
             eprcstars_list = [eprcstar for eprcstar in eprcstars]
             eprcstars2 = torch.stack(eprcstars_list)
+            #import pdb; pdb.set_trace()
 
 
     #dp("w and nu",sizes(ystars,wstars,wstars2,ystars2,eprcstars,eprcstars2))
