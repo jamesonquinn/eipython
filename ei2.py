@@ -70,6 +70,7 @@ BUNCHFAC = 35
 MAX_NEWTON_STEP = 1. #currently, just taking this much of a step, hard-coded
 STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1.
 NEW_DETACHED_FRACTION = .1 #as in Newton, get it?
+SDS_TO_REDUCE_BY = .5
 
 
 
@@ -517,7 +518,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
 
             sign_residual = logresidual_raw.sign()
             abs_residual = logresidual_raw * sign_residual
-            shrunk_residual = softmax(abs_residual - lr_sd_of_like) * sign_residual
+            shrunk_residual = softmax(abs_residual - lr_sd_of_like * SDS_TO_REDUCE_BY) * sign_residual
             sdprc = shrunk_residual.std()
 
             fstar_data.update(sdprc=sdprc)
