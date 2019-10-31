@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "1.0.05"
+EI_VERSION = "1.0.07"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -71,6 +71,7 @@ MAX_NEWTON_STEP = 1. #currently, just taking this much of a step, hard-coded
 STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1.
 NEW_DETACHED_FRACTION = .1 #as in Newton, get it?
 SDS_TO_REDUCE_BY = .5
+SDS_TO_SHRINK_BY = .5
 
 
 
@@ -524,7 +525,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
             fstar_data.update(sdprc=sdprc)
             lr_prec_of_like = lr_sd_of_like ** -2 #sd to precision
 
-            eprcstars = STARPOINT_AS_PORTION_OF_NU_ESTIMATE* logresidual_raw*lr_prec_of_like/(lr_prec_of_like + 1/sdprc**2)
+            eprcstars = STARPOINT_AS_PORTION_OF_NU_ESTIMATE* logresidual_raw*lr_prec_of_like/SDS_TO_SHRINK_BY/(lr_prec_of_like/SDS_TO_SHRINK_BY + 1/sdprc**2)
             if do_print:
                 print("sds:",logresidual_raw.std(),sdprc,eprcstars.std())
             #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
@@ -1164,7 +1165,9 @@ def trainGuide(subsample_n = SUBSET_SIZE,
                     aaelasticity= dict(
                         MAX_NEWTON_STEP = MAX_NEWTON_STEP, #currently, just taking this much of a step, hard-coded
                         STARPOINT_AS_PORTION_OF_NU_ESTIMATE = STARPOINT_AS_PORTION_OF_NU_ESTIMATE,
-                        NEW_DETACHED_FRACTION = NEW_DETACHED_FRACTION #as in Newton, get it?
+                        NEW_DETACHED_FRACTION = NEW_DETACHED_FRACTION, #as in Newton, get it?
+                        SDS_TO_REDUCE_BY = SDS_TO_REDUCE_BY,
+                        SDS_TO_SHRINK_BY = SDS_TO_SHRINK_BY
                     ),
                     mean_loss = mean_losses[-1],
                     final_loss = loss
