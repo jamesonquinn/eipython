@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "1.0.07"
+EI_VERSION = "1.0.08"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -95,7 +95,11 @@ PSEUDOVOTERS_PER_CELL = 1.
 
 DEBUG_ARROWHEAD = False
 
-SDPRC_VAR = .1
+SDRC_VAR = 1.5
+SDRC_MEAN = 1.
+
+SDPRC_VAR = 1.5
+SDPRC_MEAN = -2.
 
 class EIData:
     def __init__(self,ns,vs,ids = None):
@@ -271,9 +275,9 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, *args, **k
             yield p
 
     sdc = 5
-    sdrc = pyro.sample('sdrc', dist.LogNormal(-1.,.75))
+    sdrc = pyro.sample('sdrc', dist.LogNormal(SDRC_MEAN,SDRC_VAR))
     if include_nuisance:
-        sdprc = pyro.sample('sdprc', dist.LogNormal(-3,SDPRC_VAR))
+        sdprc = pyro.sample('sdprc', dist.LogNormal(SDPRC_MEAN,SDPRC_VAR))
 
     if vs is None:
         sdprc = SIM_SIGMA_NU
@@ -1135,7 +1139,7 @@ def trainGuide(subsample_n = SUBSET_SIZE,
             curparams = pyro.get_param_store()
             print(f'epoch {i} loss = {loss:.2E}, mean_loss={mean_losses[-1]:.2E};'+
                 f' sds = {dict(rc=float(torch.exp(curparams["logsdrcstar"])))};') #",prc=float(curparams["logsdprcstar"]))};')
-            print(f' logitstar = {expand_and_center(curparams["ercstar_raw"]+curparams["ecstar_raw"])}')
+            print(f' logitstar = {expand_and_center(curparams["ercstar_raw"])+expand_and_center(curparams["ecstar_raw"])}')
             if go_or_nogo.go:
                 pass
             else:
