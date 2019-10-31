@@ -70,7 +70,7 @@ BUNCHFAC = 35
 MAX_NEWTON_STEP = 1. #currently, just taking this much of a step, hard-coded
 STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1.
 NEW_DETACHED_FRACTION = .1 #as in Newton, get it?
-SDS_TO_REDUCE_BY = .5
+SDS_TO_REDUCE_BY = 1.
 SDS_TO_SHRINK_BY = .75
 
 
@@ -102,13 +102,19 @@ SDPRC_VAR = 1.5
 SDPRC_MEAN = -2.
 
 def toTypeOrNone(t,atype=TTYPE):
-    return t if t is None else t.type(atype)
+    return t.type(atype) if torch.is_tensor(t) else t
 
-class dataWriter(csv.writer):
+class dataWriter:
+    def __init__(self,file):
+        self.writer = csv.writer(file)
+
     def writedatarow(self,var,val="",u="",r="",c="",id=""):
         if type(val) is not int:
-            val = float(val)
-        self.writerow([var,u,r,c,val,id])
+            try:
+                val = float(val)
+            except:
+                assert val==u"val"
+        self.writer.writerow([var,u,r,c,val,id])
 
     def writeheaderrow(self):
         self.writedatarow(u"var",u"val",u"u",u"r",u"c",u"id")
@@ -117,7 +123,7 @@ class EIData:
     def __init__(self,ns,vs,
                     ids = None, ys=None, nus=None,
                     alpha = None, beta =None, sigmanu =None, sigmabeta=None):
-        self.ns = toTypeOrNone(vs)
+        self.ns = toTypeOrNone(ns)
         self.vs = toTypeOrNone(vs)
         self.ys = toTypeOrNone(ys)
         self.nus = toTypeOrNone(nus)
@@ -125,11 +131,14 @@ class EIData:
         self.beta = toTypeOrNone(beta)
         self.sigmanu = toTypeOrNone(sigmanu)
         self.sigmabeta = toTypeOrNone(sigmabeta)
-        if ids is None:
-            self.ids=list(range(self.U))
-        else:
-            assert len(ids)==self.U
-            self.ids = ids
+        try:
+            if ids is None:
+                self.ids=list(range(self.U))
+            else:
+                assert len(ids)==self.U
+                self.ids = ids
+        except:
+            self.ids = None
 
     @reify
     def ybar(self):
@@ -219,9 +228,9 @@ class EIData:
     def getStuff(self):
         return (self.U, self.R, self.C, self.ns, self.vs)
 
-    def saveScenario(self,filename):
+    def save(self,filename):
         """
-        Note: for both saveScenario and loadScenario, file format is as follows: (without comments)
+        Note: for both save and load, file format is as follows: (without comments)
 
         var,u,i,val,id    #field names
         R,,,3,            #value of R — num races
@@ -274,15 +283,15 @@ class EIData:
             #
             for u, pns in enumerate(self.ns):
                 for r, n in enumerate(pns):
-                    writer.writedatarow(u"n",u=u,r=r,val=float(v),id=id)
+                    writer.writedatarow(u"n",u=u,r=r,val=float(n))
 
     @classmethod
-    def loadScenario(cls, filename): #Throws error on failure; use inside a try block.
+    def load(cls, filename): #Throws error on failure; use inside a try block.
         with open(filename,"r") as file:
             reader = csv.reader(file)
             header = next(reader)
             vs, ns = (None, None)
-            ys = nus = alpha = beta = sigmanu = sigmabeta = None
+            ys = nus = alpha = beta = sigmanu = sigmabeta = ids = None
             for line in reader:
                 var, u, r, c, val, id = line
                 u, r, c = [int(a) for a in [u or 0,r or 0,c or 0]]
@@ -328,21 +337,24 @@ class EIData:
                     if vs is None:
                         vs = -torch.ones(U,C)
                         ids = [None] * U
-                    vs[u,i] = float(val)
+                    vs[u,c] = float(val)
                     if id != "":
                         ids[u] = id
                     continue
                 if var==u"n":
                     if ns is None:
                         ns = -torch.ones(U,R)
-                    ns[u,i] = float(val)
+                    ns[u,r] = float(val)
                     continue
             #
             #dp("ns:",ns)
             #dp("vs:",vs)
-            assert torch.all(ns>0) #race counts strictly positive
-            assert torch.all(vs+.1>0) #vote counts non-negative
-            assert all(ids) #ids all exist
+            try:
+                assert torch.all(ns>0) #race counts strictly positive
+                assert torch.all(vs+.1>0) #vote counts non-negative
+                assert all(ids) #ids all exist
+            except Exception as e:
+                print("bad file load",e)
         ddp("alpha",alpha)
         ddp("beta",beta)
         data = cls(ns, vs, ids, ys, nus,
@@ -444,7 +456,11 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, *args, **k
     ec = pyro.sample('ec', dist.Normal(torch.zeros(C),sdc).to_event(1))
     erc = pyro.sample('erc', dist.Normal(torch.zeros(R,C),sdrc).to_event(2))
     if vs is None:
-        ec,erc = legible_values(R,C)
+        if data.alpha is None:
+            ec,erc = legible_values(R,C)
+        else:
+            ec,erc = data.alpha, data.beta
+            ddp("alpha beta",data.alpha, data.beta)
 
     if include_nuisance:
         with all_sampled_ps() as p_tensor:
@@ -509,6 +525,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, *args, **k
         ddp(f"erc:{erc}")
         ddp(f"y[0]:{y[0]}")
         vs = torch.sum(y,1)
+        print("VS",vs[:4])
 
         return EIData(ns,vs,data.ids,y, logits - ec - erc, ec, erc, sdprc, sdrc)
 
@@ -1112,7 +1129,11 @@ precinct_unique = [makePrecinctID(county,precinct) for (county,precinct) in zip(
 
 fixed_reg = [r.type(TTYPE) + FAKE_VOTERS_PER_RACE for r in [wreg, breg, oreg]]
 ns = torch.stack(fixed_reg,1).type(TTYPE)
-DUMMY_DATA = EIData(ns,None,precinct_unique)
+
+
+NCparams = EIData.load("NC_Data/NC_2016_statewide_alpha_and_beta.csv")
+DUMMY_DATA = EIData(ns,None,precinct_unique,
+        alpha=NCparams.alpha, beta=NCparams.beta)
 
 
 def nameWithParams(filebase, data, S=None):
@@ -1126,13 +1147,13 @@ def createOrLoadScenario(dummy_data = DUMMY_DATA,
             filebase="eiresults/"):
     filename = nameWithParams(filebase + "scenario", dummy_data)
     try:
-        data = EIData.loadScenario(filename)
+        data = EIData.load(filename)
         print(filename, "from file")
     except IOError as e:
         print("exception:",e)
         assert not (os.path.exists(filename)) #don't just blindly overwrite!
         data = model(dummy_data)
-        data.saveScenario(filename)
+        data.save(filename)
         print(filename, "created")
     return data
 
