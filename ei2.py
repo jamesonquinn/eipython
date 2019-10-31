@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "1.0.09"
+EI_VERSION = "1.0.10"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -71,7 +71,7 @@ MAX_NEWTON_STEP = 1. #currently, just taking this much of a step, hard-coded
 STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1.
 NEW_DETACHED_FRACTION = .1 #as in Newton, get it?
 SDS_TO_REDUCE_BY = .5
-SDS_TO_SHRINK_BY = .75
+SDS_TO_SHRINK_BY = .5
 
 
 
@@ -518,8 +518,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
         if include_nuisance:
             QbyR = Q/torch.sum(Q,-1).unsqueeze(-1)
             logresidual_raw = torch.log(QbyR / pi)
-            ystars_precision = 1/ystars + 1/(torch.sum(ystars,2,keepdim=True) - ystars)
-            lr_sd_of_like = torch.log((ystars+torch.sqrt(1/ystars_precision))/ystars)
+            lr_sd_of_like = torch.log((ystars+torch.sqrt(ystars))/ystars)
                 #1 sd down, rescaled, logged, minus orig; rough estimate of sd of likelihood of logresidual
 
             sign_residual = logresidual_raw.sign()
