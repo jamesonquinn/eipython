@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "1.1.0"
+EI_VERSION = "1.2.a0"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -101,15 +101,39 @@ SDRC_MEAN = 1.
 SDPRC_VAR = 1.5
 SDPRC_MEAN = -2.
 
+def toTypeOrNone(t,atype=TTYPE):
+    return t if t is None else t.type(atype)
+
+class dataWriter(csv.writer):
+    def writedatarow(self,var,val="",u="",r="",c="",id=""):
+        if type(val) is not int:
+            val = float(val)
+        self.writerow([var,u,r,c,val,id])
+
+    def writeheaderrow(self):
+        self.writedatarow(u"var",u"val",u"u",u"r",u"c",u"id")
+
 class EIData:
-    def __init__(self,ns,vs,ids = None):
-        self.ns = ns.type(TTYPE)
-        self.vs = vs if vs is None else vs.type(TTYPE)
+    def __init__(self,ns,vs,
+                    ids = None, ys=None, nus=None,
+                    alpha = None, beta =None, sigmanu =None, sigmabeta=None):
+        self.ns = toTypeOrNone(vs)
+        self.vs = toTypeOrNone(vs)
+        self.ys = toTypeOrNone(ys)
+        self.nus = toTypeOrNone(nus)
+        self.alpha = toTypeOrNone(alpha)
+        self.beta = toTypeOrNone(beta)
+        self.sigmanu = toTypeOrNone(sigmanu)
+        self.sigmabeta = toTypeOrNone(sigmabeta)
         if ids is None:
             self.ids=list(range(self.U))
         else:
             assert len(ids)==self.U
             self.ids = ids
+
+    @reify
+    def ybar(self):
+        return torch.sum(self.ys,0)
 
     @reify
     def tots(self):
@@ -194,6 +218,134 @@ class EIData:
     @reify #NOTE: code duplicated in EISubData
     def getStuff(self):
         return (self.U, self.R, self.C, self.ns, self.vs)
+
+    def saveScenario(self,filename):
+        """
+        Note: for both saveScenario and loadScenario, file format is as follows: (without comments)
+
+        var,u,i,val,id    #field names
+        R,,,3,            #value of R — num races
+        C,,,3,            #value of C — num "candidates"
+        U,,,1000,         #value of U — num precincts
+        v,0,0,10,HOKE:p2  #10 votes for cand 0 in precinct 0. also, id for precinct 0; only present in cand 0 line
+        v,0,1,10,         #10 votes for cand 1 in precinct 0.
+        ...
+        v,2,999,33        #33 votes for cand 2 in precinct 999
+        n,0,0,50          #50 voters of race 0 in precinct 0
+        ....
+        n,2,999,111       #111 voters of race 2 in precinct 999
+
+        """
+        assert not (os.path.exists(filename)) #don't just blindly overwrite!
+        with open(filename,"w", newline="\n") as file:
+            writer = dataWriter(file)
+            writer.writeheaderrow()
+            writer.writedatarow(u"R",self.R)
+            writer.writedatarow(u"C",self.C)
+            writer.writedatarow(u"U",self.U)
+            writer.writedatarow(u"sigmanu",self.sigmanu)
+            writer.writedatarow(u"sigmabeta",self.sigmabeta)
+            if self.alpha is not None:
+                for (c,val) in enumerate(self.alpha):
+                    writer.writedatarow(u"alpha",float(val),c=c)
+            if self.beta is not None:
+                for (r,vals) in enumerate(self.beta):
+                    for (c,val) in enumerate(vals):
+                        writer.writedatarow(u"beta",float(val),r=r,c=c)
+            #
+            if self.nus is not None:
+                for (u,pvals) in enumerate(self.nus):
+                    for (r,vals) in enumerate(pvals):
+                        for (c,val) in enumerate(vals):
+                            writer.writedatarow(u"nu",float(val),u=u,r=r,c=c)
+            #
+            if self.ys is not None:
+                for (u,pvals) in enumerate(self.ys):
+                    for (r,vals) in enumerate(pvals):
+                        for (c,val) in enumerate(vals):
+                            writer.writedatarow(u"y",float(val),u=u,r=r,c=c)
+            #
+            for u, (pvs, id) in enumerate(zip(self.vs, self.ids)):
+                for i, v in enumerate(pvs):
+                    if i==0:
+                        writer.writedatarow([u"v",u,i,float(v),id])
+                    else:
+                        writer.writedatarow([u"v",u,i,float(v),u""])
+            #
+            for u, pns in enumerate(self.ns):
+                for i, n in enumerate(pns):
+                    writer.writedatarow([u"n",u,i,float(n),u""])
+
+    @classmethod
+    def loadScenario(cls, filename): #Throws error on failure; use inside a try block.
+        with open(filename,"r") as file:
+            reader = csv.reader(file)
+            header = next(reader)
+            vs, ns = (None, None)
+            ys = nus = alpha = beta = sigmanu = sigmabeta = None
+            for line in reader:
+                var, u, r, c, val, id = line
+                u, r, c = [int(a) for a in [u or 0,r or 0,c or 0]]
+                if var==u"R":
+                    ddp("R",type(val),val)
+                    R = int(val)
+                    continue
+                if var==u"C":
+                    ddp("C",type(val),val)
+                    C = int(val)
+                    continue
+                if var==u"U":
+                    ddp("U",type(val),val)
+                    U = int(val)
+                    continue
+                if var==u"sigmanu":
+                    sigmanu = float(val)
+                    continue
+                if var==u"sigmabeta":
+                    sigmabeta = float(val)
+                    continue
+                if var==u"alpha":
+                    if alpha is None:
+                        alpha = -torch.ones(C)
+                    alpha[c] = float(val)
+                    continue
+                if var==u"beta":
+                    if beta is None:
+                        beta = -torch.ones(R,C)
+                    beta[r,c] = float(val)
+                    continue
+                if var==u"nu":
+                    if nus is None:
+                        nus = -torch.ones(U,R,C)
+                    nus[u,r,c] = float(val)
+                    continue
+                if var==u"y":
+                    if ys is None:
+                        ys = -torch.ones(U,R,C)
+                    ys[u,r,c] = float(val)
+                    continue
+                if var==u"v":
+                    if vs is None:
+                        vs = -torch.ones(U,C)
+                        ids = [None] * U
+                    vs[u,i] = float(val)
+                    if id != "":
+                        ids[u] = id
+                    continue
+                if var==u"n":
+                    if ns is None:
+                        ns = -torch.ones(U,R)
+                    ns[u,i] = float(val)
+                    continue
+            #
+            #dp("ns:",ns)
+            #dp("vs:",vs)
+            assert torch.all(ns>0) #race counts strictly positive
+            assert torch.all(vs+.1>0) #vote counts non-negative
+            assert all(ids) #ids all exist
+        data = cls(ns, vs, ids, ys, nus,
+                    alpha, beta, sigmanu, sigmabeta)
+        return data
 
 #A "decorator"-ish thingy to make it easy to tell EISubData to look it up in full data.
 def sub(**kwargs): #I really hate typing quotation marks
@@ -356,7 +508,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, *args, **k
         ddp(f"y[0]:{y[0]}")
         vs = torch.sum(y,1)
 
-        return EIData(ns,vs,data.ids)
+        return EIData(ns,vs,data.ids,y, logits - ec - erc, ec, erc, sdprc, sdrc)
 
     ddp("model:end", sizes(ns,vs,ec,erc,logits,y))
 
@@ -968,94 +1120,17 @@ def nameWithParams(filebase, data, S=None):
         filename = (f"{filebase}_N{data.U}_S{S}.csv")
     return filename
 
-def saveScenario(data,filename):
-    """
-    Note: for both saveScenario and loadScenario, file format is as follows: (without comments)
-
-    var,u,i,val,id    #field names
-    R,,,3,            #value of R — num races
-    C,,,3,            #value of C — num "candidates"
-    U,,,1000,         #value of U — num precincts
-    v,0,0,10,HOKE:p2  #10 votes for cand 0 in precinct 0. also, id for precinct 0; only present in cand 0 line
-    v,0,1,10,         #10 votes for cand 1 in precinct 0.
-    ...
-    v,2,999,33        #33 votes for cand 2 in precinct 999
-    n,0,0,50          #50 voters of race 0 in precinct 0
-    ....
-    n,2,999,111       #111 voters of race 2 in precinct 999
-
-    """
-    assert not (os.path.exists(filename)) #don't just blindly overwrite!
-    with open(filename,"w", newline="\n") as file:
-        writer = csv.writer(file)
-        writer.writerow([u"var",u"u",u"i",u"val",u"id"])
-        writer.writerow([u"R",u"",u"",data.R,u""])
-        writer.writerow([u"C",u"",u"",data.C,u""])
-        writer.writerow([u"U",u"",u"",data.U,u""])
-        for u, (pvs, id) in enumerate(zip(data.vs, data.ids)):
-            for i, v in enumerate(pvs):
-                if i==0:
-                    writer.writerow([u"v",u,i,float(v),id])
-                else:
-                    writer.writerow([u"v",u,i,float(v),u""])
-        #
-        for u, pns in enumerate(data.ns):
-            for i, n in enumerate(pns):
-                writer.writerow([u"n",u,i,float(n),u""])
-
-def loadScenario(filename): #Throws error on failure; use inside a try block.
-    with open(filename,"r") as file:
-        reader = csv.reader(file)
-        header = next(reader)
-        vs, ns = (None, None)
-        for line in reader:
-            var, u, i, val, id = line
-            u, i = [int(a) for a in [u or 0,i or 0]]
-            if var==u"R":
-                ddp("R",type(val),val)
-                R = int(val)
-                continue
-            if var==u"C":
-                ddp("C",type(val),val)
-                C = int(val)
-                continue
-            if var==u"U":
-                ddp("U",type(val),val)
-                U = int(val)
-                continue
-            if var==u"v":
-                if vs is None:
-                    vs = -torch.ones(U,C)
-                    ids = [None] * U
-                vs[u,i] = float(val)
-                if id != "":
-                    ids[u] = id
-                continue
-            if var==u"n":
-                if ns is None:
-                    ns = -torch.ones(U,R)
-                ns[u,i] = float(val)
-                continue
-        #
-        #dp("ns:",ns)
-        #dp("vs:",vs)
-        assert torch.all(ns>0) #race counts strictly positive
-        assert torch.all(vs+.1>0) #vote counts non-negative
-        assert all(ids) #ids all exist
-    data = EIData(ns,vs,ids)
-    return data
-
 def createOrLoadScenario(dummy_data = DUMMY_DATA,
             filebase="eiresults/"):
     filename = nameWithParams(filebase + "scenario", dummy_data)
     try:
-        data = loadScenario(filename)
+        data = EIData.loadScenario(filename)
         print(filename, "from file")
     except IOError as e:
         print("exception:",e)
         assert not (os.path.exists(filename)) #don't just blindly overwrite!
         data = model(dummy_data)
-        saveScenario(data,filename)
+        data.saveScenario(filename)
         print(filename, "created")
     return data
 
