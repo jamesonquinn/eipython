@@ -266,15 +266,15 @@ class EIData:
                             writer.writedatarow(u"y",float(val),u=u,r=r,c=c)
             #
             for u, (pvs, id) in enumerate(zip(self.vs, self.ids)):
-                for i, v in enumerate(pvs):
-                    if i==0:
-                        writer.writedatarow([u"v",u,i,float(v),id])
+                for c, v in enumerate(pvs):
+                    if c==0:
+                        writer.writedatarow(u"v",u=u,c=c,val=float(v),id=id)
                     else:
-                        writer.writedatarow([u"v",u,i,float(v),u""])
+                        writer.writedatarow(u"v",u=u,c=c,val=float(v))
             #
             for u, pns in enumerate(self.ns):
-                for i, n in enumerate(pns):
-                    writer.writedatarow([u"n",u,i,float(n),u""])
+                for r, n in enumerate(pns):
+                    writer.writedatarow(u"n",u=u,r=r,val=float(v),id=id)
 
     @classmethod
     def loadScenario(cls, filename): #Throws error on failure; use inside a try block.
@@ -343,6 +343,8 @@ class EIData:
             assert torch.all(ns>0) #race counts strictly positive
             assert torch.all(vs+.1>0) #vote counts non-negative
             assert all(ids) #ids all exist
+        ddp("alpha",alpha)
+        ddp("beta",beta)
         data = cls(ns, vs, ids, ys, nus,
                     alpha, beta, sigmanu, sigmabeta)
         return data
