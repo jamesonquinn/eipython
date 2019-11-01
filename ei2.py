@@ -103,6 +103,10 @@ SDRC_MEAN = 1.
 SDPRC_VAR = 1.5
 SDPRC_MEAN = -2.
 
+def MVN(mean,covariance,*args,**kwargs):
+    return dist.MultivariateNormal(mean,covariance,*args,**kwargs)
+    return dist.OMTMultivariateNormal(mean,torch.cholesky(covariance),*args,**kwargs)
+
 def toTypeOrNone(t,atype=TTYPE):
     return t.type(atype) if torch.is_tensor(t) else t
 
@@ -841,7 +845,8 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
     #dp(-neg_big_hessian[:6,:3])
 
     gamma = pyro.sample('gamma',
-                    dist.OMTMultivariateNormal(gamma_mean, torch.cholesky(big_arrow.marginal_gg_cov())),
+                    #dist.OMTMultivariateNormal(gamma_mean, torch.cholesky(big_arrow.marginal_gg_cov())),
+                    MVN(gamma_mean, big_arrow.marginal_gg_cov()),
                     infer={'is_auxiliary': True})
     g_delta = gamma - gamma_mean
 
@@ -908,7 +913,9 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
 
         try:
             pstuff = pyro.sample(f"pstuff_{p}",
-                            dist.OMTMultivariateNormal(adjusted_mean, torch.cholesky(conditional_cov)),
+                            #
+                            #dist.OMTMultivariateNormal(adjusted_mean, torch.cholesky(conditional_cov)),
+                            MVN(adjusted_mean, conditional_cov),
                             infer={'is_auxiliary': True})
 
         except:

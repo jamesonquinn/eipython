@@ -434,11 +434,11 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, nsamps = 1
             -if vs is None, create & return data from model, with that ns
             -otherwise, model conditions on that vs (ie, use for density, not sampling)
     """
-    for i in range(nsamps):
+    for isamp in range(nsamps):
         if nsamps==1:
             iter = ""
         else:
-            iter = f"{i:3}"
+            iter = f"{isamp:3}"
         P, R, C, ns, vs = data.getStuff
 
         prepare_ps = range(P)
@@ -576,7 +576,7 @@ def softmax(t,minval=0.,mult=80.):
         mins = torch.ones_like(t)*minval*mult
     return torch.logsumexp(torch.stack((t*mult,mins)),0)/mult
 
-def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
+def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsamps = 1,
             *args, **kwargs):
     ddp("guide:begin",scale,include_nuisance)
 
@@ -661,7 +661,8 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
     pi = pi_raw / torch.sum(pi_raw,-1).unsqueeze(-1)
 
 
-    log_jacobian_adjustment = torch.tensor(0.)
+    log_jacobian_adjustment_hessian = torch.tensor(0.)
+    log_jacobian_adjustment_elbo = torch.tensor(0.)
 
     #dp("guide:pre-p")
     if True: #don't deindent yet
@@ -689,7 +690,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
         wstars2 = torch.stack(wstars_list)
 
         ystars2,ldaj = polytopizeU(R,C,wstars2,indeps,return_ldaj=True)
-        log_jacobian_adjustment += ldaj
+        log_jacobian_adjustment_hessian += ldaj
 
 
         #get ν̂^(0)
@@ -751,7 +752,8 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
     for k,v in chain(gamma_star_data.items(),pstar_data.items(),fstar_data.items()):
         if k in transformation:
             transformed_star_data[k],ldaj = transformation[k](v,return_ldaj=True)
-            log_jacobian_adjustment += ldaj
+            log_jacobian_adjustment_elbo += ldaj
+            log_jacobian_adjustment_hessian += ldaj
         else:
             transformed_star_data[k] = v
 
@@ -761,8 +763,8 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
     #dp("line ",lineno())
     mytrace = poutine.block(poutine.trace(hess_center).get_trace)(data, scale, include_nuisance)
     #dp("line ",lineno(),P,R,C)
-    log_posterior = mytrace.log_prob_sum()+log_jacobian_adjustment
-    ddp("lp: ",log_posterior,log_jacobian_adjustment,lineno())
+    log_posterior = mytrace.log_prob_sum()+log_jacobian_adjustment_hessian
+    ddp("lp: ",log_posterior,log_jacobian_adjustment_hessian,lineno())
 
 
 
@@ -804,18 +806,10 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
                     return_grad=True)
 
 
-    ##################################################################
-    # Put Jacobian into guide density
-    ##################################################################
-    stupid = torch.exp(-log_jacobian_adjustment)
-    if (stupid>0):
-        junk = pyro.sample("jacobian",
-                        dist.Uniform(torch.zeros(1), stupid),
-                        infer={'is_auxiliary': True}) #there's probably a better way but whatevs.
-    ##################################################################
-    # Sample gamma (globals)
-    ##################################################################
 
+    ##################################################################
+    # Psis
+    ##################################################################
     #declare global-level psi params
     globalpsi = get_param(inits,'globalpsi',torch.ones(gamma_dims)*BASE_PSI,
                 constraint=constraints.positive)
@@ -823,145 +817,159 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
     precinctpsi = get_param(inits,'precinctpsi',BASE_PSI * torch.ones(dims_per_unit),
                 constraint=constraints.positive)
 
-    #dp"setpsis",sizes(globalpsi,precinctpsi))
-    big_arrow.setpsis(globalpsi,precinctpsi)
-    big_arrow.weights = [scale] * P
-
-    #head_precision, head_adjustment,  = rescaledSDD(-neg_big_hessian,combinedpsi) #TODO: in-place
-
-
-    #gamma_info = big_hessian[:gamma_dims,:gamma_dims]
-
-    all_means = torch.cat([tpart.contiguous().view(-1) for tpart in mean_stars_in_sampling_order],0)
-    #dp("all_means",all_means)
-    #dp(torch.any(torch.isnan(torch.diag(neg_big_hessian))),torch.any(torch.isnan(torch.diag(big_hessian))))
-    gamma_mean = all_means[:gamma_dims]
-    #dp("detirminants",np.linalg.det(gamma_info.detach()),np.linalg.det(big_hessian.detach()))
-    #dp(gamma_info[:3,:3])
-    #dp(-neg_big_hessian[:6,:3])
-
-    gamma = pyro.sample('gamma',
-                    dist.OMTMultivariateNormal(gamma_mean, torch.cholesky(big_arrow.marginal_gg_cov())),
-                    infer={'is_auxiliary': True})
-    g_delta = gamma - gamma_mean
-
-    #decompose gamma into specific values
-    tmpgamma = gamma
-    for pname, pstar in gamma_star_data.items():
-        elems = pstar.nelement()
-        pdat, tmpgamma = tmpgamma[:elems], tmpgamma[elems:]
-        #dp(f"adding {pname} from gamma ({elems}, {pstar.size()}, {tmpgamma.size()}, {pdat})" )
-
-        if pname in transformation:
-            pyro.sample(pname, dist.Delta(transformation[pname](pdat.view(pstar.size())))
-                                .to_event(len(list(pstar.size())))) #TODO: reshape after transformation, not just before???
-        else:
-            pyro.sample(pname, dist.Delta(pdat.view(pstar.size()))
-                                .to_event(len(list(pstar.size()))))
-    assert list(tmpgamma.size())[0] == 0
-
-
-    for k,v in fstar_data.items():
-        pyro.sample(k, dist.Delta(transformation[k](v)))
-
-
-
     ##################################################################
-    # Sample lambda_i (locals)
+    # Loop (multiple particles)
     ##################################################################
-
-    #TODO: uncomment the following, which is fancy logic for learning what fraction of a Newton's method step to take
-
-    #precinct_newton_step_multiplier_logit = pyro.param(
-    #        'precinct_newton_step_multiplier_logit',ts(0.))
-    #epnsml = torch.exp(precinct_newton_step_multiplier_logit)
-    step_mult = MAX_NEWTON_STEP #* epnsml / (1 + epnsml)
-    wsamps = []
-    logit_samps = []
-    adjusted_means = []
-    global_indices = ts(range(gamma_dims))
-    for p in range(P):
-
-
-        precinct_indices = ts(range(gamma_dims + p*dims_per_unit, gamma_dims + (p+1)*dims_per_unit))
-
-        #dp(f"gamma_1p_hess:{P},{p},{B},{P//B},{len(big_HWs)},{big_HWs[p//B].size()},")
-        #dp(f"HW2:{big_HWs[p//B].size()},{list(full_indices)}")
-        conditional_mean, conditional_cov = big_arrow.conditional_ll_mcov(p,g_delta,
-                                all_means.index_select(0,precinct_indices))
-
-        precinct_cov = big_arrow.llinvs[p] #for Newton's method, not for sampling #TODO: This is actually the same as conditional_cov; remove?
-
-        precinct_grad = big_grad.index_select(0,precinct_indices) #[gamma_dims + pp*(R-1)*(C-1): gamma_dims + (pp+1)*(R-1)*(C-1)]
-
-        #dp("precinct:::",gamma_1p_hess.size(),precinct_cov.size(),big_grad.size(),precinct_grad.size(),)
-        if include_nuisance:
-            adjusted_mean_raw = conditional_mean + step_mult * torch.mv(precinct_cov, precinct_grad)
-            adjusted_mean = adjusted_mean_raw.detach() * NEW_DETACHED_FRACTION + adjusted_mean_raw * (1 - NEW_DETACHED_FRACTION)
-                                 #one (partial, as defined by step_mult) step of Newton's method
-                                 #Note: this applies to both ws and nus (eprcs). I was worried about whether that was circular logic but I talked with Mira and we both think it's actually principled.
+    for isamp in range(nsamps):
+        if nsamps==1:
+            iter = ""
         else:
-            adjusted_mean = conditional_mean
+            iter = f"{isamp:3}"
+        ##################################################################
+        # Sample gamma (globals)
+        ##################################################################
 
 
-        adjusted_means.append(adjusted_mean)
+        #dp"setpsis",sizes(globalpsi,precinctpsi))
+        big_arrow.setpsis(globalpsi,precinctpsi)
+        big_arrow.weights = [scale] * P
 
-        try:
-            pstuff = pyro.sample(f"pstuff_{p}",
-                            dist.OMTMultivariateNormal(adjusted_mean, torch.cholesky(conditional_cov)),
-                            infer={'is_auxiliary': True})
+        #head_precision, head_adjustment,  = rescaledSDD(-neg_big_hessian,combinedpsi) #TODO: in-place
 
-        except:
-            ddp("error sampling pstuff",p,conditional_cov.size())
-            print(conditional_cov)
-            rawp = big_arrow.raw_lls[p]
-            print(rawp)
-            print(f"""dets:{np.linalg.det(conditional_cov.data.numpy())},
-                    {np.linalg.det(rawp.data.numpy())},
-                    {np.linalg.det(big_arrow.gg.data.numpy())},
-                    {np.linalg.det(big_arrow._mgg.data.numpy())},""")
-            print("mean",adjusted_mean.size())
-            raise
-        w_raw = pstuff[:(R-1)*(C-1)]
-        wsamps.append(w_raw.view(R-1,C-1))
-        #y = polytopize(R,C,w_raw.view(R-1,C-1),indeps[p])
-        #ysamps.append(y.view(1,R,C))
 
-        if include_nuisance:
-            logit = pstuff[(R-1)*(C-1):].view(1,R,C)
-            logit_samps.append(logit)
+        #gamma_info = big_hessian[:gamma_dims,:gamma_dims]
 
-    with all_sampled_ps():
-        ws = torch.stack(wsamps)
-        ys = polytopizeU(R,C,ws,indeps)
-        if not torch.all(torch.isfinite(ys)):
-            for p in range(P):
-                if not torch.all(torch.isfinite(ys[p,:,:])):
-                    ddp("nan in ys for precinct",p)
-                    print(ys[p,:,:])
-                    if include_nuisance:
-                        print(logit_samps[p])
-                    #
-                    ddp("ns",ns[p])
-                    ddp("vs",vs[p])
-                    ddp("ecstar",ecstar)
-                    ddp("ercstar",ercstar)
-        pyro.sample("y", dist.Delta(ys).to_event(2))
+        all_means = torch.cat([tpart.contiguous().view(-1) for tpart in mean_stars_in_sampling_order],0)
+        #dp("all_means",all_means)
+        #dp(torch.any(torch.isnan(torch.diag(neg_big_hessian))),torch.any(torch.isnan(torch.diag(big_hessian))))
+        gamma_mean = all_means[:gamma_dims]
+        #dp("detirminants",np.linalg.det(gamma_info.detach()),np.linalg.det(big_hessian.detach()))
+        #dp(gamma_info[:3,:3])
+        #dp(-neg_big_hessian[:6,:3])
 
-        if include_nuisance:
-            logit_samp_tensor = torch.cat(logit_samps,0)
-            if not torch.all(torch.isfinite(logit_samp_tensor)):
-                ddp("logits!!")
+        gamma = pyro.sample(f'{iter}gamma',
+                        dist.OMTMultivariateNormal(gamma_mean, torch.cholesky(big_arrow.marginal_gg_cov())),
+                        infer={'is_auxiliary': True})
+        g_delta = gamma - gamma_mean
+
+        #decompose gamma into specific values
+        tmpgamma = gamma
+        for pname, pstar in gamma_star_data.items():
+            elems = pstar.nelement()
+            pdat, tmpgamma = tmpgamma[:elems], tmpgamma[elems:]
+            #dp(f"adding {pname} from gamma ({elems}, {pstar.size()}, {tmpgamma.size()}, {pdat})" )
+
+            if pname in transformation:
+                pyro.sample(pname, dist.Delta(transformation[pname](pdat.view(pstar.size())))
+                                    .to_event(len(list(pstar.size())))) #TODO: reshape after transformation, not just before???
+            else:
+                pyro.sample(pname, dist.Delta(pdat.view(pstar.size()))
+                                    .to_event(len(list(pstar.size()))))
+        assert list(tmpgamma.size())[0] == 0
+
+
+        for k,v in fstar_data.items():
+            pyro.sample(k, dist.Delta(transformation[k](v)))
+
+
+
+        ##################################################################
+        # Sample lambda_i (locals)
+        ##################################################################
+
+        #TODO: uncomment the following, which is fancy logic for learning what fraction of a Newton's method step to take
+
+        #precinct_newton_step_multiplier_logit = pyro.param(
+        #        'precinct_newton_step_multiplier_logit',ts(0.))
+        #epnsml = torch.exp(precinct_newton_step_multiplier_logit)
+        step_mult = MAX_NEWTON_STEP #* epnsml / (1 + epnsml)
+        wsamps = []
+        logit_samps = []
+        adjusted_means = []
+        global_indices = ts(range(gamma_dims))
+        for p in range(P):
+
+
+            precinct_indices = ts(range(gamma_dims + p*dims_per_unit, gamma_dims + (p+1)*dims_per_unit))
+
+            #dp(f"gamma_1p_hess:{P},{p},{B},{P//B},{len(big_HWs)},{big_HWs[p//B].size()},")
+            #dp(f"HW2:{big_HWs[p//B].size()},{list(full_indices)}")
+            conditional_mean, conditional_cov = big_arrow.conditional_ll_mcov(p,g_delta,
+                                    all_means.index_select(0,precinct_indices))
+
+            precinct_cov = big_arrow.llinvs[p] #for Newton's method, not for sampling #TODO: This is actually the same as conditional_cov; remove?
+
+            precinct_grad = big_grad.index_select(0,precinct_indices) #[gamma_dims + pp*(R-1)*(C-1): gamma_dims + (pp+1)*(R-1)*(C-1)]
+
+            #dp("precinct:::",gamma_1p_hess.size(),precinct_cov.size(),big_grad.size(),precinct_grad.size(),)
+            if include_nuisance:
+                adjusted_mean_raw = conditional_mean + step_mult * torch.mv(precinct_cov, precinct_grad)
+                adjusted_mean = adjusted_mean_raw.detach() * NEW_DETACHED_FRACTION + adjusted_mean_raw * (1 - NEW_DETACHED_FRACTION)
+                                     #one (partial, as defined by step_mult) step of Newton's method
+                                     #Note: this applies to both ws and nus (eprcs). I was worried about whether that was circular logic but I talked with Mira and we both think it's actually principled.
+            else:
+                adjusted_mean = conditional_mean
+
+
+            adjusted_means.append(adjusted_mean)
+
+            try:
+                pstuff = pyro.sample(f"pstuff_{p}",
+                                dist.OMTMultivariateNormal(adjusted_mean, torch.cholesky(conditional_cov)),
+                                infer={'is_auxiliary': True})
+
+            except:
+                ddp("error sampling pstuff",p,conditional_cov.size())
+                print(conditional_cov)
+                rawp = big_arrow.raw_lls[p]
+                print(rawp)
+                print(f"""dets:{np.linalg.det(conditional_cov.data.numpy())},
+                        {np.linalg.det(rawp.data.numpy())},
+                        {np.linalg.det(big_arrow.gg.data.numpy())},
+                        {np.linalg.det(big_arrow._mgg.data.numpy())},""")
+                print("mean",adjusted_mean.size())
+                raise
+            w_raw = pstuff[:(R-1)*(C-1)]
+            wsamps.append(w_raw.view(R-1,C-1))
+            #y = polytopize(R,C,w_raw.view(R-1,C-1),indeps[p])
+            #ysamps.append(y.view(1,R,C))
+
+            if include_nuisance:
+                logit = pstuff[(R-1)*(C-1):].view(1,R,C)
+                logit_samps.append(logit)
+
+        with all_sampled_ps():
+            ws = torch.stack(wsamps)
+            ys,ldaj = polytopizeU(R,C,ws,indeps,return_ldaj=True)
+            log_jacobian_adjustment_elbo += ldaj
+            if not torch.all(torch.isfinite(ys)):
                 for p in range(P):
-                    if not torch.all(torch.isfinite(logit_samp_tensor[p,:,:])):
-                        ddp("nan in nus for precinct",p)
-                        print(logit_samp_tensor[p])
-                        print(ysamps[p])
+                    if not torch.all(torch.isfinite(ys[p,:,:])):
+                        ddp("nan in ys for precinct",p)
+                        print(ys[p,:,:])
+                        if include_nuisance:
+                            print(logit_samps[p])
+                        #
                         ddp("ns",ns[p])
                         ddp("vs",vs[p])
                         ddp("ecstar",ecstar)
                         ddp("ercstar",ercstar)
-            pyro.sample("logits", dist.Delta(logit_samp_tensor).to_event(2))
+            pyro.sample("y", dist.Delta(ys).to_event(2))
+
+            if include_nuisance:
+                logit_samp_tensor = torch.cat(logit_samps,0)
+                if not torch.all(torch.isfinite(logit_samp_tensor)):
+                    ddp("logits!!")
+                    for p in range(P):
+                        if not torch.all(torch.isfinite(logit_samp_tensor[p,:,:])):
+                            ddp("nan in nus for precinct",p)
+                            print(logit_samp_tensor[p])
+                            print(ysamps[p])
+                            ddp("ns",ns[p])
+                            ddp("vs",vs[p])
+                            ddp("ecstar",ecstar)
+                            ddp("ercstar",ercstar)
+                pyro.sample("logits", dist.Delta(logit_samp_tensor).to_event(2))
 
 
     ##################################################################
@@ -1009,10 +1017,19 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
     #no sdprc2 fix_grad. That's deliberate; the use of sdprc is an ugly hack and that error shouldn't bias the estimate of sdprc
 
 
+    ##################################################################
+    # Put Jacobian into guide density
+    ##################################################################
+    stupid = torch.exp(-log_jacobian_adjustment_elbo)
+    if (stupid>0):
+        junk = pyro.sample("jacobian",
+                        dist.Uniform(torch.zeros(1), stupid),
+                        infer={'is_auxiliary': True}) #there's probably a better way but whatevs.
 
     ##################################################################
     # Return values, debugging, cleanup.
     ##################################################################
+
 
     if DEBUG_ARROWHEAD: #debug arrowheads
         mini_indices = torch.tensor(range(2))
