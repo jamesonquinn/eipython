@@ -78,7 +78,7 @@ SIGMA_NU_PRECISION_BOOST = 0. #4. #-> max sd = .5.;; Neutral = 1., but defensibl
 SIGMA_NU_DETACHED_FRACTION = 1. #Neutral = 0. but very defensible up to 1. Moreover, seems to work!
 
 NSTEPS = 5000
-SUBSET_SIZE = 50
+SUBSET_SIZE = 30
 #BIG_PRIME = 73 #Wow, that's big!
 
 FAKE_VOTERS_PER_RACE = 1.
@@ -506,7 +506,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, nsamps = 1
                             ddp(logits[p])
                             ddp(ec)
                             ddp(erc)
-                y = pyro.sample(f"y",
+                y = pyro.sample(f"{iter}y",
                             CMult(1000,logits=logits).to_event(1))
                             #dim P, R, C from plate, to_event, CMult
                             #note that n is totally fake — sums are what matter.
@@ -656,7 +656,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
 
 
     log_jacobian_adjustment_hessian = torch.tensor(0.)
-    log_jacobian_adjustment_elbo = torch.tensor(0.)
+    log_jacobian_adjustment_elbo_global = torch.tensor(0.)
 
     #dp("guide:pre-p")
     if True: #don't deindent yet
@@ -709,7 +709,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
             eprcstars = STARPOINT_AS_PORTION_OF_NU_ESTIMATE* logresidual_raw*lr_prec_of_like/SDS_TO_SHRINK_BY/(lr_prec_of_like/SDS_TO_SHRINK_BY + 1/sdprc**2)
             if do_print:
                 print("sds:",logresidual_raw.std(),sdprc,eprcstars.std(),
-                        sqrt(softmax(logresidual_raw.var()-SDS_TO_REDUCE_BY * torch.mean(lr_sd_of_like**2)))
+                        torch.sqrt(softmax(logresidual_raw.var()-SDS_TO_REDUCE_BY * torch.mean(lr_sd_of_like**2))))
             #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
             eprcstars_list = [eprcstar for eprcstar in eprcstars]
             eprcstars2 = torch.stack(eprcstars_list)
@@ -746,7 +746,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
     for k,v in chain(gamma_star_data.items(),pstar_data.items(),fstar_data.items()):
         if k in transformation:
             transformed_star_data[k],ldaj = transformation[k](v,return_ldaj=True)
-            log_jacobian_adjustment_elbo += ldaj
+            log_jacobian_adjustment_elbo_global += ldaj
             log_jacobian_adjustment_hessian += ldaj
         else:
             transformed_star_data[k] = v
@@ -811,11 +811,19 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
     precinctpsi = get_param(inits,'precinctpsi',BASE_PSI * torch.ones(dims_per_unit),
                 constraint=constraints.positive)
 
+    #dp"setpsis",sizes(globalpsi,precinctpsi))
+    big_arrow.setpsis(globalpsi,precinctpsi)
+    big_arrow.weights = [scale] * P
+
+
     ##################################################################
-    # "Empirical bayes" parameters — just optimize, don't get distribution
+    # Put Jacobian into guide density
     ##################################################################
-    for k,v in fstar_data.items():
-        pyro.sample(k, dist.Delta(transformation[k](v)))
+    stupid_global = torch.exp(-log_jacobian_adjustment_elbo_global)
+    if stupid_global>0:
+        junk = pyro.sample("jacobian",
+                        dist.Uniform(torch.zeros(1), stupid_global),
+                        infer={'is_auxiliary': True}) #there's probably a better way but whatevs.
 
     ##################################################################
     # Loop (multiple particles)
@@ -823,12 +831,17 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
     gamma_chol = torch.cholesky(big_arrow.marginal_gg_cov())
     lambda_chols = [torch.cholesky(big_arrow.llinvs[p]) for p in range(P)]
     for isamp in range(nsamps):
-
+        log_jacobian_adjustment_elbo_local = torch.zeros(1)
         if nsamps==1:
             iter = ""
         else:
             iter = f"{isamp:3}"
 
+        ##################################################################
+        # "Empirical bayes" parameters — just optimize, don't get distribution
+        ##################################################################
+        for k,v in fstar_data.items():
+            pyro.sample(iter+k, dist.Delta(transformation[k](v)))
 
         prepare_ps = range(P) #for dealing with stared quantities (no pyro.sample)
         ps_plate = pyro.plate(f'{iter}all_sampled_ps',P)
@@ -842,9 +855,6 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
         ##################################################################
 
 
-        #dp"setpsis",sizes(globalpsi,precinctpsi))
-        big_arrow.setpsis(globalpsi,precinctpsi)
-        big_arrow.weights = [scale] * P
 
         #head_precision, head_adjustment,  = rescaledSDD(-neg_big_hessian,combinedpsi) #TODO: in-place
 
@@ -913,7 +923,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
 
             #dp("precinct:::",gamma_1p_hess.size(),precinct_cov.size(),big_grad.size(),precinct_grad.size(),)
             if include_nuisance:
-                adjusted_mean_raw = conditional_mean + step_mult * torch.mv(precinct_cov, precinct_grad)
+                adjusted_mean_raw = conditional_mean + step_mult * torch.mv(big_arrow.llinvs[p], precinct_grad)
                 adjusted_mean = adjusted_mean_raw.detach() * NEW_DETACHED_FRACTION + adjusted_mean_raw * (1 - NEW_DETACHED_FRACTION)
                                      #one (partial, as defined by step_mult) step of Newton's method
                                      #Note: this applies to both ws and nus (eprcs). I was worried about whether that was circular logic but I talked with Mira and we both think it's actually principled.
@@ -924,7 +934,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
             adjusted_means.append(adjusted_mean)
 
             try:
-                pstuff = pyro.sample(f"pstuff_{p}",
+                pstuff = pyro.sample(f"{iter}pstuff_{p}",
                                 dist.OMTMultivariateNormal(adjusted_mean, lambda_chols[p]),
                                 infer={'is_auxiliary': True})
 
@@ -951,7 +961,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
         with all_sampled_ps():
             ws = torch.stack(wsamps)
             ys,ldaj = polytopizeU(R,C,ws,indeps,return_ldaj=True)
-            log_jacobian_adjustment_elbo += ldaj
+            log_jacobian_adjustment_elbo_local += ldaj
             if not torch.all(torch.isfinite(ys)):
                 for p in range(P):
                     if not torch.all(torch.isfinite(ys[p,:,:])):
@@ -964,7 +974,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
                         ddp("vs",vs[p])
                         ddp("ecstar",ecstar)
                         ddp("ercstar",ercstar)
-            pyro.sample("y", dist.Delta(ys).to_event(2))
+            pyro.sample(f"{iter}y", dist.Delta(ys).to_event(2))
 
             if include_nuisance:
                 logit_samp_tensor = torch.cat(logit_samps,0)
@@ -979,8 +989,17 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
                             ddp("vs",vs[p])
                             ddp("ecstar",ecstar)
                             ddp("ercstar",ercstar)
-                pyro.sample("logits", dist.Delta(logit_samp_tensor).to_event(2))
+                pyro.sample(f"{iter}logits", dist.Delta(logit_samp_tensor).to_event(2))
 
+
+        ##################################################################
+        # Put local Jacobian into guide density
+        ##################################################################
+        stupid_local = torch.exp(-log_jacobian_adjustment_elbo_local)
+        if stupid_local>0:
+            junk = pyro.sample(f"{iter}jacobian",
+                            dist.Uniform(torch.zeros(1), stupid_local),
+                            infer={'is_auxiliary': True}) #there's probably a better way but whatevs.
 
     ##################################################################
     # ensure gradients get to the right place
@@ -1027,14 +1046,6 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
     #no sdprc2 fix_grad. That's deliberate; the use of sdprc is an ugly hack and that error shouldn't bias the estimate of sdprc
 
 
-    ##################################################################
-    # Put Jacobian into guide density
-    ##################################################################
-    stupid = torch.exp(-log_jacobian_adjustment_elbo)
-    if (stupid>0):
-        junk = pyro.sample("jacobian",
-                        dist.Uniform(torch.zeros(1), stupid),
-                        infer={'is_auxiliary': True}) #there's probably a better way but whatevs.
 
     ##################################################################
     # Return values, debugging, cleanup.
