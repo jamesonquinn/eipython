@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "1.2.a3"
+EI_VERSION = "m1.3.0"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -589,12 +589,6 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
     R = len(ns[1])
     C = len(vs[1])
 
-    prepare_ps = range(P) #for dealing with stared quantities (no pyro.sample)
-    ps_plate = pyro.plate('all_sampled_ps',P)
-    @contextlib.contextmanager
-    def all_sampled_ps(): #for dealing with unstared quantities (include pyro.sample)
-        with ps_plate as p, poutine.scale(scale=scale) as pscale:
-            yield p
 
     ##################################################################
     # Get guide parameters (stars)
@@ -818,13 +812,31 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
                 constraint=constraints.positive)
 
     ##################################################################
+    # "Empirical bayes" parameters — just optimize, don't get distribution
+    ##################################################################
+    for k,v in fstar_data.items():
+        pyro.sample(k, dist.Delta(transformation[k](v)))
+
+    ##################################################################
     # Loop (multiple particles)
     ##################################################################
+    gamma_chol = torch.cholesky(big_arrow.marginal_gg_cov())
+    lambda_chols = [torch.cholesky(big_arrow.llinvs[p]) for p in range(P)]
     for isamp in range(nsamps):
+
         if nsamps==1:
             iter = ""
         else:
             iter = f"{isamp:3}"
+
+
+        prepare_ps = range(P) #for dealing with stared quantities (no pyro.sample)
+        ps_plate = pyro.plate(f'{iter}all_sampled_ps',P)
+        @contextlib.contextmanager
+        def all_sampled_ps(): #for dealing with unstared quantities (include pyro.sample)
+            with ps_plate as p, poutine.scale(scale=scale) as pscale:
+                yield p
+
         ##################################################################
         # Sample gamma (globals)
         ##################################################################
@@ -848,7 +860,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
         #dp(-neg_big_hessian[:6,:3])
 
         gamma = pyro.sample(f'{iter}gamma',
-                        dist.OMTMultivariateNormal(gamma_mean, torch.cholesky(big_arrow.marginal_gg_cov())),
+                        dist.OMTMultivariateNormal(gamma_mean, gamma_chol),
                         infer={'is_auxiliary': True})
         g_delta = gamma - gamma_mean
 
@@ -860,16 +872,14 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
             #dp(f"adding {pname} from gamma ({elems}, {pstar.size()}, {tmpgamma.size()}, {pdat})" )
 
             if pname in transformation:
-                pyro.sample(pname, dist.Delta(transformation[pname](pdat.view(pstar.size())))
+                pyro.sample(iter+pname, dist.Delta(transformation[pname](pdat.view(pstar.size())))
                                     .to_event(len(list(pstar.size())))) #TODO: reshape after transformation, not just before???
             else:
-                pyro.sample(pname, dist.Delta(pdat.view(pstar.size()))
+                pyro.sample(iter+pname, dist.Delta(pdat.view(pstar.size()))
                                     .to_event(len(list(pstar.size()))))
         assert list(tmpgamma.size())[0] == 0
 
 
-        for k,v in fstar_data.items():
-            pyro.sample(k, dist.Delta(transformation[k](v)))
 
 
 
@@ -897,7 +907,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
             conditional_mean, conditional_cov = big_arrow.conditional_ll_mcov(p,g_delta,
                                     all_means.index_select(0,precinct_indices))
 
-            precinct_cov = big_arrow.llinvs[p] #for Newton's method, not for sampling #TODO: This is actually the same as conditional_cov; remove?
+            #precinct_cov = big_arrow.llinvs[p] #for Newton's method, not for sampling #TODO: This is actually the same as conditional_cov; remove?
 
             precinct_grad = big_grad.index_select(0,precinct_indices) #[gamma_dims + pp*(R-1)*(C-1): gamma_dims + (pp+1)*(R-1)*(C-1)]
 
@@ -915,7 +925,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
 
             try:
                 pstuff = pyro.sample(f"pstuff_{p}",
-                                dist.OMTMultivariateNormal(adjusted_mean, torch.cholesky(conditional_cov)),
+                                dist.OMTMultivariateNormal(adjusted_mean, lambda_chols[p]),
                                 infer={'is_auxiliary': True})
 
             except:
@@ -1208,7 +1218,7 @@ def good_inits(shrink=1.,sd=False,noise=0.):
 
 def trainGuide(subsample_n = SUBSET_SIZE,
             filebase = "eiresults/",
-            nparticles=1,inits=dict()): #honestly if I use nparticles, I should rewrite model&guide to both be over multiple samples. But including here now because it's easy.
+            nsamps=1,inits=dict()):
     resetDebugCounts()
 
     # Let's generate voting data. I'm conditioning concentration=1 for numerical stability.
@@ -1220,7 +1230,7 @@ def trainGuide(subsample_n = SUBSET_SIZE,
 
 
     # Now let's train the guide.
-    svi = SVI(model, guide, ClippedAdam({'lr': 0.005}), Trace_ELBO(nparticles))
+    svi = SVI(model, guide, ClippedAdam({'lr': 0.005}), Trace_ELBO(1))
 
     pyro.clear_param_store()
     losses = []
@@ -1242,7 +1252,7 @@ def trainGuide(subsample_n = SUBSET_SIZE,
             indices = torch.tensor(range(N))
         subset =  EISubData(data,indices)
         ddp("svi.step(...",i,scale,subset.indeps.size())
-        loss = svi.step(subset,scale,True,do_print=(i % 10 == 0),
+        loss = svi.step(subset,scale,True,do_print=(i % 10 == 0),nsamps=nsamps,
                 inits=inits)
         if len(losses)==0:
             mean_losses.append(loss)
@@ -1304,7 +1314,7 @@ def trainGuide(subsample_n = SUBSET_SIZE,
                     final_loss = loss
                     )
 
-    saveFit(fitted_model_info, dataToSave, subsample_n, nparticles,i,filebase=filebase)
+    saveFit(fitted_model_info, dataToSave, subsample_n, nsamps,i,filebase=filebase)
     ##
 
     for (key, val) in sorted(pyro.get_param_store().items()):
