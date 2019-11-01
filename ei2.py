@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "1.2.a0"
+EI_VERSION = "1.2.a2"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -67,17 +67,19 @@ BUNCHFAC = 35
 #P=30, BUNCHFAC = 9999: 42/11
 #P=30, BUNCHFAC = 9999: 189/51 2346..1708..1175..864..746
 
-MAX_NEWTON_STEP = 1. #currently, just taking this much of a step, hard-coded
-STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1.
-NEW_DETACHED_FRACTION = .1 #as in Newton, get it?
-SDS_TO_REDUCE_BY = 1.
-SDS_TO_SHRINK_BY = .75
+MAX_NEWTON_STEP = 1. #neutral = 1
+STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1. #neutral=1
+NEW_DETACHED_FRACTION = 0. #as in Newton, get it? neutral=0
+SDS_TO_REDUCE_BY = 1. #neutral=?? ... 1. I guess, but maybe .5??
+SDS_TO_SHRINK_BY = 0.75 #neutral = 1.
 
-
+REATTACH_GRAD_PORTION = 1. #neutral = 1.
+SIGMA_NU_PRECISION_BOOST = 4. #max sd = .5. Neutral = 1., but defensible; similar to strong prior.
+SIGMA_NU_DETACHED_FRACTION = 1. #Neutral = 0. but very defensible up to 1.
 
 NSTEPS = 5000
-SUBSET_SIZE = 20
-BIG_PRIME = 73 #Wow, that's big!
+SUBSET_SIZE = 50
+#BIG_PRIME = 73 #Wow, that's big!
 
 FAKE_VOTERS_PER_RACE = 1.
 FAKE_VOTERS_PER_REAL_PARTY = .5 #remainder go into nonvoting party
@@ -85,7 +87,7 @@ FAKE_VOTERS_PER_REAL_PARTY = .5 #remainder go into nonvoting party
 BASE_PSI = .01
 
 QUICKIE_SAVE = (NSTEPS < 20) #save subset; faster
-CUTOFF_WINDOW = 500
+CUTOFF_WINDOW = 250
 EXP_RUNNING_MEAN_WINDOW = 150
 
 
@@ -296,15 +298,15 @@ class EIData:
                 var, u, r, c, val, id = line
                 u, r, c = [int(a) for a in [u or 0,r or 0,c or 0]]
                 if var==u"R":
-                    ddp("R",type(val),val)
+                    #ddp("R",type(val),val)
                     R = int(val)
                     continue
                 if var==u"C":
-                    ddp("C",type(val),val)
+                    #ddp("C",type(val),val)
                     C = int(val)
                     continue
                 if var==u"U":
-                    ddp("U",type(val),val)
+                    #ddp("U",type(val),val)
                     U = int(val)
                     continue
                 if var==u"sigmanu":
@@ -354,9 +356,10 @@ class EIData:
                 assert torch.all(vs+.1>0) #vote counts non-negative
                 assert all(ids) #ids all exist
             except Exception as e:
-                print("bad file load",e)
-        ddp("alpha",alpha)
-        ddp("beta",beta)
+                pass
+                #print("bad file load",e)
+        #ddp("alpha",alpha)
+        #ddp("beta",beta)
         data = cls(ns, vs, ids, ys, nus,
                     alpha, beta, sigmanu, sigmabeta)
         return data
@@ -611,8 +614,10 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
         eprcstar_startingpoint = torch.zeros(P,R,C,requires_grad =True) #not a pyro param...
         #eprcstar_startingpoint[p].requires_grad_(True) #...so we have to do this manually
 
-    ecstar_raw = get_param(inits,'ecstar_raw', torch.zeros(C-1))
-    ercstar_raw = get_param(inits,'ercstar_raw', torch.zeros(R-1,C-1))
+    ec_then_erc_star = get_param(inits,'ec_then_erc_star', torch.zeros(R,C-1))
+
+    ecstar_raw = ec_then_erc_star[0,:]#get_param(inits,'ecstar_raw', torch.zeros(C-1))
+    ercstar_raw = ec_then_erc_star[1:,:]#get_param(inits,'ercstar_raw', torch.zeros(R-1,C-1))
     gamma_star_data.update(ec=ecstar_raw,erc=ercstar_raw)
     transformation.update(ec=expand_and_center, erc=expand_and_center)
 
@@ -630,8 +635,9 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
     # Amortize to find ystar and wstar
     ##################################################################
 
-    ec2r = ecstar_raw.detach().requires_grad_()
-    erc2r = ercstar_raw.detach().requires_grad_()
+    ecerc2r = ec_then_erc_star.detach().requires_grad_()
+    ec2r = ecerc2r[0,:]
+    erc2r = ecerc2r[1:,:]#ercstar_raw.detach().requires_grad_()
 
     ec2 = expand_and_center(ec2r)
     erc2 = expand_and_center(erc2r)
@@ -689,14 +695,17 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
         if include_nuisance:
             QbyR = Q/torch.sum(Q,-1).unsqueeze(-1)
             logresidual_raw = torch.log(QbyR / pi)
-            ystars_variance_approx = ystars # 1/(1/ystars + 1/(torch.sum(ystars,2,keepdim=True) - ystars))
+            nsUbyRby1 = ns.unsqueeze(-1)
+            ystars_variance_approx = ystars*(nsUbyRby1-ystars)/nsUbyRby1
             lr_sd_of_like = torch.log((ystars+torch.sqrt(ystars_variance_approx))/ystars)
                 #1 sd down, rescaled, logged, minus orig; rough estimate of sd of likelihood of logresidual
 
             sign_residual = logresidual_raw.sign()
             abs_residual = logresidual_raw * sign_residual
             shrunk_residual = softmax(abs_residual - lr_sd_of_like * SDS_TO_REDUCE_BY) * sign_residual
-            sdprc = shrunk_residual.std()
+            sdprc_raw = shrunk_residual.std()
+            sdprc_boosted = 1./(1./sdprc_raw + SIGMA_NU_PRECISION_BOOST)
+            sdprc = sdprc_boosted.detach() * SIGMA_NU_DETACHED_FRACTION + sdprc_boosted * (1.-SIGMA_NU_DETACHED_FRACTION)
 
             fstar_data.update(sdprc=sdprc)
             lr_prec_of_like = lr_sd_of_like ** -2 #sd to precision
@@ -980,31 +989,20 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
 
 
 
-    def fix_ec_grad():
+    def fix_ecerc_grad():
         #dp"fixgrad",1)
-        if torch.any(torch.isnan(ecstar_raw.grad)) or torch.any(torch.isnan(ec2r.grad)):
-            ddp("ecstar_raw.grad",sizes(ecstar_raw.grad,ec2r.grad))
+        if torch.any(torch.isnan(ec_then_erc_star.grad)) or torch.any(torch.isnan(ecerc2r.grad)):
+            ddp("ecstar_raw.grad",sizes(ec_then_erc_star.grad,ecerc2r.grad))
             #dp("2sp",[type(iv) for iv in intermediate_vars])
             ddp("2s",sizes(*[(iv.grad if iv.grad is not None else torch.tensor([])) for iv in intermediate_vars]))
             ddp("scoper",sizes(tots,vs,ns,indeps,ecstar_raw ,
                 ercstar_raw))
             dat =[data,big_arrow,big_grad]
             import pdb; pdb.set_trace()
-        ecstar_raw.grad = ecstar_raw.grad + ec2r.grad
+        ec_then_erc_star.grad = ec_then_erc_star.grad + ecerc2r.grad * REATTACH_GRAD_PORTION
         #dp("mode_star.grad",mode_star.grad)
-    ecstar_raw.fix_grad = fix_ec_grad
+    ec_then_erc_star.fix_grad = fix_ecerc_grad
 
-    def fix_erc_grad():
-        #dp"fixgrad",2)
-        ercstar_raw.grad = ercstar_raw.grad + erc2r.grad
-        if torch.any(torch.isnan(ercstar_raw.grad)) or torch.any(torch.isnan(erc2r.grad)):
-            ddp("ercstar_raw.grad",sizes(ercstar_raw.grad,erc2r.grad))
-            #dp("2s2p",[type(iv) for iv in intermediate_vars])
-            ddp("2s2",sizes(*[(iv.grad if iv.grad is not None else torch.tensor([])) for iv in intermediate_vars]))
-
-            #import pdb; pdb.set_trace()
-        #dp("mode_star.grad",mode_star.grad)
-    ercstar_raw.fix_grad = fix_erc_grad
 
     #no sdprc2 fix_grad. That's deliberate; the use of sdprc is an ugly hack and that error shouldn't bias the estimate of sdprc
 
@@ -1170,16 +1168,21 @@ def saveFit(fitted_model_info, data, subsample_n, nparticles,nsteps,filebase="ei
         output.write(jsonize(fitted_model_info))
     #print("saveFit", filename)
 
-def good_inits(noise=0.):
-    ec,erc = legible_values(3,3)
+def good_inits(shrink=1.,sd=False,noise=0.):
+    #ec,erc = legible_values(3,3)
+    ec,erc = (NCparams.alpha, NCparams.beta)
+    ec_then_erc_star = torch.cat([ec[:2].view(1,2),erc[:2,:2]],0)
     inits = dict(
-            logsdrcstar=torch.log(erc.std()),
-            logsdprcstar=torch.log(torch.tensor(SIM_SIGMA_NU)),
-            ecstar_raw=ec[:2],
-            ercstar_raw=erc[:2,:2],
+            ec_then_erc_star=ec_then_erc_star * shrink
+            #ecstar_raw=ec[:2],
+            #ercstar_raw=erc[:2,:2],
             #globalpsi=,
             #precinctpsi=,
             )
+    if sd:
+        inits.update(
+                logsdrcstar=torch.log(erc.std())
+                )
     #TODO:noise
     return inits
 
@@ -1238,7 +1241,7 @@ def trainGuide(subsample_n = SUBSET_SIZE,
             curparams = pyro.get_param_store()
             print(f'epoch {i} loss = {loss:.2E}, mean_loss={mean_losses[-1]:.2E};'+
                 f' sds = {dict(rc=float(torch.exp(curparams["logsdrcstar"])))};') #",prc=float(curparams["logsdprcstar"]))};')
-            print(f' logitstar = {expand_and_center(curparams["ercstar_raw"])+expand_and_center(curparams["ecstar_raw"])}')
+            print(f' logitstar = {expand_and_center(curparams["ec_then_erc_star"][1:,:])+expand_and_center(curparams["ec_then_erc_star"][0,:])}')
             if go_or_nogo.go:
                 pass
             else:
@@ -1253,9 +1256,12 @@ def trainGuide(subsample_n = SUBSET_SIZE,
 
     ##
 
-    plt.plot(losses)
-    plt.xlabel('epoch')
-    plt.ylabel('loss')
+    try:
+        plt.plot([min(loss,mean_losses[-1]*5) for loss in losses])
+        plt.xlabel('epoch')
+        plt.ylabel('loss')
+    except Exception as e:
+        print("Problem plotting:",e)
 
     if QUICKIE_SAVE:
         dataToSave = subset
@@ -1270,7 +1276,8 @@ def trainGuide(subsample_n = SUBSET_SIZE,
                         STARPOINT_AS_PORTION_OF_NU_ESTIMATE = STARPOINT_AS_PORTION_OF_NU_ESTIMATE,
                         NEW_DETACHED_FRACTION = NEW_DETACHED_FRACTION, #as in Newton, get it?
                         SDS_TO_REDUCE_BY = SDS_TO_REDUCE_BY,
-                        SDS_TO_SHRINK_BY = SDS_TO_SHRINK_BY
+                        SDS_TO_SHRINK_BY = SDS_TO_SHRINK_BY,
+                        REATTACH_GRAD_PORTION = REATTACH_GRAD_PORTION
                     ),
                     mean_loss = mean_losses[-1],
                     final_loss = loss

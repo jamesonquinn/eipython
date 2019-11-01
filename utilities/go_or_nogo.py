@@ -10,11 +10,11 @@ BREAK_NOW = False
 NUM_BETWEEN_PRINT = 100
 
 def printstuff(i,loss,mean_losses,*args):
-    print(f' ecstar = {pyro.get_param_store()["ecstar_raw"]}')
+    print(f' ecstar = {pyro.get_param_store()["ec_then_erc_star"][0,:]}')
     if False:
         print(f'epoch {i} loss = {loss};'+
             f' logsdrcstar = {pyro.get_param_store()["logsdrcstar"]};')
-        print(f' ercstar = {pyro.get_param_store()["ercstar_raw"]}')
+        #print(f' ercstar = {pyro.get_param_store()["ercstar_raw"]}')
         try:
             print(f' corrstar = {pyro.get_param_store()["corrstar"]}')
         except:
