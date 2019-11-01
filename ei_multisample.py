@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "m1.3.0"
+EI_VERSION = "m1.3.2"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -71,7 +71,7 @@ MAX_NEWTON_STEP = 1. #neutral = 1
 STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1. #neutral=1
 NEW_DETACHED_FRACTION = 0. #as in Newton, get it? neutral=0
 SDS_TO_REDUCE_BY = 1. #neutral=?? ... 1. I guess, but maybe .5??
-SDS_TO_SHRINK_BY = 0.75 #neutral = 1.
+SDS_TO_SHRINK_BY = 1. #neutral = 1.
 
 REATTACH_GRAD_PORTION = 1. #neutral = 1.
 SIGMA_NU_PRECISION_BOOST = 0. #4. #-> max sd = .5.;; Neutral = 1., but defensible; similar to strong prior.
@@ -533,7 +533,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, nsamps = 1
 
             return EIData(ns,vs,data.ids,y, logits - ec - erc, ec, erc, sdprc, sdrc)
 
-    ddp("model:end", sizes(ns,vs,ec,erc,logits,y))
+    ddp("model:end")#, sizes(ns,vs,ec,erc,logits,y))
 
 
 
@@ -696,10 +696,10 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
             lr_sd_of_like = torch.log((ystars+torch.sqrt(ystars_variance_approx))/ystars)
                 #1 sd down, rescaled, logged, minus orig; rough estimate of sd of likelihood of logresidual
 
-            sign_residual = logresidual_raw.sign()
-            abs_residual = logresidual_raw * sign_residual
-            shrunk_residual = softmax(abs_residual - lr_sd_of_like * SDS_TO_REDUCE_BY) * sign_residual
-            sdprc_raw = shrunk_residual.std()
+            #sign_residual = logresidual_raw.sign()
+            #abs_residual = logresidual_raw * sign_residual
+            #shrunk_residual = softmax(abs_residual - lr_sd_of_like * SDS_TO_REDUCE_BY) * sign_residual
+            sdprc_raw = torch.sqrt(softmax(logresidual_raw.var()-SDS_TO_REDUCE_BY * torch.mean(lr_sd_of_like**2)))
             sdprc_boosted = 1./(1./sdprc_raw + SIGMA_NU_PRECISION_BOOST)
             sdprc = sdprc_boosted.detach() * SIGMA_NU_DETACHED_FRACTION + sdprc_boosted * (1.-SIGMA_NU_DETACHED_FRACTION)
 
@@ -708,8 +708,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
 
             eprcstars = STARPOINT_AS_PORTION_OF_NU_ESTIMATE* logresidual_raw*lr_prec_of_like/SDS_TO_SHRINK_BY/(lr_prec_of_like/SDS_TO_SHRINK_BY + 1/sdprc**2)
             if do_print:
-                print("sds:",logresidual_raw.std(),sdprc,eprcstars.std(),
-                        torch.sqrt(softmax(logresidual_raw.var()-SDS_TO_REDUCE_BY * torch.mean(lr_sd_of_like**2))))
+                print("sds:",logresidual_raw.std(),sdprc,eprcstars.std())
             #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
             eprcstars_list = [eprcstar for eprcstar in eprcstars]
             eprcstars2 = torch.stack(eprcstars_list)
