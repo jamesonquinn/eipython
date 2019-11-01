@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "1.2.a3"
+EI_VERSION = "1.2.a4"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -74,8 +74,8 @@ SDS_TO_REDUCE_BY = 1. #neutral=?? ... 1. I guess, but maybe .5??
 SDS_TO_SHRINK_BY = 0.75 #neutral = 1.
 
 REATTACH_GRAD_PORTION = 1. #neutral = 1.
-SIGMA_NU_PRECISION_BOOST = 0. #max sd = .5. Neutral = 1., but defensible; similar to strong prior.
-SIGMA_NU_DETACHED_FRACTION = 1. #Neutral = 0. but very defensible up to 1.
+SIGMA_NU_PRECISION_BOOST = 0. #4. #-> max sd = .5.;; Neutral = 1., but defensible; similar to strong prior.
+SIGMA_NU_DETACHED_FRACTION = 1. #Neutral = 0. but very defensible up to 1. Moreover, seems to work!
 
 NSTEPS = 5000
 SUBSET_SIZE = 50
@@ -434,6 +434,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, *args, **k
             -if vs is None, create & return data from model, with that ns
             -otherwise, model conditions on that vs (ie, use for density, not sampling)
     """
+    dp("model:begin")
     P, R, C, ns, vs = data.getStuff
 
     prepare_ps = range(P)
@@ -713,7 +714,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
             eprcstars = STARPOINT_AS_PORTION_OF_NU_ESTIMATE* logresidual_raw*lr_prec_of_like/SDS_TO_SHRINK_BY/(lr_prec_of_like/SDS_TO_SHRINK_BY + 1/sdprc**2)
             if do_print:
                 print("sds:",logresidual_raw.std(),sdprc,eprcstars.std(),
-                        softmax(logresidual_raw.std()-torch.mean(lr_sd_of_like**2)))
+                        sqrt(softmax(logresidual_raw.var()-SDS_TO_REDUCE_BY * torch.mean(lr_sd_of_like**2))))
             #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
             eprcstars_list = [eprcstar for eprcstar in eprcstars]
             eprcstars2 = torch.stack(eprcstars_list)
@@ -1202,7 +1203,7 @@ def trainGuide(subsample_n = SUBSET_SIZE,
 
 
     # Now let's train the guide.
-    svi = SVI(model, guide, ClippedAdam({'lr': 0.005}), Trace_ELBO(nparticles))
+    svi = SVI(model, guide, ClippedAdam({'lr': 0.005}), Trace_ELBO(nparticles, vectorize_particles=True))
 
     pyro.clear_param_store()
     losses = []

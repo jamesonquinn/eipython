@@ -78,7 +78,7 @@ def jsonizable(thing):
     except Exception as e:
         pass#print(e)
     if isinstance(thing, Mapping):
-        dp("jsonizable",[(k,type(t)) for (k,t) in thing.items()])
+        #dp("jsonizable",[(k,type(t)) for (k,t) in thing.items()])
         return dict([(key, jsonizable(val)) for (key, val) in thing.items()])
     elif type(thing)==list:
         return [jsonizable(a) for a in thing]
