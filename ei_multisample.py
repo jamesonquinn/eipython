@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "m1.3.2"
+EI_VERSION = "m1.4.0"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -71,7 +71,7 @@ MAX_NEWTON_STEP = 1. #neutral = 1
 STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1. #neutral=1
 NEW_DETACHED_FRACTION = 0. #as in Newton, get it? neutral=0
 SDS_TO_REDUCE_BY = 1. #neutral=?? ... 1. I guess, but maybe .5??
-SDS_TO_SHRINK_BY = 1. #neutral = 1.
+SDS_TO_SHRINK_BY = .5 #neutral = 1.
 
 REATTACH_GRAD_PORTION = 1. #neutral = 1.
 SIGMA_NU_PRECISION_BOOST = 0. #4. #-> max sd = .5.;; Neutral = 1., but defensible; similar to strong prior.
@@ -88,7 +88,7 @@ BASE_PSI = .01
 
 QUICKIE_SAVE = (NSTEPS < 20) #save subset; faster
 CUTOFF_WINDOW = 250
-EXP_RUNNING_MEAN_WINDOW = 150
+EXP_RUNNING_MEAN_WINDOW = 70
 
 
 SIM_SIGMA_NU = .05
@@ -511,7 +511,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, nsamps = 1
                             #dim P, R, C from plate, to_event, CMult
                             #note that n is totally fake — sums are what matter.
                             #TODO: fix CMult so this fakery isn't necessary.
-                dp("sampled y",y[0])
+                #dp("sampled y",y[0])
                 try:
                     yy = y - PSEUDOVOTERS_PER_CELL
                     assert approx_eq(torch.sum(yy,1),vs)
