@@ -714,7 +714,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
             eprcstars = STARPOINT_AS_PORTION_OF_NU_ESTIMATE* logresidual_raw*lr_prec_of_like/SDS_TO_SHRINK_BY/(lr_prec_of_like/SDS_TO_SHRINK_BY + 1/sdprc**2)
             if do_print:
                 print("sds:",logresidual_raw.std(),sdprc,eprcstars.std(),
-                        sqrt(softmax(logresidual_raw.var()-SDS_TO_REDUCE_BY * torch.mean(lr_sd_of_like**2))))
+                        torch.sqrt(softmax(logresidual_raw.var()-SDS_TO_REDUCE_BY * torch.mean(lr_sd_of_like**2))))
             #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
             eprcstars_list = [eprcstar for eprcstar in eprcstars]
             eprcstars2 = torch.stack(eprcstars_list)
