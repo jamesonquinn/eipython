@@ -91,7 +91,7 @@ CUTOFF_WINDOW = 250
 EXP_RUNNING_MEAN_WINDOW = 70
 
 
-SIM_SIGMA_NU = .05
+SIM_SIGMA_NU = .15
 
 PSEUDOVOTERS_PER_CELL = 1.
 
@@ -1175,9 +1175,9 @@ DUMMY_DATA = EIData(ns,None,precinct_unique,
 
 def nameWithParams(filebase, data, S=None):
     if S is None:
-        filename = (f"{filebase}_N{data.U}.csv")
+        filename = (f"{filebase}_N{data.U}_SIG{SIM_SIGMA_NU}.csv")
     else:
-        filename = (f"{filebase}_N{data.U}_S{S}.csv")
+        filename = (f"{filebase}_N{data.U}_SIG{SIM_SIGMA_NU}_S{S}.csv")
     return filename
 
 def createOrLoadScenario(dummy_data = DUMMY_DATA,
