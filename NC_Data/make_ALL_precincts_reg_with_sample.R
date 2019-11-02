@@ -13,6 +13,11 @@ y="2016"
 load("ProcessedData/NC_reg_data.Rdata")
 data = data.table(reg)[year == y]
 data = dcast(data,county+precinct~race, value.var="numreg")
+
+data[is.na(W), W:=0]
+data[is.na(B), B:=0]
+data[is.na(other), other:=0]
+
 data=data[,.(county,precinct,white_reg=W,black_reg=B,other_reg=other)]
 
 N= dim(data)[1]
