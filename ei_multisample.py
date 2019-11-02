@@ -70,7 +70,7 @@ BUNCHFAC = 35
 MAX_NEWTON_STEP = 1. #neutral = 1
 STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1. #neutral=1
 NEW_DETACHED_FRACTION = 0. #as in Newton, get it? neutral=0
-SDS_TO_REDUCE_BY = 1. #neutral=?? ... 1. I guess, but maybe .5??
+SDS_TO_REDUCE_BY = .5 #neutral=?? ... 1. I guess, but maybe .5??
 SDS_TO_SHRINK_BY = .5 #neutral = 1.
 
 REATTACH_GRAD_PORTION = 1. #neutral = 1.
@@ -1153,7 +1153,9 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
 
 
 
-data = pandas.read_csv('input_data/NC_precincts_2016_with_sample.csv')
+#data = pandas.read_csv('input_data/NC_precincts_2016_with_sample.csv')
+data = pandas.read_csv('input_data\ALL_precincts_2016_reg_with_sample_60.csv')
+
   #,county,precinct,white_reg,black_reg,other_reg,test
 wreg = torch.tensor(data.white_reg)
 breg = torch.tensor(data.black_reg)
@@ -1228,6 +1230,7 @@ def good_inits(shrink=1.,sd=False,noise=0.):
 
 def trainGuide(subsample_n = SUBSET_SIZE,
             filebase = "eiresults/",
+            nsteps=NSTEPS,
             nsamps=1,inits=dict()):
     resetDebugCounts()
 
@@ -1250,7 +1253,7 @@ def trainGuide(subsample_n = SUBSET_SIZE,
     cur_perm = torch.randperm(N)
     used_up = 0
 
-    for i in range(NSTEPS):
+    for i in range(nsteps):
 
         if subsample_n < N:
             if (used_up + subsample_n) > N:

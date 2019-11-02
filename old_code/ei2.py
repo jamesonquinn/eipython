@@ -1123,7 +1123,9 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(),
 
 
 
-data = pandas.read_csv('input_data/NC_precincts_2016_with_sample.csv')
+#data = pandas.read_csv('input_data/NC_precincts_2016_with_sample.csv')
+data = pandas.read_csv('input_data\ALL_precincts_2016_reg_with_sample_60.csv')
+
   #,county,precinct,white_reg,black_reg,other_reg,test
 wreg = torch.tensor(data.white_reg)
 breg = torch.tensor(data.black_reg)
@@ -1197,6 +1199,7 @@ def good_inits(shrink=1.,sd=False,noise=0.):
 
 
 def trainGuide(subsample_n = SUBSET_SIZE,
+            nsteps = NSTEPS,
             filebase = "eiresults/",
             nparticles=1,inits=dict()): #honestly if I use nparticles, I should rewrite model&guide to both be over multiple samples. But including here now because it's easy.
     resetDebugCounts()
@@ -1220,7 +1223,7 @@ def trainGuide(subsample_n = SUBSET_SIZE,
     cur_perm = torch.randperm(N)
     used_up = 0
 
-    for i in range(NSTEPS):
+    for i in range(nsteps):
 
         if subsample_n < N:
             if (used_up + subsample_n) > N:
