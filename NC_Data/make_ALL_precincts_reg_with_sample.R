@@ -18,4 +18,4 @@ data=data[,.(county,precinct,white_reg=W,black_reg=B,other_reg=other)]
 N= dim(data)[1]
 sampling_probabilities = rep(s/N,N)
 data[,test:=UPminimalsupport(sampling_probabilities)]
-write.csv(data,file = paste("ALL_precincts_",y,"_reg_with_sample_",s,".csv", sep=""))
+write.csv(data, quote = FALSE, file = paste("ALL_precincts_",y,"_reg_with_sample_",s,".csv", sep=""))
