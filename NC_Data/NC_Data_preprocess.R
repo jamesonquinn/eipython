@@ -104,7 +104,7 @@ for (i in 1:length(years)){
 save(reg, file = "ProcessedData/NC_reg_data.Rdata")
 save(elections, file = "ProcessedData/NC_election_data.Rdata")
 
-rm(list=ls())
+#rm(list=ls())
 
 
 
