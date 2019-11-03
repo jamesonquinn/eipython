@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "m1.4.0"
+EI_VERSION = "m1.5.0"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -97,11 +97,11 @@ PSEUDOVOTERS_PER_CELL = 1.
 
 DEBUG_ARROWHEAD = False
 
-SDRC_VAR = 1.5
-SDRC_MEAN = 1.
+SDC = SDRC = 5
 
-SDPRC_VAR = 1.5
-SDPRC_MEAN = -2.
+
+SDPRC_STD = 1.2
+SDPRC_MEAN = -2.5
 
 def toTypeOrNone(t,atype=TTYPE):
     return t.type(atype) if torch.is_tensor(t) else t
@@ -124,7 +124,7 @@ class dataWriter:
 class EIData:
     def __init__(self,ns,vs,
                     ids = None, ys=None, nus=None,
-                    alpha = None, beta =None, sigmanu =None, sigmabeta=None):
+                    alpha = None, beta =None, sigmanu =None):# , sigmabeta=None):
         self.ns = toTypeOrNone(ns)
         self.vs = toTypeOrNone(vs)
         self.ys = toTypeOrNone(ys)
@@ -132,7 +132,6 @@ class EIData:
         self.alpha = toTypeOrNone(alpha)
         self.beta = toTypeOrNone(beta)
         self.sigmanu = toTypeOrNone(sigmanu)
-        self.sigmabeta = toTypeOrNone(sigmabeta)
         try:
             if ids is None:
                 self.ids=list(range(self.U))
@@ -255,7 +254,7 @@ class EIData:
             writer.writedatarow(u"C",self.C)
             writer.writedatarow(u"U",self.U)
             writer.writedatarow(u"sigmanu",self.sigmanu)
-            writer.writedatarow(u"sigmabeta",self.sigmabeta)
+            #writer.writedatarow(u"sigmabeta",self.sigmabeta)
             if self.alpha is not None:
                 for (c,val) in enumerate(self.alpha):
                     writer.writedatarow(u"alpha",float(val),c=c)
@@ -293,7 +292,7 @@ class EIData:
             reader = csv.reader(file)
             header = next(reader)
             vs, ns = (None, None)
-            ys = nus = alpha = beta = sigmanu = sigmabeta = ids = None
+            ys = nus = alpha = beta = sigmanu = ids = None
             for line in reader:
                 var, u, r, c, val, id = line
                 u, r, c = [int(a) for a in [u or 0,r or 0,c or 0]]
@@ -313,7 +312,6 @@ class EIData:
                     sigmanu = float(val)
                     continue
                 if var==u"sigmabeta":
-                    sigmabeta = float(val)
                     continue
                 if var==u"alpha":
                     if alpha is None:
@@ -361,7 +359,7 @@ class EIData:
         #ddp("alpha",alpha)
         #ddp("beta",beta)
         data = cls(ns, vs, ids, ys, nus,
-                    alpha, beta, sigmanu, sigmabeta)
+                    alpha, beta, sigmanu)
         return data
 
 #A "decorator"-ish thingy to make it easy to tell EISubData to look it up in full data.
@@ -393,6 +391,9 @@ class EISubData:
     D = sub(D=0)
     R = sub(R=0)
     C = sub(C=0)
+    alpha = sub(alpha=0)
+    beta = sub(beta=0)
+    sigmanu = sub(sigmanu=0)
 
     @reify
     def U(self):
@@ -448,13 +449,16 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, nsamps = 1
             with ps_plate as p, poutine.scale(scale=scale) as pscale:
                 yield p
 
-        sdc = 5
-        sdrc = pyro.sample(f'{iter}sdrc', dist.LogNormal(SDRC_MEAN,SDRC_VAR))
+        sdc = 2.
+        sdrc = 2. #pyro.sample(f'{iter}sdrc', dist.LogNormal(SDRC_MEAN,SDRC_VAR))
         if include_nuisance:
-            sdprc = pyro.sample(f'{iter}sdprc', dist.LogNormal(SDPRC_MEAN,SDPRC_VAR))
+            sdprc = pyro.sample(f'{iter}sdprc', dist.LogNormal(SDPRC_MEAN,SDPRC_STD))
 
         if vs is None:
-            sdprc = SIM_SIGMA_NU
+            if data.sigmanu is None:
+                sdprc = SIM_SIGMA_NU
+            else:
+                sdprc = data.sigmanu
         #dp(f"sdprc in model:{sdprc}")
 
         ec = pyro.sample(f'{iter}ec', dist.Normal(torch.zeros(C),sdc).to_event(1))
@@ -599,9 +603,9 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
     pstar_data = OrderedDict()
     transformation = defaultdict(lambda: lambda x: x) #factory of identity functions
 
-    logsdrcstar = get_param(inits,'logsdrcstar',ts(0.))
-    fstar_data.update(sdrc=logsdrcstar)
-    transformation.update(sdrc=exp_ldaj)
+    #logsdrcstar = get_param(inits,'logsdrcstar',ts(0.))
+    #fstar_data.update(sdrc=logsdrcstar)
+    #transformation.update(sdrc=exp_ldaj)
     if include_nuisance:
         #logsdprcstar = get_param(inits,'logsdprcstar',ts(-3.))
         #fstar_data.update(sdprc=logsdprcstar)
@@ -1162,7 +1166,7 @@ breg = torch.tensor(data.black_reg)
 oreg = torch.tensor(data.other_reg)
 
 def makePrecinctID(*args):
-    return ":".join(args)
+    return ":".join(str(args))
 
 precinct_unique = [makePrecinctID(county,precinct) for (county,precinct) in zip(data.county,data.precinct)]
 
@@ -1175,32 +1179,33 @@ DUMMY_DATA = EIData(ns,None,precinct_unique,
         alpha=NCparams.alpha, beta=NCparams.beta)
 
 
-def nameWithParams(filebase, data, S=None):
+def nameWithParams(filebase, data, dversion="", S=None):
     if S is None:
-        filename = (f"{filebase}_N{data.U}_SIG{SIM_SIGMA_NU}.csv")
+        filename = (f"{filebase}_SIG{data.sigmanu}_{dversion}_N{data.U}.csv")
     else:
-        filename = (f"{filebase}_N{data.U}_SIG{SIM_SIGMA_NU}_S{S}.csv")
+        filename = (f"{filebase}_SIG{data.sigmanu}_{dversion}_N{data.U}_S{S}.json")
     return filename
 
-def createOrLoadScenario(dummy_data = DUMMY_DATA,
+def createOrLoadScenario(dummy_data = DUMMY_DATA, dversion="",
             filebase="eiresults/"):
-    filename = nameWithParams(filebase + "scenario", dummy_data)
+    filename = nameWithParams(filebase + "scenario", dummy_data, dversion)
     try:
         data = EIData.load(filename)
         print(filename, "from file")
+        return data
     except IOError as e:
         print("exception:",e)
-        assert not (os.path.exists(filename)) #don't just blindly overwrite!
-        data = model(dummy_data)
-        data.save(filename)
-        print(filename, "created")
+    assert not (os.path.exists(filename)) #don't just blindly overwrite!
+    data = model(dummy_data)
+    data.save(filename)
+    print(filename, "created")
     return data
 
-def saveFit(fitted_model_info, data, subsample_n, nparticles,nsteps,filebase="eiresults/funnyname_"):
+def saveFit(fitted_model_info, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults/funnyname_"):
     i = 0
     while True:
         filename = nameWithParams(filebase+"fit_"+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
-                data,subsample_n)
+                data,dversion,subsample_n)
         if not os.path.exists(filename):
             break
         print("file exists:",filename)
@@ -1221,9 +1226,10 @@ def good_inits(shrink=1.,sd=False,noise=0.):
             #precinctpsi=,
             )
     if sd:
-        inits.update(
-                logsdrcstar=torch.log(erc.std())
-                )
+        pass
+        #inits.update(
+        #        logsdrcstar=torch.log(erc.std())
+        #        )
     #TODO:noise
     return inits
 
@@ -1231,12 +1237,15 @@ def good_inits(shrink=1.,sd=False,noise=0.):
 def trainGuide(subsample_n = SUBSET_SIZE,
             filebase = "eiresults/",
             nsteps=NSTEPS,
-            nsamps=1,inits=dict()):
+            sigmanu = SIM_SIGMA_NU,
+            dummydata = DUMMY_DATA,
+            nsamps=1,dversion="",inits=dict()):
     resetDebugCounts()
 
     # Let's generate voting data. I'm conditioning concentration=1 for numerical stability.
 
-    data = createOrLoadScenario(DUMMY_DATA,filebase)
+    dummydata.sigmanu = sigmanu
+    data = createOrLoadScenario(dummydata,filebase=filebase,dversion=dversion)
     N = data.U
     scale = N / subsample_n
     #dp(data)
@@ -1281,8 +1290,7 @@ def trainGuide(subsample_n = SUBSET_SIZE,
             reload(go_or_nogo)
             go_or_nogo.printstuff(i,loss,mean_losses)
             curparams = pyro.get_param_store()
-            print(f'epoch {i} loss = {loss:.2E}, mean_loss={mean_losses[-1]:.2E};'+
-                f' sds = {dict(rc=float(torch.exp(curparams["logsdrcstar"])))};') #",prc=float(curparams["logsdprcstar"]))};')
+            print(f'epoch {i} loss = {loss:.2E}, mean_loss={mean_losses[-1]:.2E};') #",prc=float(curparams["logsdprcstar"]))};')
             print(f' logitstar = {expand_and_center(curparams["ec_then_erc_star"][1:,:])+expand_and_center(curparams["ec_then_erc_star"][0,:])}')
             if go_or_nogo.go:
                 pass
@@ -1305,7 +1313,7 @@ def trainGuide(subsample_n = SUBSET_SIZE,
     except Exception as e:
         print("Problem plotting:",e)
 
-    if QUICKIE_SAVE:
+    if QUICKIE_SAVE or nsteps < 30:
         dataToSave = subset
     else:
         dataToSave = data
@@ -1327,7 +1335,7 @@ def trainGuide(subsample_n = SUBSET_SIZE,
                     final_loss = loss
                     )
 
-    saveFit(fitted_model_info, dataToSave, subsample_n, nsamps,i,filebase=filebase)
+    saveFit(fitted_model_info, dataToSave, subsample_n, nsamps,i,dversion=dversion,filebase=filebase)
     ##
 
     for (key, val) in sorted(pyro.get_param_store().items()):
