@@ -97,7 +97,7 @@ PSEUDOVOTERS_PER_CELL = 1.
 
 DEBUG_ARROWHEAD = False
 
-SDC = SDRC = 5
+SDC = SDRC = 2.
 
 
 SDPRC_STD = 1.2
@@ -449,8 +449,8 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, nsamps = 1
             with ps_plate as p, poutine.scale(scale=scale) as pscale:
                 yield p
 
-        sdc = 2.
-        sdrc = 2. #pyro.sample(f'{iter}sdrc', dist.LogNormal(SDRC_MEAN,SDRC_VAR))
+        sdc = SDC
+        sdrc = SDRC #pyro.sample(f'{iter}sdrc', dist.LogNormal(SDRC_MEAN,SDRC_VAR))
         if include_nuisance:
             sdprc = pyro.sample(f'{iter}sdprc', dist.LogNormal(SDPRC_MEAN,SDPRC_STD))
 
@@ -535,7 +535,7 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, nsamps = 1
             vs = torch.sum(y,1)
             print("VS",vs[:4])
 
-            return EIData(ns,vs,data.ids,y, logits - ec - erc, ec, erc, sdprc, sdrc)
+            return EIData(ns,vs,data.ids,y, logits - ec - erc, ec, erc, sdprc)
 
     ddp("model:end")#, sizes(ns,vs,ec,erc,logits,y))
 
@@ -1157,8 +1157,8 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
 
 
 
-#data = pandas.read_csv('input_data/NC_precincts_2016_with_sample.csv')
-data = pandas.read_csv('input_data\ALL_precincts_2016_reg_with_sample_60.csv')
+data = pandas.read_csv('input_data/NC_precincts_2016_with_sample.csv')
+#data = pandas.read_csv('input_data\ALL_precincts_2016_reg_with_sample_60.csv')
 
   #,county,precinct,white_reg,black_reg,other_reg,test
 wreg = torch.tensor(data.white_reg)
