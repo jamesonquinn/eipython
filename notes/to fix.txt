@@ -1,0 +1,23 @@
+Writing
+
+Pseudovoters (both kinds grr)
+
+
+
+math
+
+check that jacobian of alphas and betas is 1
+
+
+
+Coding
+
+un-ickify sigma nu
+
+Subtract out pseudovoters after sampling
+
+Importance-weight the samples
+
+Fix jacobian of polytopize in code
+
+Figure out how to get jacobian correction to pyro without stupid uniform distributions
