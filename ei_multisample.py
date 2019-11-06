@@ -103,6 +103,8 @@ SDC = SDRC = 2.
 SDPRC_STD = 1.2
 SDPRC_MEAN = -2.5
 
+NUM_Y_SAMPS = 4000
+
 def toTypeOrNone(t,atype=TTYPE):
     return t.type(atype) if torch.is_tensor(t) else t
 
@@ -1234,12 +1236,66 @@ def good_inits(shrink=1.,sd=False,noise=0.):
     return inits
 
 
+    # aa_gamma_star_data = gamma_star_data,
+    # fstar_data = fstar_data,
+    # pstar_data = pstar_data,
+    # all_means = all_means,
+    # big_arrow = big_arrow,
+    #         G = self.G,
+    #         L = self.L,
+    #         gg_raw = self.gg,
+    #         raw_lls = self.raw_lls,
+    #         gg_cov = self.gg_cov,
+    #         chol_lls = self.chol_lls,
+    #         llinvs = self.llinvs,
+    #         gls = self.gls,
+    #         weights = self.weights
+    # big_grad = big_grad,
+    # adjusted_means = adjusted_means
+def sampleYs(fit,data,n,indices=None):
+    ba = fit["big_arrow"]
+    am = fit["all_means"]
+    G,L = ba.G, ba.L
+    R, C = (data.R,data.C)
+    wdim = (R-1)*(C-1)
+    gammas = torch.distributions.MultivariateNormal(am[:G], ba.gg_cov
+                    ).sample([n])
+    YSums = torch.zeros(n,R,C)
+    ll = ba.llinvs
+    U = len(ll)
+    if indices is None:
+        indices = range(U)
+    for u in indices:
+        wstar = am[G+u*L:G+u*L+wdim]
+        wmean = wstar.unsqueeze(0) + torch.matmul(gammas.unsqueeze(1), ba.gls[u][:,:wdim])
+        ws = torch.distributions.MultivariateNormal(wmean, ll[u][:wdim,:wdim].unsqueeze(0)).sample().view(n,R-1,C-1)
+        #import pdb; pdb.set_trace()
+        ys = polytopizeU(R, C, ws, data.indeps[u:u+1].expand(n,R*C))
+        YSums += ys
+    return YSums
+
+def saveYsamps(ysums, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults/funnyname_"):
+    i = 0
+    while True:
+        filename = nameWithParams(filebase+"samps_"+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
+                data,dversion,subsample_n)
+        if not os.path.exists(filename):
+            break
+        print("file exists:",filename)
+        i += 1
+    with open(filename, "w") as output:
+        writer = csv.writer(output)
+
+        for ysum in ysums:
+            writer.writerow([float(val) for val in ysum.view(-1)])
+
 def trainGuide(subsample_n = SUBSET_SIZE,
             filebase = "eiresults/",
             nsteps=NSTEPS,
             sigmanu = SIM_SIGMA_NU,
             dummydata = DUMMY_DATA,
-            nsamps=1,dversion="",inits=dict()):
+            nsamps=1,dversion="",inits=dict(),
+            num_y_samps=NUM_Y_SAMPS):
     resetDebugCounts()
 
     # Let's generate voting data. I'm conditioning concentration=1 for numerical stability.
@@ -1336,6 +1392,10 @@ def trainGuide(subsample_n = SUBSET_SIZE,
                     )
 
     saveFit(fitted_model_info, dataToSave, subsample_n, nsamps,i,dversion=dversion,filebase=filebase)
+
+    Ysamps = sampleYs(fitted_model_info, data, num_y_samps)
+
+    saveYsamps(Ysamps, dataToSave, subsample_n, nsamps,i,dversion=dversion,filebase=filebase)
     ##
 
     for (key, val) in sorted(pyro.get_param_store().items()):
