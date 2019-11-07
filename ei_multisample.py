@@ -585,7 +585,7 @@ def softmax(t,minval=0.,mult=80.):
 
 ICKY_SIGMA = True
 
-def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsamps = 1, icky_sigma=ICKY_SIGMA
+def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsamps = 1, icky_sigma=ICKY_SIGMA,
             *args, **kwargs):
     ddp("guide:begin",scale,include_nuisance)
 
@@ -604,7 +604,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
     ##################################################################
 
     gamma_star_data = OrderedDict()
-    fstar_data = OrderedDict() #frequentist
+    fstar_data = OrderedDict() #"frequentist", empirical bayes, ick... whatever you want to call it
     pstar_data = OrderedDict()
     transformation = defaultdict(lambda: lambda x: x) #factory of identity functions
 
@@ -1245,21 +1245,26 @@ def good_inits(shrink=1.,sd=False,noise=0.):
     #TODO:noise
     return inits
 
-def base_logits_of(gammmas,R,C,wdim):
+def base_logits_of(gammas,R,C,wdim):
     alphams = gammas[:,:C-1]
     alphas = expand_and_center(alphams,ignore_dims=[0])
     betams = gammas[:,C-1:C-1+wdim]
     betas = expand_and_center(betams.view(-1,R-1,C-1),ignore_dims=[0])
     return alphas.unsqueeze(1) + betas
 
-def model_density_of(ys,nus,base_logits,R,C,wdim):
+def model_density_of(ys,nus,base_logits,sigma_nu,R,C,wdim):
     logits = base_logits + nus.view(-1,R,C)
     denses = torch.zeros(ys.size()[0])
 
     for r in range(R):
-        modr = torch.distributions.Multinomial(logits=logits[:,r])
+        modr = CMult(logits=logits[:,r])
         denses += modr.log_prob(ys[:,r])
-    return denses
+    nuprobs = torch.distributions.Normal(0,sigma_nu.unsqueeze(1)).log_prob(nus)
+    nps = torch.sum(nuprobs,1)
+    dp("np complete?",sizes(nps,ys,nus,base_logits,sigma_nu,nuprobs,denses))
+    #import pdb; pdb.set_trace()
+    #denses += nps
+    return denses,nps
 
     # aa_gamma_star_data = gamma_star_data,
     # fstar_data = fstar_data,
@@ -1277,7 +1282,7 @@ def model_density_of(ys,nus,base_logits,R,C,wdim):
     #         weights = self.weights
     # big_grad = big_grad,
     # adjusted_means = adjusted_means
-def sampleYs(fit,data,n,indices=None):
+def sampleYs(fit,data,n,indices=None, icky_sigma=ICKY_SIGMA):
     ba = fit["big_arrow"]
     am = fit["all_means"]
     G,L = ba.G, ba.L
@@ -1288,6 +1293,7 @@ def sampleYs(fit,data,n,indices=None):
     ldajsums = torch.zeros(n)
     guidesampdenses = torch.zeros(n)
     moddenses = torch.zeros(n)
+    modnps = torch.zeros(n)
 
     dgamma = torch.distributions.MultivariateNormal(am[:G], ba.gg_cov)
     gammas = dgamma.sample([n])
@@ -1299,24 +1305,34 @@ def sampleYs(fit,data,n,indices=None):
     if indices is None:
         indices = range(U)
     for u in indices:
-        wstar = am[G+u*L:G+u*L+wdim]
+        lstar = am[G+u*L:G+u*L+L]#wdim]
         ignore_nu = False
         if ignore_nu:
             wmean = wstar.unsqueeze(0) + torch.matmul(gammas.unsqueeze(1), ba.gls[u][:,:wdim])
             dw = torch.distributions.MultivariateNormal(wmean, ll[u][:wdim,:wdim].unsqueeze(0))
         else:
-            wmean = wstar.unsqueeze(0) + torch.matmul(gammas.unsqueeze(1), ba.gls[u])
-            dw = torch.distributions.MultivariateNormal(wmean, ll[u].unsqueeze(0))
-        lambdas = dw.sample()
-        guidesampdenses += dw.log_prob(lambdas)
+            lmean = lstar.unsqueeze(0) + torch.matmul(gammas.unsqueeze(1), ba.gls[u])
+            dl = torch.distributions.MultivariateNormal(lmean, ll[u].unsqueeze(0))
+        lambdas = dl.sample()
+        llp = dl.log_prob(lambdas).squeeze()
+        lambdas = lambdas.squeeze()
+        guidesampdenses += llp
         ws = lambdas[:,:wdim].view(n,R-1,C-1)
         #import pdb; pdb.set_trace()
         ys,ldajs = polytopizeU(R, C, ws, data.indeps[u:u+1].expand(n,R*C), return_ldaj=True, return_plural=True)
-
-        moddenses += model_density_of(ys,lambdas[:,wdim:],base_logits,R,C,wdim)
-        ldajsums += ldajs
+        if icky_sigma:
+            sigma_nu = fit["fstar_data"]["sdprc"].unsqueeze(0)
+            dp("sdprc",sizes(sigma_nu))
+        else:
+            sigma_nu = torch.exp(gammas[:,-1])
+        denses, nps = model_density_of(ys,lambdas[:,wdim:],base_logits,sigma_nu,R,C,wdim)
+        moddenses += denses
+        modnps += nps
+        dp("sampleYs", sizes(lambdas,lmean,lstar,ll,gammas,base_logits,ldajs))
+        ldajsums += ldajs.squeeze()
         YSums += ys
-    denses = torch.stack([guidesampdenses,ldajsums,moddenses])
+    denses = torch.stack([guidesampdenses,ldajsums,moddenses,modnps],1)
+    dp("denses",sizes(denses))
     return (YSums, denses)
 
 def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults/funnyname_"):
@@ -1331,6 +1347,8 @@ def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase=
     with open(filename, "w") as output:
         writer = csv.writer(output)
         ysums,denses = samps
+        dp("saveYsamps",sizes(ysums,denses))
+        #import pdb; pdb.set_trace()
         for (ysum,dense) in zip(ysums,denses):
             writer.writerow([float(val) for val in ysum.view(-1)] + [float(val) for val in dense])
 

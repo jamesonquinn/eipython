@@ -12,12 +12,16 @@ check that jacobian of alphas and betas is 1
 
 Coding
 
-un-ickify sigma nu
+un-ickify sigma nu #Done?
 
-Subtract out pseudovoters after sampling
+Subtract out pseudovoters after sampling #Done?????
 
-Importance-weight the samples
+Importance-weight the samples #Done??????????????
 
-Fix jacobian of polytopize in code
+Fix jacobian of polytopize in code #Done?
 
-Figure out how to get jacobian correction to pyro without stupid uniform distributions
+Figure out how to get jacobian correction to pyro without stupid uniform distributions #Fuck it.
+
+estimate variance of likelihood of log using both sides, not just one.
+
+subtract off mean of nuhats before continuing to estimate sigma_nu 

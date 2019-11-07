@@ -28,6 +28,13 @@ samp=fread(samp.filename)
 sparts = strsplit(samp.filename,"_")[[1]]
 scenario.filename = paste("../eiresults/scenario",sparts[5],sparts[6],sparts[7],sep="_")
 scenario = fread(paste0(scenario.filename,".csv"))
+Y = c()
+for (rr in 0:2) {
+  for (cc in 0:2) {
+    Y = c(Y, scenario[var=="y"&r==rr&c==cc,sum(val+1)])
+  }
+}
+
 
 
 BASE_DIRECTORY = "../testresults"
