@@ -114,7 +114,7 @@ def polytopize(R, C, raw, start, do_aug=True):
     return edgepoint - backoff * edgedir
 
 
-def polytopizeU(R, C, raw, start, return_ldaj=False):
+def polytopizeU(R, C, raw, start, return_ldaj=False, return_plural=False):
     aug1 = torch.cat((raw,-raw.sum(1).unsqueeze(1)),1)
     aug2 = torch.cat((aug1,-aug1.sum(2).unsqueeze(2)),2).view(-1,R*C)
 
@@ -137,7 +137,13 @@ def polytopizeU(R, C, raw, start, return_ldaj=False):
     #print("shrink:",shrinkfac)
     result = (edgepoint - backoff * edgedir).view(-1,R,C)
     if return_ldaj: # log det abs jacobian
-        return (result, torch.sum(closest_ratio)) #I hope that's right. TODO: Double-check (with Mira?)
+        lowdim = (R-1)*(C-1)
+        ldajs = -closest_ratio*lowdim + torch.log(closest_ratio)*(lowdim + 1)
+        if return_plural:
+            ldaj = ldajs
+        else:
+            ldaj = torch.sum(ldajs)
+        return (result, ldaj) #I hope that's right. TODO: Double-check (with Mira?)
     return result
 
 DEPOLY_EPSILON = 1e-9
@@ -163,7 +169,7 @@ def depolytopizeU(R, C, rawpoly, start, line=None):
         for i in range(rawpoly.size()[0]):
             if torch.any(torch.isnan(result[i])):
                 print("problem index: ",i)
-                
+
                 print(rawdiff[i])
                 print(diff[i])
                 print(ratio[i])

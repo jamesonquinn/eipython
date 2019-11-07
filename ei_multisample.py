@@ -543,12 +543,13 @@ def model(data=None, scale=1., include_nuisance=True, do_print=False, nsamps = 1
 
 
 
-def expand_and_center(tens, return_ldaj=False):
+def expand_and_center(tens, return_ldaj=False, ignore_dims=[]):
     result = tens
     for i,n in enumerate(tens.size()):
-        result = torch.cat([result,
-                    -torch.sum(result,i).unsqueeze(i)]
-                ,i)
+        if i not in ignore_dims:
+            result = torch.cat([result,
+                        -torch.sum(result,i).unsqueeze(i)]
+                    ,i)
 
     if return_ldaj:
         return (result,0.) #Not actually zero, but constant, so whatevs.
@@ -572,7 +573,7 @@ def get_param(inits,name,default,*args,**kwargs):
 def exp_ldaj(t,return_ldaj=False):
     result = torch.exp(t)
     if return_ldaj:
-        return (result,torch.sum(t))
+        return (result,-torch.sum(t))
     return result
 
 def softmax(t,minval=0.,mult=80.):
@@ -582,7 +583,9 @@ def softmax(t,minval=0.,mult=80.):
         mins = torch.ones_like(t)*minval*mult
     return torch.logsumexp(torch.stack((t*mult,mins)),0)/mult
 
-def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsamps = 1,
+ICKY_SIGMA = True
+
+def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsamps = 1, icky_sigma=ICKY_SIGMA
             *args, **kwargs):
     ddp("guide:begin",scale,include_nuisance)
 
@@ -709,7 +712,12 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
             sdprc_boosted = 1./(1./sdprc_raw + SIGMA_NU_PRECISION_BOOST)
             sdprc = sdprc_boosted.detach() * SIGMA_NU_DETACHED_FRACTION + sdprc_boosted * (1.-SIGMA_NU_DETACHED_FRACTION)
 
-            fstar_data.update(sdprc=sdprc)
+            if icky_sigma:
+                fstar_data.update(sdprc=sdprc)
+            else:
+                lsdprc = torch.log(sdprc)
+                gamma_star_data.update(sdprc=lsdprc)
+                transformation.update(sdprc=exp_ldaj)
             lr_prec_of_like = lr_sd_of_like ** -2 #sd to precision
 
             eprcstars = STARPOINT_AS_PORTION_OF_NU_ESTIMATE* logresidual_raw*lr_prec_of_like/SDS_TO_SHRINK_BY/(lr_prec_of_like/SDS_TO_SHRINK_BY + 1/sdprc**2)
@@ -824,8 +832,8 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
     ##################################################################
     # Put Jacobian into guide density
     ##################################################################
-    stupid_global = torch.exp(-log_jacobian_adjustment_elbo_global)
-    if stupid_global>0:
+    stupid_global = torch.exp(log_jacobian_adjustment_elbo_global)
+    if stupid_global>0 and torch.isfinite(stupid_global):
         junk = pyro.sample("jacobian",
                         dist.Uniform(torch.zeros(1), stupid_global),
                         infer={'is_auxiliary': True}) #there's probably a better way but whatevs.
@@ -1000,8 +1008,8 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
         ##################################################################
         # Put local Jacobian into guide density
         ##################################################################
-        stupid_local = torch.exp(-log_jacobian_adjustment_elbo_local)
-        if stupid_local>0:
+        stupid_local = torch.exp(log_jacobian_adjustment_elbo_local)
+        if stupid_local>0 and torch.isfinite(stupid_local):
             junk = pyro.sample(f"{iter}jacobian",
                             dist.Uniform(torch.zeros(1), stupid_local),
                             infer={'is_auxiliary': True}) #there's probably a better way but whatevs.
@@ -1181,11 +1189,13 @@ DUMMY_DATA = EIData(ns,None,precinct_unique,
         alpha=NCparams.alpha, beta=NCparams.beta)
 
 
-def nameWithParams(filebase, data, dversion="", S=None):
+def nameWithParams(filebase, data, dversion="", S=None, extension =None):
+    if extension is None:
+        extension = ".json" if S else ".csv"
     if S is None:
-        filename = (f"{filebase}_SIG{data.sigmanu}_{dversion}_N{data.U}.csv")
+        filename = (f"{filebase}_SIG{data.sigmanu}_{dversion}_N{data.U}{extension}")
     else:
-        filename = (f"{filebase}_SIG{data.sigmanu}_{dversion}_N{data.U}_S{S}.json")
+        filename = (f"{filebase}_SIG{data.sigmanu}_{dversion}_N{data.U}_S{S}_{extension}")
     return filename
 
 def createOrLoadScenario(dummy_data = DUMMY_DATA, dversion="",
@@ -1235,6 +1245,21 @@ def good_inits(shrink=1.,sd=False,noise=0.):
     #TODO:noise
     return inits
 
+def base_logits_of(gammmas,R,C,wdim):
+    alphams = gammas[:,:C-1]
+    alphas = expand_and_center(alphams,ignore_dims=[0])
+    betams = gammas[:,C-1:C-1+wdim]
+    betas = expand_and_center(betams.view(-1,R-1,C-1),ignore_dims=[0])
+    return alphas.unsqueeze(1) + betas
+
+def model_density_of(ys,nus,base_logits,R,C,wdim):
+    logits = base_logits + nus.view(-1,R,C)
+    denses = torch.zeros(ys.size()[0])
+
+    for r in range(R):
+        modr = torch.distributions.Multinomial(logits=logits[:,r])
+        denses += modr.log_prob(ys[:,r])
+    return denses
 
     # aa_gamma_star_data = gamma_star_data,
     # fstar_data = fstar_data,
@@ -1258,36 +1283,57 @@ def sampleYs(fit,data,n,indices=None):
     G,L = ba.G, ba.L
     R, C = (data.R,data.C)
     wdim = (R-1)*(C-1)
-    gammas = torch.distributions.MultivariateNormal(am[:G], ba.gg_cov
-                    ).sample([n])
+
     YSums = torch.zeros(n,R,C)
+    ldajsums = torch.zeros(n)
+    guidesampdenses = torch.zeros(n)
+    moddenses = torch.zeros(n)
+
+    dgamma = torch.distributions.MultivariateNormal(am[:G], ba.gg_cov)
+    gammas = dgamma.sample([n])
+    base_logits = base_logits_of(gammas,R,C,wdim)
+    guidesampdenses += dgamma.log_prob(gammas)
+
     ll = ba.llinvs
     U = len(ll)
     if indices is None:
         indices = range(U)
     for u in indices:
         wstar = am[G+u*L:G+u*L+wdim]
-        wmean = wstar.unsqueeze(0) + torch.matmul(gammas.unsqueeze(1), ba.gls[u][:,:wdim])
-        ws = torch.distributions.MultivariateNormal(wmean, ll[u][:wdim,:wdim].unsqueeze(0)).sample().view(n,R-1,C-1)
+        ignore_nu = False
+        if ignore_nu:
+            wmean = wstar.unsqueeze(0) + torch.matmul(gammas.unsqueeze(1), ba.gls[u][:,:wdim])
+            dw = torch.distributions.MultivariateNormal(wmean, ll[u][:wdim,:wdim].unsqueeze(0))
+        else:
+            wmean = wstar.unsqueeze(0) + torch.matmul(gammas.unsqueeze(1), ba.gls[u])
+            dw = torch.distributions.MultivariateNormal(wmean, ll[u].unsqueeze(0))
+        lambdas = dw.sample()
+        guidesampdenses += dw.log_prob(lambdas)
+        ws = lambdas[:,:wdim].view(n,R-1,C-1)
         #import pdb; pdb.set_trace()
-        ys = polytopizeU(R, C, ws, data.indeps[u:u+1].expand(n,R*C))
-        YSums += ys
-    return YSums
+        ys,ldajs = polytopizeU(R, C, ws, data.indeps[u:u+1].expand(n,R*C), return_ldaj=True, return_plural=True)
 
-def saveYsamps(ysums, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults/funnyname_"):
+        moddenses += model_density_of(ys,lambdas[:,wdim:],base_logits,R,C,wdim)
+        ldajsums += ldajs
+        YSums += ys
+    denses = torch.stack([guidesampdenses,ldajsums,moddenses])
+    return (YSums, denses)
+
+def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults/funnyname_"):
     i = 0
     while True:
-        filename = nameWithParams(filebase+"samps_"+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
-                data,dversion,subsample_n)
+        filename = nameWithParams(filebase+"dsamps_"+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
+                data,dversion,subsample_n,extension=".csv")
         if not os.path.exists(filename):
             break
         print("file exists:",filename)
         i += 1
     with open(filename, "w") as output:
         writer = csv.writer(output)
+        ysums,denses = samps
+        for (ysum,dense) in zip(ysums,denses):
+            writer.writerow([float(val) for val in ysum.view(-1)] + [float(val) for val in dense])
 
-        for ysum in ysums:
-            writer.writerow([float(val) for val in ysum.view(-1)])
 
 def trainGuide(subsample_n = SUBSET_SIZE,
             filebase = "eiresults/",

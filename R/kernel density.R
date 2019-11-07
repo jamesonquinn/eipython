@@ -14,13 +14,20 @@ library(latex2exp)
 library(xtable)
 rstan_options(auto_write = TRUE)
 
-all.fits = list.files("../eiresults/", pattern="*.json")
+all.fits = list.files("../eiresults/", pattern="fit.*.json",full.names=T)
+all.samps = list.files("../eiresults/", pattern="samps.*.json",full.names=T)
 
 fit.filename = all.fits[1]
+samp.filename = all.samps[1]
 
 fit = fromJSON(file=fit.filename)
 R = 3
 C = 3
+
+samp=fread(samp.filename)
+sparts = strsplit(samp.filename,"_")[[1]]
+scenario.filename = paste("../eiresults/scenario",sparts[5],sparts[6],sparts[7],sep="_")
+scenario = fread(paste0(scenario.filename,".csv"))
 
 
 BASE_DIRECTORY = "../testresults"
