@@ -832,10 +832,10 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
     ##################################################################
     # Put Jacobian into guide density
     ##################################################################
-    stupid_global = torch.exp(log_jacobian_adjustment_elbo_global)
-    if stupid_global>0 and torch.isfinite(stupid_global):
-        junk = pyro.sample("jacobian",
-                        dist.Uniform(torch.zeros(1), stupid_global),
+    #stupid_global = torch.exp(log_jacobian_adjustment_elbo_global)
+    junk = pyro.sample("jacobian",
+                        dist.Delta(torch.zeros(1),
+                                    log_density=-log_jacobian_adjustment_elbo_global),#, stupid_global),
                         infer={'is_auxiliary': True}) #there's probably a better way but whatevs.
 
     ##################################################################
@@ -1008,11 +1008,12 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
         ##################################################################
         # Put local Jacobian into guide density
         ##################################################################
-        stupid_local = torch.exp(log_jacobian_adjustment_elbo_local)
-        if stupid_local>0 and torch.isfinite(stupid_local):
-            junk = pyro.sample(f"{iter}jacobian",
-                            dist.Uniform(torch.zeros(1), stupid_local),
-                            infer={'is_auxiliary': True}) #there's probably a better way but whatevs.
+        #stupid_local = torch.exp(log_jacobian_adjustment_elbo_local)
+        #if stupid_local>0 and torch.isfinite(stupid_local):
+        junk = pyro.sample(f"{iter}jacobian",
+                    dist.Delta(torch.zeros(1),# stupid_local),
+                            log_density=-log_jacobian_adjustment_elbo_local),
+                    infer={'is_auxiliary': True}) #there's probably a better way but whatevs.
 
     ##################################################################
     # ensure gradients get to the right place
@@ -1122,7 +1123,8 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
         all_means = all_means,
         big_arrow = big_arrow,
         big_grad = big_grad,
-        adjusted_means = adjusted_means
+        adjusted_means = adjusted_means,
+
     )
     return result
 
