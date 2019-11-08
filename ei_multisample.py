@@ -719,7 +719,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
                 transformation.update(sdprc=exp_ldaj)
             #lr_prec_of_like = lr_var_of_like ** -2 #sd to precision
 
-            eprcstars = STARPOINT_AS_PORTION_OF_NU_ESTIMATE* logresidual_raw/lr_prec_of_like/SDS_TO_SHRINK_BY/(1/lr_prec_of_like/SDS_TO_SHRINK_BY + 1/sdprc**2)
+            eprcstars = STARPOINT_AS_PORTION_OF_NU_ESTIMATE* logresidual_raw/lr_var_of_like/SDS_TO_SHRINK_BY/(1/lr_var_of_like/SDS_TO_SHRINK_BY + 1/sdprc**2)
             if do_print:
                 print("sds:",logresidual_raw.std(),sdprc,eprcstars.std())
             #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
