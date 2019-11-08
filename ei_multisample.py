@@ -53,10 +53,10 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "2.0.4"
+EI_VERSION = "2.0.5"
 init_narrow = 10  # Numerically stabilize initialization.
 
-SAVE_CHUNK_SIZE = 1000
+SAVE_CHUNK_SIZE = 666
 
 BUNCHFAC = 35
 #P=10, BUNCHFAC = 9999: 61/31
@@ -102,7 +102,7 @@ SDC = SDRC = 2.
 SDPRC_STD = 1.2
 SDPRC_MEAN = -2.5
 
-NUM_Y_SAMPS = 4000
+NUM_Y_SAMPS = 400
 
 def toTypeOrNone(t,atype=TTYPE):
     return t.type(atype) if torch.is_tensor(t) else t
@@ -1346,14 +1346,14 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
         else:
             sigma_nu = torch.exp(gammas[:,-1])
         denses, nps = model_density_of(ys,lambdas[:,wdim:],base_logits,sigma_nu,R,C,wdim)
-        moddenses += denses
-        modnps += nps
+        moddenses = moddenses + denses
+        modnps = modnps + nps
         dp("sampleYs", sizes(lambdas,lmean,lstar,ll,gammas,base_logits,ldajs))
-        ldajsums += ldajs.squeeze()
-        YSums += ys
+        ldajsums = ldajsums + ldajs.squeeze()
+        YSums = YSums + ys
     denses = torch.stack([guidesampdenses,ldajsums,moddenses,modnps],1)
     dp("denses",sizes(denses))
-    return (gammas,YSums, denses)
+    return [t.detach().requires_grad_(False) for t in (gammas,YSums, denses)]
 
 def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults/funnyname_",i=None,N=None):
 
@@ -1370,11 +1370,9 @@ def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase=
             i += 1
     with open(filename, "a") as output:
         writer = csv.writer(output)
-        #gamma,ysums,denses = samps
-        dp("saveYsamps",sizes(ysums,denses))
         #import pdb; pdb.set_trace()
         for samp in zip(*samps):
-            writer.writerow([[float(val) for val in atensor.view(-1)] for atensor in samp])
+            writer.writerow(*[[float(val) for val in atensor.view(-1)] for atensor in samp])
     return i
 
 def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase,num_y_samps,steps,stride=SAVE_CHUNK_SIZE):
