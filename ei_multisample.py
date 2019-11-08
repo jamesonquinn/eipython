@@ -708,9 +708,8 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
             #sign_residual = logresidual_raw.sign()
             #abs_residual = logresidual_raw * sign_residual
             #shrunk_residual = softmax(abs_residual - lr_sd_of_like * SDS_TO_REDUCE_BY) * sign_residual
-            sdprc = torch.sqrt(torch.mean(softmax(logresidual_raw**2-  lr_var_of_like)))
-            sdprc_boosted = 1./(1./sdprc_raw + SIGMA_NU_PRECISION_BOOST)
-            sdprc = sdprc_boosted.detach() * SIGMA_NU_DETACHED_FRACTION + sdprc_boosted * (1.-SIGMA_NU_DETACHED_FRACTION)
+            sdprc_raw = torch.sqrt(torch.mean(softmax(logresidual_raw**2-  lr_var_of_like)))
+            sdprc = sdprc_raw.detach() * SIGMA_NU_DETACHED_FRACTION + sdprc_raw * (1.-SIGMA_NU_DETACHED_FRACTION)
 
             if icky_sigma:
                 fstar_data.update(sdprc=sdprc)
