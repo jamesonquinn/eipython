@@ -56,7 +56,7 @@ pyro.set_rng_seed(0)
 EI_VERSION = "2.0.4"
 init_narrow = 10  # Numerically stabilize initialization.
 
-SAVE_CHUNK_SIZE = 10#00
+SAVE_CHUNK_SIZE = 1000
 
 BUNCHFAC = 35
 #P=10, BUNCHFAC = 9999: 61/31
@@ -1124,7 +1124,8 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
         big_grad = big_grad,
         adjusted_means = adjusted_means,
         apsis = dict(globalpsi = globalpsi,
-                    precinctpsi = precinctpsi)
+                    precinctpsi = precinctpsi),
+        weight=scale
     )
     return result
 
@@ -1311,7 +1312,10 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
         guidesampdenses += dgamma.log_prob(gammas)
 
     else:
-        gammas,YSums, (guidesampdenses,ldajsums,moddenses,modnps) = previousSamps
+        gammas,YSums, stuff = previousSamps
+        guidesampdenses,ldajsums,moddenses,modnps = [stuff[:,i] for i in range(4)]
+        dp("sampleYs0",sizes(gammas,YSums, stuff,guidesampdenses,ldajsums,moddenses,modnps))
+        #import pdb; pdb.set_trace()
         base_logits = base_logits_of(gammas,R,C,wdim)
 
 
@@ -1366,26 +1370,28 @@ def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase=
             i += 1
     with open(filename, "a") as output:
         writer = csv.writer(output)
-        ysums,denses = samps
+        #gamma,ysums,denses = samps
         dp("saveYsamps",sizes(ysums,denses))
         #import pdb; pdb.set_trace()
-        for (ysum,dense) in zip(ysums,denses):
-            writer.writerow([float(val) for val in ysum.view(-1)] + [float(val) for val in dense])
+        for samp in zip(*samps):
+            writer.writerow([[float(val) for val in atensor.view(-1)] for atensor in samp])
     return i
 
 def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase,num_y_samps,steps,stride=SAVE_CHUNK_SIZE):
     U = data.U
     savedSoFar = 0
     numChunks = U//stride
+    if numChunks < 3:
+        numChunks = numChunks + 1
     stride = 1 + U//numChunks #balance them out
     ifit = None
     isamps = None
-    print("rerunGuide",U,savedSoFar,isamps)
+    print("rerunGuide",U,savedSoFar,isamps,stride)
     Ysamps = None
 
     cur_perm = torch.randperm(U)
     while savedSoFar < U:
-        print("    rerunGuide",U,savedSoFar,isamps)
+        print("    rerunGuide",U,savedSoFar,isamps,stride)
         indices = cur_perm[savedSoFar:min(savedSoFar+stride,U)]
         savedSoFar = savedSoFar+stride
         dataToSave = EISubData(data,indices)
@@ -1409,11 +1415,12 @@ def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase
 
         ifit  = saveFit(fitted_model_info, dataToSave, subsample_n, nsamps,steps,dversion=dversion,filebase=filebase,i=ifit)
 
-        Ysamps = sampleYs(fitted_model_info, data, num_y_samps, YSamps, weight)
+        Ysamps = sampleYs(fitted_model_info, data, num_y_samps, Ysamps, weight)
+        del fitted_model_info
 
     isamps = saveYsamps(Ysamps, dataToSave, subsample_n, nsamps,steps,dversion=dversion,filebase=filebase,i=isamps,N=U)
 
-    del fitted_model_info
+
 
 def trainGuide(subsample_n = SUBSET_SIZE,
             filebase = "eiresults/",
