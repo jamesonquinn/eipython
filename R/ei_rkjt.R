@@ -51,6 +51,7 @@ R = 3
 C = 3
 
 samp=fread(samp.filename)
+psamp = as.matrix(samp)[,c(1,4,7,2,5,8,3,6,9)]
 sparts = strsplit(samp.filename,"_")[[1]]
 scenario.filename = paste(paste0(data_dir,"scenario"),sparts[5],sparts[6],sparts[7],sep="_")
 scenario.filename = paste0(scenario.filename,".csv")
@@ -65,4 +66,4 @@ Ymat = matrix(Y,3,3)
 
 sampei = samp_eis(scenario.filename)
 summary(sampei)
-summary(samp - 1)
+summary(psamp - 1)
