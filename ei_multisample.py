@@ -53,10 +53,9 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "2.0.5"
+EI_VERSION = "2.0.6"
 init_narrow = 10  # Numerically stabilize initialization.
 
-SAVE_CHUNK_SIZE = 666
 
 BUNCHFAC = 35
 #P=10, BUNCHFAC = 9999: 61/31
@@ -76,7 +75,7 @@ SDS_TO_SHRINK_BY = 1. #neutral = 1.
 REATTACH_GRAD_PORTION = 1. #neutral = 1.
 SIGMA_NU_DETACHED_FRACTION = 1. #Neutral = 0. but very defensible up to 1. Moreover, seems to work!
 
-NSTEPS = 5000
+NSTEPS = 2000
 SUBSET_SIZE = 30
 #BIG_PRIME = 73 #Wow, that's big!
 
@@ -86,7 +85,7 @@ FAKE_VOTERS_PER_REAL_PARTY = .5 #remainder go into nonvoting party
 BASE_PSI = .01
 
 QUICKIE_SAVE = (NSTEPS < 20) #save subset; faster
-CUTOFF_WINDOW = 150
+CUTOFF_WINDOW = 130
 EXP_RUNNING_MEAN_WINDOW = 70
 
 
@@ -102,7 +101,15 @@ SDC = SDRC = 2.
 SDPRC_STD = 1.2
 SDPRC_MEAN = -2.5
 
-NUM_Y_SAMPS = 400
+if QUICKIE_SAVE:
+    NUM_Y_SAMPS = 40
+    SAVE_CHUNK_SIZE = 66
+else:
+    NUM_Y_SAMPS = 400
+    SAVE_CHUNK_SIZE = 666
+
+
+ICKY_SIGMA = False
 
 def toTypeOrNone(t,atype=TTYPE):
     return t.type(atype) if torch.is_tensor(t) else t
@@ -582,7 +589,6 @@ def softmax(t,minval=0.,mult=80.):
         mins = torch.ones_like(t)*minval*mult
     return torch.logsumexp(torch.stack((t*mult,mins)),0)/mult
 
-ICKY_SIGMA = True
 
 def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsamps = 1, icky_sigma=ICKY_SIGMA,
             *args, **kwargs):
@@ -1169,9 +1175,10 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
 
 
 
-
-#data = pandas.read_csv('input_data/NC_precincts_2016_with_sample.csv')
-data = pandas.read_csv('input_data\ALL_precincts_2016_reg_with_sample_60.csv')
+if QUICKIE_SAVE:
+    data = pandas.read_csv('input_data/NC_precincts_2016_with_sample.csv')
+else:
+    data = pandas.read_csv('input_data\ALL_precincts_2016_reg_with_sample_60.csv')
 
   #,county,precinct,white_reg,black_reg,other_reg,test
 wreg = torch.tensor(data.white_reg)
@@ -1372,7 +1379,7 @@ def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase=
         writer = csv.writer(output)
         #import pdb; pdb.set_trace()
         for samp in zip(*samps):
-            writer.writerow(*[[float(val) for val in atensor.view(-1)] for atensor in samp])
+            writer.writerow([float(val) for atensor in samp for val in atensor.view(-1)])
     return i
 
 def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase,num_y_samps,steps,stride=SAVE_CHUNK_SIZE):
