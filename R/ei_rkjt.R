@@ -24,17 +24,18 @@ samp_eis = function(filename="../eiresults_penultimate/scenario_SIG0.02_0_N527.c
     
     nc_wide = spread(nc_obs_only, valname, val)
     eibayes = ei.MD.bayes(cbind(vNA0,vNA1,vNA2)~cbind(n0NA,n1NA,n2NA), data=nc_wide)
-    cover.plot(eibayes,1,1)
+    #cover.plot(eibayes,1,1)
     lamei = lambda.MD(eibayes,c("vNA0","vNA1","vNA2"))
-    densityplot(lamei)
+    #densityplot(lamei)
     dim(lamei)
-    densityplot(lamei)
+    #densityplot(lamei)
     
-    totn = nc_obs[var=="n",sum(val)]
+    totn = nc_obs[var=="n",sum(val),by=r][,V1]
     
-    l2 = lamei * totn
-    l2m = matrix(l2,1000,9)
-    return(l2m)
+    l2m1 = matrix(lamei,1000,9)
+    
+    l2m2 = t(matrix(t(l2m1) * totn,9,1000))
+    return(l2m2)
 }
 
 
@@ -63,3 +64,5 @@ for (rr in 0:2) {
 Ymat = matrix(Y,3,3)
 
 sampei = samp_eis(scenario.filename)
+summary(sampei)
+summary(samp - 1)
