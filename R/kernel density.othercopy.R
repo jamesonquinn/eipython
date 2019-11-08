@@ -14,27 +14,30 @@ library(latex2exp)
 library(xtable)
 rstan_options(auto_write = TRUE)
 
-data_dir = "../eiresults.penultimate/"
-all.fits = list.files(data_dir, pattern="fit.*.json",full.names=T)
-all.samps = list.files(data_dir, pattern="samps.*.json",full.names=T)
+all.fits = list.files("../eiresults/", pattern="*.json", full.names=T)
 
 fit.filename = all.fits[1]
-samp.filename = all.samps[1]
 
 fit = fromJSON(file=fit.filename)
 R = 3
 C = 3
+GAMMA_SIZE = R*(C-1)
 
-samp=fread(samp.filename)
-sparts = strsplit(samp.filename,"_")[[1]]
-scenario.filename = paste(paste0(data_dir,"scenario"),sparts[5],sparts[6],sparts[7],sep="_")
-scenario = fread(paste0(scenario.filename,".csv"))
-Y = c()
-for (rr in 0:2) {
-  for (cc in 0:2) {
-    Y = c(Y, scenario[var=="y"&r==rr&c==cc,sum(val+1)])
-  }
+Ysamples = function(fit,nsamps=10000) {
+  gammas = rnorm(nsamps,
+                       fit$all_means[1:GAMMA_SIZE],
+                       t(matrix(unlist(fit$big_arrow$gg_cov),
+                                GAMMA_SIZE,GAMMA_SIZE)))
+  ys = matrix(nsamps, R*C)
 }
+
+
+
+
+
+
+
+
 
 
 
