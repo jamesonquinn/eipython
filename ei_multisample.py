@@ -53,9 +53,10 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "2.0.1"
+EI_VERSION = "2.0.4"
 init_narrow = 10  # Numerically stabilize initialization.
 
+SAVE_CHUNK_SIZE = 10#00
 
 BUNCHFAC = 35
 #P=10, BUNCHFAC = 9999: 61/31
@@ -70,10 +71,9 @@ BUNCHFAC = 35
 MAX_NEWTON_STEP = 1. #neutral = 1
 STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1. #neutral=1
 NEW_DETACHED_FRACTION = 0. #as in Newton, get it? neutral=0
-SDS_TO_SHRINK_BY = .5 #neutral = 1.
+SDS_TO_SHRINK_BY = 1. #neutral = 1.
 
 REATTACH_GRAD_PORTION = 1. #neutral = 1.
-SIGMA_NU_PRECISION_BOOST = 0. #4. #-> max sd = .5.;; Neutral = 1., but defensible; similar to strong prior.
 SIGMA_NU_DETACHED_FRACTION = 1. #Neutral = 0. but very defensible up to 1. Moreover, seems to work!
 
 NSTEPS = 5000
@@ -86,7 +86,7 @@ FAKE_VOTERS_PER_REAL_PARTY = .5 #remainder go into nonvoting party
 BASE_PSI = .01
 
 QUICKIE_SAVE = (NSTEPS < 20) #save subset; faster
-CUTOFF_WINDOW = 250
+CUTOFF_WINDOW = 150
 EXP_RUNNING_MEAN_WINDOW = 70
 
 
@@ -1191,13 +1191,15 @@ DUMMY_DATA = EIData(ns,None,precinct_unique,
         alpha=NCparams.alpha, beta=NCparams.beta)
 
 
-def nameWithParams(filebase, data, dversion="", S=None, extension =None):
+def nameWithParams(filebase, data, dversion="", S=None, extension =None, N=None):
+    if N is None:
+        N = data.U
     if extension is None:
         extension = ".json" if S else ".csv"
     if S is None:
-        filename = (f"{filebase}_SIG{data.sigmanu}_{dversion}_N{data.U}{extension}")
+        filename = (f"{filebase}_SIG{data.sigmanu}_{dversion}_N{N}{extension}")
     else:
-        filename = (f"{filebase}_SIG{data.sigmanu}_{dversion}_N{data.U}_S{S}_{extension}")
+        filename = (f"{filebase}_SIG{data.sigmanu}_{dversion}_N{N}_S{S}_{extension}")
     return filename
 
 def createOrLoadScenario(dummy_data = DUMMY_DATA, dversion="",
@@ -1215,18 +1217,23 @@ def createOrLoadScenario(dummy_data = DUMMY_DATA, dversion="",
     print(filename, "created")
     return data
 
-def saveFit(fitted_model_info, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults/funnyname_"):
-    i = 0
-    while True:
-        filename = nameWithParams(filebase+"fit_"+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
-                data,dversion,subsample_n)
-        if not os.path.exists(filename):
-            break
-        print("file exists:",filename)
-        i += 1
-    with open(filename, "w") as output:
+def saveFit(fitted_model_info, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults/funnyname_",i=None):
+
+    filename = nameWithParams(filebase+"fit_"+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
+            data,dversion,subsample_n)
+    if i is None:
+        i = 0
+        while True:
+            filename = nameWithParams(filebase+"fit_"+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
+                    data,dversion,subsample_n)
+            if not os.path.exists(filename):
+                break
+            print("file exists:",filename)
+            i += 1
+    with open(filename, "a") as output:
         output.write(jsonize(fitted_model_info))
     #print("saveFit", filename)
+    return i
 
 def good_inits(shrink=1.,sd=False,noise=0.):
     #ec,erc = legible_values(3,3)
@@ -1284,23 +1291,29 @@ def model_density_of(ys,nus,base_logits,sigma_nu,R,C,wdim):
     #         weights = self.weights
     # big_grad = big_grad,
     # adjusted_means = adjusted_means
-def sampleYs(fit,data,n,indices=None, icky_sigma=ICKY_SIGMA):
+def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_sigma=ICKY_SIGMA):
     ba = fit["big_arrow"]
     am = fit["all_means"]
     G,L = ba.G, ba.L
     R, C = (data.R,data.C)
     wdim = (R-1)*(C-1)
 
-    YSums = torch.zeros(n,R,C)
-    ldajsums = torch.zeros(n)
-    guidesampdenses = torch.zeros(n)
-    moddenses = torch.zeros(n)
-    modnps = torch.zeros(n)
+    if previousSamps is None:
+        YSums = torch.zeros(n,R,C)
+        ldajsums = torch.zeros(n)
+        guidesampdenses = torch.zeros(n)
+        moddenses = torch.zeros(n)
+        modnps = torch.zeros(n)
 
-    dgamma = torch.distributions.MultivariateNormal(am[:G], ba.gg_cov)
-    gammas = dgamma.sample([n])
-    base_logits = base_logits_of(gammas,R,C,wdim)
-    guidesampdenses += dgamma.log_prob(gammas)
+        dgamma = torch.distributions.MultivariateNormal(am[:G], ba.gg_cov)
+        gammas = dgamma.sample([n])
+        base_logits = base_logits_of(gammas,R,C,wdim)
+        guidesampdenses += dgamma.log_prob(gammas)
+
+    else:
+        gammas,YSums, (guidesampdenses,ldajsums,moddenses,modnps) = previousSamps
+        base_logits = base_logits_of(gammas,R,C,wdim)
+
 
     ll = ba.llinvs
     U = len(ll)
@@ -1310,11 +1323,12 @@ def sampleYs(fit,data,n,indices=None, icky_sigma=ICKY_SIGMA):
         lstar = am[G+u*L:G+u*L+L]#wdim]
         ignore_nu = False
         if ignore_nu:
-            wmean = wstar.unsqueeze(0) + torch.matmul(gammas.unsqueeze(1), ba.gls[u][:,:wdim])
-            dw = torch.distributions.MultivariateNormal(wmean, ll[u][:wdim,:wdim].unsqueeze(0))
+            pass
+            #wmean = wstar.unsqueeze(0) + torch.matmul(gammas.unsqueeze(1), ba.gls[u][:,:wdim] )
+            #dw = torch.distributions.MultivariateNormal(wmean, ll[u][:wdim,:wdim].unsqueeze(0))
         else:
-            lmean = lstar.unsqueeze(0) + torch.matmul(gammas.unsqueeze(1), ba.gls[u])
-            dl = torch.distributions.MultivariateNormal(lmean, ll[u].unsqueeze(0))
+            lmean = lstar.unsqueeze(0) + torch.matmul(gammas.unsqueeze(1), ba.gls[u] / weightToUndo)
+            dl = torch.distributions.MultivariateNormal(lmean, ll[u].unsqueeze(0) * weightToUndo)
         lambdas = dl.sample()
         llp = dl.log_prob(lambdas).squeeze()
         lambdas = lambdas.squeeze()
@@ -1335,25 +1349,71 @@ def sampleYs(fit,data,n,indices=None, icky_sigma=ICKY_SIGMA):
         YSums += ys
     denses = torch.stack([guidesampdenses,ldajsums,moddenses,modnps],1)
     dp("denses",sizes(denses))
-    return (YSums, denses)
+    return (gammas,YSums, denses)
 
-def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults/funnyname_"):
-    i = 0
-    while True:
-        filename = nameWithParams(filebase+"dsamps_"+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
-                data,dversion,subsample_n,extension=".csv")
-        if not os.path.exists(filename):
-            break
-        print("file exists:",filename)
-        i += 1
-    with open(filename, "w") as output:
+def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults/funnyname_",i=None,N=None):
+
+    filename = nameWithParams(filebase+"dsamps_"+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
+            data,dversion,subsample_n,extension=".csv",N=N)
+    if i is None:
+        i = 0
+        while True:
+            filename = nameWithParams(filebase+"dsamps_"+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
+                    data,dversion,subsample_n,extension=".csv",N=N)
+            if not os.path.exists(filename):
+                break
+            print("file exists:",filename)
+            i += 1
+    with open(filename, "a") as output:
         writer = csv.writer(output)
         ysums,denses = samps
         dp("saveYsamps",sizes(ysums,denses))
         #import pdb; pdb.set_trace()
         for (ysum,dense) in zip(ysums,denses):
             writer.writerow([float(val) for val in ysum.view(-1)] + [float(val) for val in dense])
+    return i
 
+def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase,num_y_samps,steps,stride=SAVE_CHUNK_SIZE):
+    U = data.U
+    savedSoFar = 0
+    numChunks = U//stride
+    stride = 1 + U//numChunks #balance them out
+    ifit = None
+    isamps = None
+    print("rerunGuide",U,savedSoFar,isamps)
+    Ysamps = None
+
+    cur_perm = torch.randperm(U)
+    while savedSoFar < U:
+        print("    rerunGuide",U,savedSoFar,isamps)
+        indices = cur_perm[savedSoFar:min(savedSoFar+stride,U)]
+        savedSoFar = savedSoFar+stride
+        dataToSave = EISubData(data,indices)
+        dataSize = dataToSave.U
+        weight = U/dataSize
+        fitted_model_info = guide(dataToSave, weight, True)
+        fitted_model_info.update(
+                        aacomment = "(add manually later)",
+                        aaversion = EI_VERSION,
+                        aaelasticity= dict(
+                            MAX_NEWTON_STEP = MAX_NEWTON_STEP, #currently, just taking this much of a step, hard-coded
+                            STARPOINT_AS_PORTION_OF_NU_ESTIMATE = STARPOINT_AS_PORTION_OF_NU_ESTIMATE,
+                            NEW_DETACHED_FRACTION = NEW_DETACHED_FRACTION, #as in Newton, get it?
+                            SDS_TO_SHRINK_BY = SDS_TO_SHRINK_BY,
+                            REATTACH_GRAD_PORTION = REATTACH_GRAD_PORTION,
+                            SIGMA_NU_DETACHED_FRACTION = SIGMA_NU_DETACHED_FRACTION #Neutral = 0. but very defensible up to 1.
+                        ),
+                        mean_loss = mean_losses[-1],
+                        final_loss = loss
+                        )
+
+        ifit  = saveFit(fitted_model_info, dataToSave, subsample_n, nsamps,steps,dversion=dversion,filebase=filebase,i=ifit)
+
+        Ysamps = sampleYs(fitted_model_info, data, num_y_samps, YSamps, weight)
+
+    isamps = saveYsamps(Ysamps, dataToSave, subsample_n, nsamps,steps,dversion=dversion,filebase=filebase,i=isamps,N=U)
+
+    del fitted_model_info
 
 def trainGuide(subsample_n = SUBSET_SIZE,
             filebase = "eiresults/",
@@ -1361,7 +1421,8 @@ def trainGuide(subsample_n = SUBSET_SIZE,
             sigmanu = SIM_SIGMA_NU,
             dummydata = DUMMY_DATA,
             nsamps=1,dversion="",inits=dict(),
-            num_y_samps=NUM_Y_SAMPS):
+            num_y_samps=NUM_Y_SAMPS,
+            force_full=False):
     resetDebugCounts()
 
     # Let's generate voting data. I'm conditioning concentration=1 for numerical stability.
@@ -1435,37 +1496,32 @@ def trainGuide(subsample_n = SUBSET_SIZE,
     except Exception as e:
         print("Problem plotting:",e)
 
-    if QUICKIE_SAVE or nsteps < 30:
-        dataToSave = subset
-    else:
-        dataToSave = data
-    fitted_model_info = guide(dataToSave, 1., True)
-    fitted_model_info.update(
-                    aacomment = "(add manually later)",
-                    aaversion = EI_VERSION,
-                    aaelasticity= dict(
-                        MAX_NEWTON_STEP = MAX_NEWTON_STEP, #currently, just taking this much of a step, hard-coded
-                        STARPOINT_AS_PORTION_OF_NU_ESTIMATE = STARPOINT_AS_PORTION_OF_NU_ESTIMATE,
-                        NEW_DETACHED_FRACTION = NEW_DETACHED_FRACTION, #as in Newton, get it?
-                        SDS_TO_SHRINK_BY = SDS_TO_SHRINK_BY,
-                        REATTACH_GRAD_PORTION = REATTACH_GRAD_PORTION,
-                        SIGMA_NU_PRECISION_BOOST = SIGMA_NU_PRECISION_BOOST, #max sd = .5. Neutral = 1., but defensible; similar to strong prior.
-                        SIGMA_NU_DETACHED_FRACTION = SIGMA_NU_DETACHED_FRACTION #Neutral = 0. but very defensible up to 1.
-                    ),
-                    mean_loss = mean_losses[-1],
-                    final_loss = loss
-                    )
-
-    saveFit(fitted_model_info, dataToSave, subsample_n, nsamps,i,dversion=dversion,filebase=filebase)
-
-    Ysamps = sampleYs(fitted_model_info, data, num_y_samps)
-
-    saveYsamps(Ysamps, dataToSave, subsample_n, nsamps,i,dversion=dversion,filebase=filebase)
-    ##
+    print("trainGuide post..................................................")
+    for i in range(3):
+        print(",,")
 
     for (key, val) in sorted(pyro.get_param_store().items()):
         if sum(val.size()) > 1:
             print(f"{key}:\n{val[:10]} (10 elems)")
         else:
             print(f"{key}:\n{val}")
+
+    if (not force_full) and (QUICKIE_SAVE or nsteps < 30):
+        dataToSave = subset
+    else:
+        dataToSave = data
+
+    for i in range(2):
+        print("::")
+
+    rerunGuide(dataToSave,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase,num_y_samps,i)
+
+    print("Done trainGuide..................................................")
+    for i in range(10):
+        print(".")
+
+
+
+
+
     return(svi,losses,data)
