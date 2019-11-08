@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "2.0.0"
+EI_VERSION = "2.0.1"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -1123,7 +1123,8 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
         big_arrow = big_arrow,
         big_grad = big_grad,
         adjusted_means = adjusted_means,
-
+        apsis = dict(globalpsi = globalpsi,
+                    precinctpsi = precinctpsi)
     )
     return result
 
@@ -1168,8 +1169,8 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
 
 
 
-data = pandas.read_csv('input_data/NC_precincts_2016_with_sample.csv')
-#data = pandas.read_csv('input_data\ALL_precincts_2016_reg_with_sample_60.csv')
+#data = pandas.read_csv('input_data/NC_precincts_2016_with_sample.csv')
+data = pandas.read_csv('input_data\ALL_precincts_2016_reg_with_sample_60.csv')
 
   #,county,precinct,white_reg,black_reg,other_reg,test
 wreg = torch.tensor(data.white_reg)
