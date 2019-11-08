@@ -1,6 +1,15 @@
 Writing
 
-Pseudovoters (both kinds grr)
+
+chapter 2
+
+chapter 3
+    pre-Pseudovoters
+
+    post-pseudovoters
+    
+    d
+
 
 
 
@@ -24,4 +33,5 @@ Figure out how to get jacobian correction to pyro without stupid uniform distrib
 
 estimate variance of likelihood of log using both sides, not just one.
 
-subtract off mean of nuhats before continuing to estimate sigma_nu 
+subtract off mean of nuhats before continuing to estimate sigma_nu
+do NOT subtract off mean of nuhats when estimating sigma_nu

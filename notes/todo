@@ -57,3 +57,17 @@ ideal meanfield: get mean and covariance, then precision, then drop non-diagonal
 get KL divergences
 
 get coverages
+
+
+
+
+
+..........
+
+
+
+
+       [,1]  [,2]  [,3]
+[1,] 221565 97760 27453
+[2,]  85396 79598 11611
+[3,] 713050 31012 35403
