@@ -109,7 +109,7 @@ else:
     SAVE_CHUNK_SIZE = 666
 
 
-ICKY_SIGMA = False
+ICKY_SIGMA = True
 
 def toTypeOrNone(t,atype=TTYPE):
     return t.type(atype) if torch.is_tensor(t) else t
@@ -1211,7 +1211,7 @@ def nameWithParams(filebase, data, dversion="", S=None, extension =None, N=None)
     return filename
 
 def createOrLoadScenario(dummy_data = DUMMY_DATA, dversion="",
-            filebase="eiresults/"):
+            filebase="eiresults.icky/"):
     filename = nameWithParams(filebase + "scenario", dummy_data, dversion)
     try:
         data = EIData.load(filename)
@@ -1225,7 +1225,7 @@ def createOrLoadScenario(dummy_data = DUMMY_DATA, dversion="",
     print(filename, "created")
     return data
 
-def saveFit(fitted_model_info, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults/funnyname_",i=None):
+def saveFit(fitted_model_info, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults.icky/funnyname_",i=None):
 
     filename = nameWithParams(filebase+"fit_"+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
             data,dversion,subsample_n)
@@ -1362,7 +1362,7 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
     dp("denses",sizes(denses))
     return [t.detach().requires_grad_(False) for t in (gammas,YSums, denses)]
 
-def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults/funnyname_",i=None,N=None):
+def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults.icky/funnyname_",i=None,N=None):
 
     filename = nameWithParams(filebase+"dsamps_"+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
             data,dversion,subsample_n,extension=".csv",N=N)
@@ -1428,7 +1428,7 @@ def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase
 
 
 def trainGuide(subsample_n = SUBSET_SIZE,
-            filebase = "eiresults/",
+            filebase = "eiresults.icky/",
             nsteps=NSTEPS,
             sigmanu = SIM_SIGMA_NU,
             dummydata = DUMMY_DATA,
