@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "2.0.6"
+EI_VERSION = "2.1.0"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -1211,7 +1211,7 @@ def nameWithParams(filebase, data, dversion="", S=None, extension =None, N=None)
     return filename
 
 def createOrLoadScenario(dummy_data = DUMMY_DATA, dversion="",
-            filebase="eiresults.icky/"):
+            filebase="eiresults/"):
     filename = nameWithParams(filebase + "scenario", dummy_data, dversion)
     try:
         data = EIData.load(filename)
@@ -1225,7 +1225,7 @@ def createOrLoadScenario(dummy_data = DUMMY_DATA, dversion="",
     print(filename, "created")
     return data
 
-def saveFit(fitted_model_info, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults.icky/funnyname_",i=None):
+def saveFit(fitted_model_info, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults/funnyname_",i=None):
 
     filename = nameWithParams(filebase+"fit_"+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
             data,dversion,subsample_n)
@@ -1362,7 +1362,7 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
     dp("denses",sizes(denses))
     return [t.detach().requires_grad_(False) for t in (gammas,YSums, denses)]
 
-def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults.icky/funnyname_",i=None,N=None):
+def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase="eiresults/funnyname_",i=None,N=None):
 
     filename = nameWithParams(filebase+"dsamps_"+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
             data,dversion,subsample_n,extension=".csv",N=N)
@@ -1428,7 +1428,7 @@ def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase
 
 
 def trainGuide(subsample_n = SUBSET_SIZE,
-            filebase = "eiresults.icky/",
+            filebase = "eiresults/",
             nsteps=NSTEPS,
             sigmanu = SIM_SIGMA_NU,
             dummydata = DUMMY_DATA,
