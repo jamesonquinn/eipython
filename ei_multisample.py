@@ -1420,7 +1420,7 @@ def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase
 
         ifit  = saveFit(fitted_model_info, dataToSave, subsample_n, nsamps,steps,dversion=dversion,filebase=filebase,i=ifit)
 
-        Ysamps = sampleYs(fitted_model_info, data, num_y_samps, Ysamps, weight)
+        Ysamps = sampleYs(fitted_model_info, dataToSave, num_y_samps, Ysamps, weight)
         del fitted_model_info
 
     isamps = saveYsamps(Ysamps, dataToSave, subsample_n, nsamps,steps,dversion=dversion,filebase=filebase,i=isamps,N=U)
