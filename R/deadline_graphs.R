@@ -39,9 +39,9 @@ samp_eis = function(filename="../eiresults/scenario_SIG0.02_0_N2774.csv") {
 }
 
 
-data_dir = "../eiresults.penultimate/"
+data_dir = "../eiresults"
 all.fits = list.files(data_dir, pattern="fit.*.json",full.names=T)
-all.samps = list.files(data_dir, pattern="samps.*.json",full.names=T)
+all.samps = list.files(data_dir, pattern="dsamps.*.csv",full.names=T)
 
 fit.filename = all.fits[1]
 samp.filename = all.samps[1]
@@ -51,9 +51,10 @@ R = 3
 C = 3
 
 samp=fread(samp.filename)
-psamp = as.matrix(samp)[,c(1,4,7,2,5,8,3,6,9)]
+msamp = as.matrix(samp)
+psamp= msamp[,c(1,4,7,2,5,8,3,6,9)+6]
 sparts = strsplit(samp.filename,"_")[[1]]
-scenario.filename = paste(paste0(data_dir,"scenario"),sparts[5],sparts[6],sparts[7],sep="_")
+scenario.filename = paste(paste0(data_dir,"/scenario"),sparts[5],sparts[6],sparts[7],sep="_")
 scenario.filename = paste0(scenario.filename,".csv")
 scenario = fread(scenario.filename)
 Y = c()
@@ -67,3 +68,4 @@ Ymat = matrix(Y,3,3)
 sampei = samp_eis(scenario.filename)
 summary(sampei)
 summary(psamp - 1)
+Ymat
