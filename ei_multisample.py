@@ -85,8 +85,9 @@ FAKE_VOTERS_PER_REAL_PARTY = .5 #remainder go into nonvoting party
 BASE_PSI = .01
 
 QUICKIE_SAVE = (NSTEPS < 20) #save subset; faster
-CUTOFF_WINDOW = 90
-EXP_RUNNING_MEAN_WINDOW = 50
+CUTOFF_WINDOW = 140
+MIN_CUTOFF = 180
+EXP_RUNNING_MEAN_WINDOW = 75
 
 
 SIM_SIGMA_NU = .15
@@ -1412,7 +1413,8 @@ def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase
                             NEW_DETACHED_FRACTION = NEW_DETACHED_FRACTION, #as in Newton, get it?
                             SDS_TO_SHRINK_BY = SDS_TO_SHRINK_BY,
                             REATTACH_GRAD_PORTION = REATTACH_GRAD_PORTION,
-                            SIGMA_NU_DETACHED_FRACTION = SIGMA_NU_DETACHED_FRACTION #Neutral = 0. but very defensible up to 1.
+                            SIGMA_NU_DETACHED_FRACTION = SIGMA_NU_DETACHED_FRACTION, #Neutral = 0. but very defensible up to 1.
+                            ICKY_SIGMA = ICKY_SIGMA
                         ),
                         mean_loss = mean_losses[-1],
                         final_loss = loss
@@ -1494,8 +1496,9 @@ def trainGuide(subsample_n = SUBSET_SIZE,
             try:
                 if ((mean_losses[-1] > mean_losses[-CUTOFF_WINDOW])
                         and (mean_losses[-1] > mean_losses[-CUTOFF_WINDOW//2])):
-                    ddp("Cutoff reached",mean_losses[-1], mean_losses[-CUTOFF_WINDOW])
-                    break
+                    if i > MIN_CUTOFF:
+                        ddp("Cutoff reached",mean_losses[-1], mean_losses[-CUTOFF_WINDOW])
+                        break
             except Exception as e:
                 pass
 
@@ -1509,7 +1512,7 @@ def trainGuide(subsample_n = SUBSET_SIZE,
         print("Problem plotting:",e)
 
     print("trainGuide post..................................................")
-    for i in range(3):
+    for ii in range(3):
         print(",,")
 
     for (key, val) in sorted(pyro.get_param_store().items()):
@@ -1523,13 +1526,13 @@ def trainGuide(subsample_n = SUBSET_SIZE,
     else:
         dataToSave = data
 
-    for i in range(2):
+    for ii in range(2):
         print("::")
 
     rerunGuide(dataToSave,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase,num_y_samps,i)
 
     print("Done trainGuide..................................................")
-    for i in range(10):
+    for ii in range(10):
         print(".")
 
 
