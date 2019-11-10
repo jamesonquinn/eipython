@@ -14,7 +14,7 @@ import json
 import contextlib
 from itertools import chain
 import cProfile as profile
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict, defaultdict, Mapping
 
 
 from matplotlib import pyplot as plt
@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "3.1.0"
+EI_VERSION = "3.1.1"
 FILEBASE = "eiresultsQ/"
 init_narrow = 10  # Numerically stabilize initialization.
 
@@ -646,9 +646,9 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
     # Amortize to find ystar and wstar
     ##################################################################
 
-    ecerc2r = ec_then_erc_star.detach().requires_grad_()
+    ecerc2r = ec_then_erc_star.clone().detach().requires_grad_()
     ec2r = ecerc2r[0,:]
-    erc2r = ecerc2r[1:,:]#ercstar_raw.detach().requires_grad_()
+    erc2r = ecerc2r[1:,:]#ercstar_raw.clone().detach().requires_grad_()
 
     ec2 = expand_and_center(ec2r)
     erc2 = expand_and_center(erc2r)
@@ -717,7 +717,11 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
             #abs_residual = logresidual_raw * sign_residual
             #shrunk_residual = softmax(abs_residual - lr_sd_of_like * SDS_TO_REDUCE_BY) * sign_residual
             sdprc_raw = torch.sqrt(torch.mean(softmax(logresidual_raw**2-  lr_var_of_like)))
-            sdprc = sdprc_raw.detach() * SIGMA_NU_DETACHED_FRACTION + sdprc_raw * (1.-SIGMA_NU_DETACHED_FRACTION)
+            if SIGMA_NU_DETACHED_FRACTION == 1.:
+
+                sdprc = sdprc_raw.clone().detach() #* SIGMA_NU_DETACHED_FRACTION + sdprc_raw * (1.-SIGMA_NU_DETACHED_FRACTION)
+            else:
+                sdprc = sdprc_raw.clone().detach() * SIGMA_NU_DETACHED_FRACTION + sdprc_raw * (1.-SIGMA_NU_DETACHED_FRACTION)
 
             if icky_sigma:
                 fstar_data.update(sdprc=sdprc)
@@ -885,7 +889,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
         #dp("all_means",all_means)
         #dp(torch.any(torch.isnan(torch.diag(neg_big_hessian))),torch.any(torch.isnan(torch.diag(big_hessian))))
         gamma_mean = all_means[:gamma_dims]
-        #dp("detirminants",np.linalg.det(gamma_info.detach()),np.linalg.det(big_hessian.detach()))
+        #dp("detirminants",np.linalg.det(gamma_info.clone().detach()),np.linalg.det(big_hessian.clone().detach()))
         #dp(gamma_info[:3,:3])
         #dp(-neg_big_hessian[:6,:3])
 
@@ -944,7 +948,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
             #dp("precinct:::",gamma_1p_hess.size(),precinct_cov.size(),big_grad.size(),precinct_grad.size(),)
             if include_nuisance:
                 adjusted_mean_raw = conditional_mean + step_mult * torch.mv(big_arrow.llinvs[p], precinct_grad)
-                adjusted_mean = adjusted_mean_raw.detach() * NEW_DETACHED_FRACTION + adjusted_mean_raw * (1 - NEW_DETACHED_FRACTION)
+                adjusted_mean = adjusted_mean_raw.clone().detach() * NEW_DETACHED_FRACTION + adjusted_mean_raw * (1 - NEW_DETACHED_FRACTION)
                                      #one (partial, as defined by step_mult) step of Newton's method
                                      #Note: this applies to both ws and nus (eprcs). I was worried about whether that was circular logic but I talked with Mira and we both think it's actually principled.
             else:
@@ -1397,11 +1401,11 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
         #Qvarcounters[:,:,:,69] = Qvarcounters[:,:,:,69] + nrbyc**2
         meanOld = Qvarcounters[:,:,:,1].clone()
         Qvarcounters[:,:,:,1] = meanOld + (nrbyc / Qvarcounters[:,:,:,0]) * (qs - meanOld)
-        Qvarcounters[:,:,:,2] = Qvarcounters[:,:,:,1] + nrbyc * (qs - meanOld) * (qs - Qvarcounters[:,:,:,1)
+        Qvarcounters[:,:,:,2] = Qvarcounters[:,:,:,1] + nrbyc * (qs - meanOld) * (qs - Qvarcounters[:,:,:,1])
 
     denses = torch.stack([guidesampdenses,ldajsums,moddenses,modnps],1)
     dp("denses",sizes(denses))
-    return [t.detach().requires_grad_(False) for t in (gammas,YSums, denses,Qvarcounters)]
+    return [t.clone().detach().requires_grad_(False) for t in (gammas,YSums, denses,Qvarcounters)]
 
 def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase=FILEBASE + "funnyname_",i=None,N=None):
 
@@ -1422,6 +1426,22 @@ def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase=
         for samp in zip(*samps):
             writer.writerow([float(val) for atensor in samp for val in atensor.view(-1)])
     return i
+
+def detachRecursive(obj):
+    if torch.is_tensor(obj):
+        return obj.clone().detach().requires_grad_(False)
+    if isinstance(obj, Mapping):
+        return dict((k,detachRecursive(v)) for k,v in obj.items())
+    if type(obj) is list:
+        return [detachRecursive(it) for it in obj]
+    if isinstance(obj, ArrowheadPrecision):
+        for attr in ("G", "L", "gg", "gls", "raw_lls", "weights", "lls", "_mgg",
+                    "psig", "psil","vecweights","vecraw_lls","chol_lls","llinvs",
+                    "gg_cov","vecgls","_mgg_chol" ): #Too many??
+            if hasattr(obj,attr):
+                setattr(obj,attr,detachRecursive(getattr(obj,attr)))
+        return obj
+    return obj
 
 def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase,num_y_samps,steps,stride=SAVE_CHUNK_SIZE):
     U = data.U
@@ -1444,6 +1464,7 @@ def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase
         dataSize = dataToSave.U
         weight = U/dataSize
         fitted_model_info = guide(dataToSave, weight, True)
+        fitted_model_info = detachRecursive(fitted_model_info)
         fitted_model_info.update(
                         aacomment = "(add manually later)",
                         aaversion = EI_VERSION,
@@ -1513,6 +1534,7 @@ def trainGuide(subsample_n = SUBSET_SIZE,
         ddp("svi.step(...",i,scale,subset.indeps.size())
         loss = svi.step(subset,scale,True,do_print=(i % 10 == 0),nsamps=nsamps,
                 inits=inits)
+        loss = loss.clone().detach().requires_grad_(False) #I hate memory leaks!
         if len(losses)==0:
             mean_losses.append(loss)
         else:
