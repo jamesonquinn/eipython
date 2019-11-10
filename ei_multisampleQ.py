@@ -1534,7 +1534,7 @@ def trainGuide(subsample_n = SUBSET_SIZE,
         ddp("svi.step(...",i,scale,subset.indeps.size())
         loss = svi.step(subset,scale,True,do_print=(i % 10 == 0),nsamps=nsamps,
                 inits=inits)
-        loss = loss.clone().detach().requires_grad_(False) #I hate memory leaks!
+        loss = detachRecursive(loss) #I hate memory leaks!
         if len(losses)==0:
             mean_losses.append(loss)
         else:
