@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "3.1.6"
+EI_VERSION = "4.0.0"
 FILEBASE = "ei_post_results/"
 init_narrow = 10  # Numerically stabilize initialization.
 
