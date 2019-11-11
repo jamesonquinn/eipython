@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "3.1.3"
+EI_VERSION = "3.1.4"
 FILEBASE = "eiresultsQ2/"
 init_narrow = 10  # Numerically stabilize initialization.
 
@@ -1160,7 +1160,8 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
         adjusted_means = adjusted_means,
         apsis = dict(globalpsi = globalpsi,
                     precinctpsi = precinctpsi),
-        weight=scale
+        weight=scale,
+        log_posterior=log_posterior
     )
     return result
 
