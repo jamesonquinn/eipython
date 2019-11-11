@@ -46,15 +46,15 @@ use_cuda = torch.cuda.is_available()
 
 ts = torch.tensor
 
-
-torch.manual_seed(478301986) #Gingles
+SEED = 4783019862  #Gingles2
+torch.manual_seed(SEED)
 
 pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "3.1.4"
-FILEBASE = "eiresultsQ2/"
+EI_VERSION = "3.1.6"
+FILEBASE = "ei_post_results/"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -68,10 +68,10 @@ BUNCHFAC = 35
 #P=30, BUNCHFAC = 9999: 42/11
 #P=30, BUNCHFAC = 9999: 189/51 2346..1708..1175..864..746
 
-MAX_NEWTON_STEP = 1. #neutral = 1
+MAX_NEWTON_STEP = 0. #neutral = 1
 STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1. #neutral=1
 NEW_DETACHED_FRACTION = 0. #as in Newton, get it? neutral=0
-SDS_TO_SHRINK_BY = 1. #neutral = 1.
+SDS_TO_SHRINK_BY = 2/3 #neutral = 1.
 
 REATTACH_GRAD_PORTION = 1. #neutral = 1.
 SIGMA_NU_DETACHED_FRACTION = 1. #Neutral = 0. but very defensible up to 1. Moreover, seems to work!
@@ -1365,7 +1365,7 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
         moddenses = torch.zeros(n)
         modnps = torch.zeros(n)
 
-        dgamma = torch.distributions.MultivariateNormal(am[:G], ba.gg_cov)
+        dgamma = torch.distributions.MultivariateNormal(am[:G], ba.marginal_gg_cov)
         gammas = dgamma.sample([n])
         base_logits = base_logits_of(gammas,R,C,wdim)
         guidesampdenses += dgamma.log_prob(gammas)
@@ -1394,7 +1394,7 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
         lstar = am[G+u*L:G+u*L+L]#wdim]
         ignore_nu = False
         if ignore_nu:
-            pass
+            raise Exception("unimplemented")
             #wmean = wstar.unsqueeze(0) + torch.matmul(gammas.unsqueeze(1), ba.gls[u][:,:wdim] )
             #dw = torch.distributions.MultivariateNormal(wmean, ll[u][:wdim,:wdim].unsqueeze(0))
         else:
@@ -1515,7 +1515,8 @@ def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase
                             REATTACH_GRAD_PORTION = REATTACH_GRAD_PORTION,
                             SIGMA_NU_DETACHED_FRACTION = SIGMA_NU_DETACHED_FRACTION, #Neutral = 0. but very defensible up to 1.
                             ICKY_SIGMA = ICKY_SIGMA,
-                            PIN_PSI = PIN_PSI
+                            PIN_PSI = PIN_PSI,
+                            SEED = SEED
                         ),
                         mean_loss = mean_losses[-1],
                         final_loss = loss
