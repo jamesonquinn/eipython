@@ -1365,7 +1365,7 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
         moddenses = torch.zeros(n)
         modnps = torch.zeros(n)
 
-        dgamma = torch.distributions.MultivariateNormal(am[:G], ba.marginal_gg_cov)
+        dgamma = torch.distributions.MultivariateNormal(am[:G], ba.marginal_gg_cov())
         gammas = dgamma.sample([n])
         base_logits = base_logits_of(gammas,R,C,wdim)
         guidesampdenses += dgamma.log_prob(gammas)
@@ -1398,7 +1398,7 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
             #wmean = wstar.unsqueeze(0) + torch.matmul(gammas.unsqueeze(1), ba.gls[u][:,:wdim] )
             #dw = torch.distributions.MultivariateNormal(wmean, ll[u][:wdim,:wdim].unsqueeze(0))
         else:
-            lmean = lstar.unsqueeze(0) + torch.matmul(gammas.unsqueeze(1), ba.gls[u] / weightToUndo)
+            lmean = lstar.unsqueeze(0) + torch.matmul(gammas.unsqueeze(1), ba.gls[u])
             dl = torch.distributions.MultivariateNormal(lmean, ll[u].unsqueeze(0) * weightToUndo)
         lambdas = dl.sample()
         llp = dl.log_prob(lambdas).squeeze()
