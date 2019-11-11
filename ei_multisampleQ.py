@@ -1422,6 +1422,7 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
 
         nrbyc = data.ns[u].view(1,R,1) #used as weights for running variance calculation
         qs = ys / nrbyc
+        #"w" = nrbyc ; "x" = qs
         Qvarcounters[:,:,:,0] = Qvarcounters[:,:,:,0] + nrbyc
         #Qvarcounters[:,:,:,69] = Qvarcounters[:,:,:,69] + nrbyc**2
         meanOld = Qvarcounters[:,:,:,1].clone()
