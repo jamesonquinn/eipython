@@ -53,8 +53,8 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "3.1.1"
-FILEBASE = "eiresultsQ/"
+EI_VERSION = "3.1.2"
+FILEBASE = "eiresultsQ2/"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -111,7 +111,7 @@ else:
     SAVE_CHUNK_SIZE = 666
 
 
-ICKY_SIGMA = True
+ICKY_SIGMA = False
 
 def toTypeOrNone(t,atype=TTYPE):
     return t.type(atype) if torch.is_tensor(t) else t
@@ -132,6 +132,7 @@ class dataWriter:
         self.writedatarow(u"var",u"val",u"u",u"r",u"c",u"id")
 
 class EIData:
+    PSEUDOVOTERS_FOR_QS_VVAR = .5
     def __init__(self,ns,vs,
                     ids = None, ys=None, nus=None,
                     alpha = None, beta =None, sigmanu =None):# , sigmabeta=None):
@@ -238,6 +239,23 @@ class EIData:
     @reify #NOTE: code duplicated in EISubData
     def getStuff(self):
         return (self.U, self.R, self.C, self.ns, self.vs)
+
+    @reify #NOTE: code duplicated in EISubData
+    def qs(self):
+        return self.ys / self.ns.unsqueeze(-1)
+
+    @reify #NOTE: code duplicated in EISubData
+    def qs_vvar(self):
+        vs_rbyc = self.vs.unsqueeze(1)+self.PSEUDOVOTERS_FOR_QS_VVAR*self.R
+        ns_rbyc = self.ns.unsqueeze(-1)+self.PSEUDOVOTERS_FOR_QS_VVAR*self.C
+        ys = self.ys+self.PSEUDOVOTERS_FOR_QS_VVAR
+        return (self.ys * (vs_rbyc - self.ys) / vs_rbyc) / (ns_rbyc**2)
+
+    @reify #NOTE: code duplicated in EISubData
+    def qs_nvar(self):
+        ns_rbyc = self.ns.unsqueeze(-1)+self.PSEUDOVOTERS_FOR_QS_VVAR*self.C
+        ys = self.ys+self.PSEUDOVOTERS_FOR_QS_VVAR
+        return (self.ys * (ns_rbyc - self.ys) / ns_rbyc) / (ns_rbyc**2)
 
     def save(self,filename):
         """
@@ -719,7 +737,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
             sdprc_raw = torch.sqrt(torch.mean(softmax(logresidual_raw**2-  lr_var_of_like)))
             if SIGMA_NU_DETACHED_FRACTION == 1.:
 
-                sdprc = sdprc_raw.clone().detach() #* SIGMA_NU_DETACHED_FRACTION + sdprc_raw * (1.-SIGMA_NU_DETACHED_FRACTION)
+                sdprc = sdprc_raw.clone().detach().requires_grad_(True) #* SIGMA_NU_DETACHED_FRACTION + sdprc_raw * (1.-SIGMA_NU_DETACHED_FRACTION)
             else:
                 sdprc = sdprc_raw.clone().detach() * SIGMA_NU_DETACHED_FRACTION + sdprc_raw * (1.-SIGMA_NU_DETACHED_FRACTION)
 
@@ -1379,6 +1397,7 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
         lambdas = dl.sample()
         llp = dl.log_prob(lambdas).squeeze()
         lambdas = lambdas.squeeze()
+
         guidesampdenses += llp
         ws = lambdas[:,:wdim].view(n,R-1,C-1)
         #import pdb; pdb.set_trace()
@@ -1438,6 +1457,19 @@ def detachRecursive(obj):
         for attr in ("G", "L", "gg", "gls", "raw_lls", "weights", "lls", "_mgg",
                     "psig", "psil","vecweights","vecraw_lls","chol_lls","llinvs",
                     "gg_cov","vecgls","_mgg_chol" ): #Too many??
+            if hasattr(obj,attr):
+                setattr(obj,attr,detachRecursive(getattr(obj,attr)))
+        return obj
+    if isinstance(obj, EIData):
+
+                # self.ns = toTypeOrNone(ns)
+                # self.vs = toTypeOrNone(vs)
+                # self.ys = toTypeOrNone(ys)
+                # self.nus = toTypeOrNone(nus)
+                # self.alpha = toTypeOrNone(alpha)
+                # self.beta = toTypeOrNone(beta)
+                # self.sigmanu = toTypeOrNone(sigmanu)
+        for attr in ("ns", "vs", "ys", "nus", "alpha", "beta", "sigmanu" ): #Too many??
             if hasattr(obj,attr):
                 setattr(obj,attr,detachRecursive(getattr(obj,attr)))
         return obj
@@ -1602,3 +1634,30 @@ def trainGuide(subsample_n = SUBSET_SIZE,
 
 
     return(svi,losses,data)
+
+def modelQvar(samps=30,
+        sigmanu = SIM_SIGMA_NU,
+        dummydata = DUMMY_DATA,
+        filebase=FILEBASE):
+
+    dummydata.sigmanu = sigmanu
+    print("runs")
+    runs = [detachRecursive(model(DUMMY_DATA)) for _i in range(samps)]
+    print("qses")
+    qses = torch.stack([data.qs for data in runs],0) #samps x U x R x C
+    print("vvars")
+    vvars = torch.stack([data.qs_vvar for data in runs],0) #samps x U x R x C
+    print("vvarmeans")
+    vvarmeans = vvars.mean(1) #samps x R x C
+    print("nvars")
+    nvars = torch.stack([data.qs_nvar for data in runs],0) #samps x U x R x C
+    print("vvarmeans")
+    nvarmeans = nvars.mean(1) #samps x R x C
+    print("raw qvars")
+    qvars = qses.var(1) #samps x R x C
+    print("qvars_corrected")
+    qvars_corrected = (softmax(qvars-vvarmeans)) #samps x R x C
+    result = (qvars_corrected, qvars, vvarmeans, nvarmeans)
+    print("mQv sizes",sizes(qses,vvars,vvarmeans,qvars,qvars_corrected))
+    saveYsamps(result, runs[0], "XX", "XX","XX",dversion="0",filebase=filebase+"modelQvar",i="XX",N=dummydata.U)
+    return result
