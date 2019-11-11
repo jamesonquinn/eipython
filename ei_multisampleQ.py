@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "3.1.2"
+EI_VERSION = "3.1.3"
 FILEBASE = "eiresultsQ2/"
 init_narrow = 10  # Numerically stabilize initialization.
 
@@ -112,6 +112,7 @@ else:
 
 
 ICKY_SIGMA = False
+PIN_PSI = True
 
 def toTypeOrNone(t,atype=TTYPE):
     return t.type(atype) if torch.is_tensor(t) else t
@@ -582,7 +583,9 @@ def expand_and_center(tens, return_ldaj=False, ignore_dims=[]):
     return result
 
 
-def get_param(inits,name,default,*args,**kwargs):
+def get_param(inits,name,default,as_constant=False,*args,**kwargs):
+    if as_constant:
+        return inits.get(name,default).clone().detach().requires_grad_(True)
     return pyro.param(name,inits.get(name,default),*args,**kwargs)
 
 
@@ -848,10 +851,12 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
     ##################################################################
     #declare global-level psi params
     globalpsi = get_param(inits,'globalpsi',torch.ones(gamma_dims)*BASE_PSI,
-                constraint=constraints.positive)
+                constraint=constraints.positive,
+                as_constant=PIN_PSI)
     #declare precinct-level psi params
     precinctpsi = get_param(inits,'precinctpsi',BASE_PSI * torch.ones(dims_per_unit),
-                constraint=constraints.positive)
+                constraint=constraints.positive,
+                as_constant=PIN_PSI)
 
     #dp"setpsis",sizes(globalpsi,precinctpsi))
     big_arrow.setpsis(globalpsi,precinctpsi)
@@ -1507,7 +1512,8 @@ def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase
                             SDS_TO_SHRINK_BY = SDS_TO_SHRINK_BY,
                             REATTACH_GRAD_PORTION = REATTACH_GRAD_PORTION,
                             SIGMA_NU_DETACHED_FRACTION = SIGMA_NU_DETACHED_FRACTION, #Neutral = 0. but very defensible up to 1.
-                            ICKY_SIGMA = ICKY_SIGMA
+                            ICKY_SIGMA = ICKY_SIGMA,
+                            PIN_PSI = PIN_PSI
                         ),
                         mean_loss = mean_losses[-1],
                         final_loss = loss
