@@ -68,7 +68,7 @@ BUNCHFAC = 35
 #P=30, BUNCHFAC = 9999: 42/11
 #P=30, BUNCHFAC = 9999: 189/51 2346..1708..1175..864..746
 
-MAX_NEWTON_STEP = 0. #neutral = 1
+MAX_NEWTON_STEP = 1. #neutral = 1
 STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1. #neutral=1
 NEW_DETACHED_FRACTION = 0. #as in Newton, get it? neutral=0
 SDS_TO_SHRINK_BY = 2/3 #neutral = 1.
