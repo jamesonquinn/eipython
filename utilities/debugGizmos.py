@@ -30,7 +30,17 @@ def dp(key, *args, do=1, n = 10, brk=False):
     PRINT_COUNTS[key] += 1
     if do:
         if PRINT_COUNTS[key] - n < 1:
-            print(key,"line",inspect.currentframe().f_back.f_lineno,PRINT_COUNTS[key],":",*args)
+            needs_nl = True
+            print(key,"line",inspect.currentframe().f_back.f_lineno,PRINT_COUNTS[key],":")
+            for arg in args:
+                #if torch.is_tensor(arg):
+                    print("    ",arg)
+                #    needs_nl = False
+                #else:
+                #    print(arg, end=' ')
+                #    needs_nl = True
+            #if needs_nl:
+            #    print()
         elif isPowerOfTwo(PRINT_COUNTS[key]):
             print(key,"line",inspect.currentframe().f_back.f_lineno,PRINT_COUNTS[key])
 
