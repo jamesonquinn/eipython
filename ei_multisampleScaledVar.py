@@ -54,7 +54,7 @@ pyro.set_rng_seed(0)
 
 
 EI_VERSION = "5.0.0"
-FILEBASE = "ei_post_results/"
+FILEBASE = "ei_scaled_results/"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -1516,7 +1516,7 @@ def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase
         dataToSave = EISubData(data,indices)
         dataSize = dataToSave.U
         weight = U/dataSize
-        fitted_model_info = guide(dataToSave, weight, True)
+        fitted_model_info = guide(dataToSave, weight)
         fitted_model_info = detachRecursive(fitted_model_info)
         fitted_model_info.update(
                         aacomment = "(add manually later)",
@@ -1587,7 +1587,7 @@ def trainGuide(subsample_n = SUBSET_SIZE,
             indices = torch.tensor(range(N))
         subset =  EISubData(data,indices)
         ddp("svi.step(...",i,scale,subset.indeps.size())
-        loss = svi.step(subset,scale,True,do_print=(i % 10 == 0),nsamps=nsamps,
+        loss = svi.step(subset,scale,do_print=(i % 10 == 0),nsamps=nsamps,
                 inits=inits)
         loss = detachRecursive(loss) #I hate memory leaks!
         if len(losses)==0:
