@@ -73,6 +73,8 @@ STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1. #neutral=1
 NEW_DETACHED_FRACTION = 0. #as in Newton, get it? neutral=0
 SDS_TO_SHRINK_BY = 2/3 #neutral = 1.
 
+SCALE_OF_SIGMANU_SCALE = .9 #neutral \in [0.,1.]
+
 REATTACH_GRAD_PORTION = 1. #neutral = 1.
 SIGMA_NU_DETACHED_FRACTION = 1. #Neutral = 0. but very defensible up to 1. Moreover, seems to work!
 
@@ -154,10 +156,6 @@ class EIData:
             self.ids = None
 
     @reify
-    def sqns(self):
-        return torch.sqrt(self.ns)
-
-    @reify
     def ybar(self):
         return torch.sum(self.ys,0)
 
@@ -236,6 +234,11 @@ class EIData:
     @reify
     def nind(self):
         return  torch.matmul(torch.unsqueeze(self.nns,-1),torch.unsqueeze(self.nvs,-2))
+
+    @reify
+    def sqrt_nind_ctr_scaled(self):
+        r = torch.sqrt(self.nind)
+        return r / torch.exp(torch.mean(torch.log(r)) * SCALE_OF_SIGMANU_SCALE)
 
     @reify #NOTE: code duplicated in EISubData
     def init_beta_errorQ(self):
@@ -411,7 +414,6 @@ class EISubData:
     #BE CAREFUL that variable names match with argument names here; more metaprogramming to make this automatic would be too much trouble
     #Subsetted attributes (=1)
     ns = sub(ns=1)
-    sqns = sub(sqns=1)
     vs = sub(vs=1)
     indeps = sub(indeps=1)
     tots = sub(tots=1)
@@ -419,6 +421,7 @@ class EISubData:
     nvs = sub(nvs=1)
     v_d = sub(v_d=1)
     nind = sub(nind=1)
+    sqrt_nind_ctr_scaled = sub(sqrt_nind_ctr_scaled=1)
 
     #verbatim attributes (=0)
     M = sub(M=0)
@@ -507,13 +510,10 @@ def model(data=None, scale=1., do_print=False, nsamps = 1, *args, **kwargs):
 
         #if include_nuisance:
         logit_centers = (ec + erc).expand(P,R,C)
-        pi_star_raw = torch.exp(ec+erc)
-        pi_star = pi_star_raw / torch.sum(pi_star_raw, 1, keepdim=True)
-        sq_E_y_cond_on_gamma = data.sqns.unsqueeze(-1) * torch.sqrt(pi_star).expand(P,R,C)
         with all_sampled_ps() as p_tensor:
             logits = (
                 pyro.sample(f'{iter}logits',
-                    dist.Normal((ec + erc).expand(P,R,C), sdprc*sq_E_y_cond_on_gamma).to_event(2))
+                    dist.Normal(logit_centers, sdprc/data.sqrt_nind_ctr_scaled).to_event(2))
                 ) #eprc.size() == [P,R,C] because plate dimension happens on left
         #dp("Model: sampling eprc",eprc[0,0,0])
         #else:
@@ -702,8 +702,6 @@ def guide(data, scale, do_print=False, inits=dict(), nsamps = 1, icky_sigma=ICKY
     pi_raw = torch.exp(logittotals)
     pi = pi_raw / torch.sum(pi_raw,-1, keepdim=True)
 
-    sq_E_y_cond_on_gamma = data.sqns.unsqueeze(-1) * torch.sqrt(pi).expand(P,R,C)
-
 
 
     log_jacobian_adjustment_hessian = torch.tensor(0.)
@@ -741,9 +739,9 @@ def guide(data, scale, do_print=False, inits=dict(), nsamps = 1, icky_sigma=ICKY
         #get ν̂^(0)
         #if include_nuisance:
         QbyR = Q/torch.sum(Q,-1).unsqueeze(-1)
-        logresidual_raw = torch.log(QbyR / pi) / sq_E_y_cond_on_gamma
+        logresidual_raw = torch.log(QbyR / pi) * data.sqrt_nind_ctr_scaled
         nsUbyRby1 = torch.sum(ystars,2,keepdim=True)
-        lr_var_of_like = (nsUbyRby1-ystars)/(ystars*nsUbyRby1)/sq_E_y_cond_on_gamma**2
+        lr_var_of_like = ((nsUbyRby1-ystars)/(ystars*nsUbyRby1))*data.sqrt_nind_ctr_scaled**2
             #1 sd down, rescaled, logged, minus orig; rough estimate of sd of likelihood of logresidual
 
         #sign_residual = logresidual_raw.sign()
@@ -764,10 +762,11 @@ def guide(data, scale, do_print=False, inits=dict(), nsamps = 1, icky_sigma=ICKY
             transformation.update(sdprc=exp_ldaj)
         #lr_prec_of_like = lr_var_of_like ** -2 #sd to precision
 
-        eprcstars = (sq_E_y_cond_on_gamma *
+        eprcstars = (
                 STARPOINT_AS_PORTION_OF_NU_ESTIMATE* logresidual_raw/
                     lr_var_of_like/SDS_TO_SHRINK_BY/
-                (1/lr_var_of_like/SDS_TO_SHRINK_BY + 1/sdprc**2))
+                (1/lr_var_of_like/SDS_TO_SHRINK_BY + 1/sdprc**2) /
+                  data.sqrt_nind_ctr_scaled)
         if do_print:
             print("sds:",logresidual_raw.std(),sdprc,eprcstars.std())
         #was: initial_eprc_star_guess(tots[p],pi[p],Q2,Q_precision,pi_precision))
