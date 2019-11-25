@@ -39,6 +39,9 @@ from utilities.polytopize import approx_eq
 from utilities import go_or_nogo
 from utilities.deltamvn import DeltaMVN
 from utilities.boost_sdd import *
+from utilities.boost_vectorized import *
+from utilities.studentTRamanujan import StudentT_ram
+from utilities.arrowhead_precision import ArrowheadPrecision
 #from utilities.stanCache import StanModel_cache
 ts = torch.tensor
 
@@ -48,7 +51,7 @@ pyro.set_rng_seed(0)
 
 
 SAFETY_MULT = 1.01
-LOG_BASE_PSI = math.log(BASE_PSI)
+PSI_MULT = .001
 
 EULER_CONSTANT = 0.5772156649015328606065120900824024310421
 GUMBEL_SD = math.pi/math.sqrt(6.)
@@ -177,12 +180,12 @@ def model(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     #print("model t_part",N,full_N)
     if N==full_N:
         with pyro.plate('2full_units',N): #I hate you! but this magic works? #chosen_units:#
-            t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(N),ts(1.) * t_scale))
+            t_part = pyro.sample('t_part',StudentT_ram(df,torch.zeros(N),ts(1.) * t_scale))
     else:
         with pyro.plate('2full_units',N):
             try:
                 with poutine.scale(scale=weight):#chosen_units:#full_units:
-                    t_part = pyro.sample('t_part',dist.StudentT(df,torch.zeros(N),ts(1.) * t_scale))
+                    t_part = pyro.sample('t_part',StudentT_ram(df,torch.zeros(N),ts(1.) * t_scale))
             except Error as e:
                 print("Error sampling t_part...")
                 print(e)
@@ -280,7 +283,7 @@ def getMLE(nscale, tscale, obs, df, return_intermediates=False):
 def getscaleddens(nscale,tscale,df,np,tp):
     #print("getdens(",nscale,tscale,df,np,tp)
     return (dist.Normal(0,nscale).log_prob(np) +
-            dist.StudentT(df,0,tscale).log_prob(tp))
+            StudentT_ram(df,0,tscale).log_prob(tp))
 
 def getdens(nscale,tscale,df,np,tp):
     return getscaleddens(nscale,tscale,df,np,tp)
@@ -336,6 +339,12 @@ def get_unconditional_cov(full_precision, n):
     #TODO: more efficient
     return(torch.inverse(full_precision)[:n,:n])
 
+def exp_ldaj(t,return_ldaj=False):
+    result = torch.exp(t)
+    if return_ldaj:
+        return (result,-torch.sum(t))
+    return result
+
 def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                         save_data=None,
                         weight=1.,scalehyper=ts(4.),tailhyper=ts(10.),
@@ -367,17 +376,21 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
     ltscale_star = pyro.param("ltscale_star",ts(0.))
     star_data.update(t_scale_raw=ltscale_star)
-    transformations.update(t_scale_raw=torch.exp)
+    transformations.update(t_scale_raw=exp_ldaj)
 
     ldfraw_star2 = pyro.param("ldfraw_star",ts(0.))
     if save_data and "df_adj" in save_data:
         ldfraw_star = ldfraw_star2 + save_data["df_adj"]
     else:
         ldfraw_star = ldfraw_star2
-    fstar_data.update(dfraw=ldfraw_star)
+    star_data.update(dfraw=ldfraw_star) #icky: fstar_data
     #star_data.update(fstar_data) #include frequentist value in Hessian
         #can't, no Hessians of gamma functions
-    transformations.update(dfraw=torch.exp)
+    transformations.update(dfraw=exp_ldaj)
+
+
+    log_jacobian_adjustment_hessian = torch.tensor(0.)
+    log_jacobian_adjustment_elbo_global = torch.tensor(0.)
 
 
     dm = mode_star.detach().requires_grad_()
@@ -412,12 +425,15 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     phi = torch.cat([phiPart.view(-1) for phiPart in star_data.values()],0)
 
     conditioner = dict()
-    conditioner.update((k,transformations[k](v)) for k, v in itertools.chain(star_data.items(), fstar_data.items()))
+    for k, v in itertools.chain(star_data.items(), fstar_data.items()):
+        conditioner[k],ldaj = transformations[k](v,return_ldaj=True)
+        log_jacobian_adjustment_elbo_global += ldaj
+        log_jacobian_adjustment_hessian += ldaj
     hessCenter = pyro.condition(model,conditioner)
     blockedTrace = poutine.block(poutine.trace(hessCenter).get_trace)(N,full_N,#None,x,x,errors,errors,
                                 indices,x,full_x,errors,full_errors,
                                 maxError,save_data,weight,scalehyper,tailhyper) #*args,**kwargs)
-    logPosterior = blockedTrace.log_prob_sum()
+    logPosterior = blockedTrace.log_prob_sum() + log_jacobian_adjustment_hessian
 
     gamma_parts = dict((gamma_name,star_data[gamma_name]) for gamma_name in gamma_names)
     #count parameters
@@ -429,27 +445,34 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
         return(save_data)
     (hess, grad) = myhessian.arrowhead_hessian(logPosterior, star_data.values(), headsize=len(gamma_names),
                                 blocksize=1, return_grad=True)#, allow_unused=True)
-    hess = -hess
-    globalpsiraw = pyro.param("globalpsi",torch.zeros(G) + LOG_BASE_PSI)
-    latentpsiraw = pyro.param("latentpsi",torch.zeros(1) + LOG_BASE_PSI)
-    globalpsi = torch.exp(globalpsiraw)
-    #ensure positive definite
-    head_precision, head_adjustment, lowerblocks = getMpD(hess,G,1,globalpsi,torch.exp(latentpsiraw),weight)
-    #big_precision = rescaledSDD(hess, torch.exp(lpsi), head=3, weight=weight)
+
+    arrow = ArrowheadPrecision.from_hessian(G,1,hess,weight)
+
+    globalpsiraw = pyro.param("globalpsi",torch.ones(G), constraint=constraints.positive)
+    latentpsiraw = pyro.param("latentpsi",torch.ones(1), constraint=constraints.positive)
+    arrows.setpsis(globalpsiraw * PSI_MULT,latentpsiraw * PSI_MULT)
 
 
-    #invert matrix (maybe later, smart)
-    gamma_cov = torch.inverse(head_precision)
+
+    ##################################################################
+    # Put Jacobian into guide density
+    ##################################################################
+    #stupid_global = torch.exp(log_jacobian_adjustment_elbo_global)
+    junk = pyro.sample("jacobian",
+                        dist.Delta(torch.zeros(1),
+                                    log_density=-log_jacobian_adjustment_elbo_global),#, stupid_global),
+                        infer={'is_auxiliary': True}) #there's probably a better way but whatevs.
+
 
     #MVN = dist.MultivariateNormal #for deterministic: MVN = deltaMVN
     #sample top-level
     submean = phi[:G]
     if alternateDistribution:
         chol = torch.ones(1,1)
-        gamma = pyro.sample('gamma',alternateDistribution(submean,gamma_cov),
+        gamma = pyro.sample('gamma',alternateDistribution(submean,arrow.marginal_gg_cov()),
                         infer={'is_auxiliary': True})
     else:
-        chol = gamma_cov.cholesky()
+        chol = arrow.marginal_gg_cov().cholesky()
 
         gamma = pyro.sample('gamma',dist.OMTMultivariateNormal(submean,chol),
                         infer={'is_auxiliary': True})
@@ -473,8 +496,7 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
     #sample unit-level parameters, conditional on top-level ones
     global_indices = ts(range(G))
-    base_gamma = gamma
-    base_gamma_star = phi[:G]
+    g_delta = gamma - submean
     ylist = []
     for i in range(N):
         #
@@ -499,8 +521,8 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                     torch.cat([ur,lr],0)
                 ],1)
             )
-        full_mean = phi.index_select(0,full_indices) #TODO: do in-place!
-        new_mean, new_precision = conditional_normal(full_mean, full_precision, G, gamma)
+        l_mean = phi.index_select(0,precinct_indices) #TODO: do in-place!
+        new_mean, new_cov = arrow.conditional_ll_mcov(i,g_delta,l_mean)
 
 
 
@@ -509,12 +531,12 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                 if alternateDistribution:
                     ylist.append( pyro.sample(f"y_{i}",
                                     alternateDistribution(new_mean,
-                                            torch.inverse(new_precision))
+                                            new_precision)
                                     ,infer={'is_auxiliary': True}))
                 else:
                     ylist.append( pyro.sample(f"y_{i}",
                                     dist.OMTMultivariateNormal(new_mean,
-                                            torch.inverse(new_precision).cholesky())
+                                            new_precision.cholesky())
                                     ,infer={'is_auxiliary': True}))
         except:
             print(new_precision)
@@ -531,22 +553,6 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     t_part = torch.cat([y.view(-1) for y in ylist],0)
 
 
-    if False: #the debugging that led me to add evil_hack above
-        fake_outcome = torch.sum(t_part**2)
-        intermediate_vars = [dm,dt,ddf,full_tpart,
-                            sub_tpart,hess,
-                            submean,chol,gamma_cov] + ylist
-        [eachvar.retain_grad() for eachvar in
-            intermediate_vars + MLEvars
-        ]
-        fake_outcome.backward()
-        print("Elementary:")
-        print(torch.isnan(MLEvars[9].grad).nonzero())
-        print(MLEvars[-2][240:250])
-        for i in range(len(MLEvars)-1):
-            print(i,":",MLEvars[i][240:245])
-        import pdb; pdb.set_trace()
-    #print("t_part",t_part.size())
 
     with t_units():
         pyro.sample("t_part", dist.Delta(t_part))

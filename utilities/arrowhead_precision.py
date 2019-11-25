@@ -65,6 +65,19 @@ class ArrowheadPrecision:
         self.lls = None
         self._mgg = None
 
+    @classmethod
+    def from_hessian(cls,G,L,hessian,weight):
+        #NOTE: precision is like NEGATIVE hessian
+        info=-hessian
+        n = (info.size()[0]-G)//L
+        result = cls(G,L,(-info)[:G,:G])
+        for i in range(n):
+            result.add_one_l(info[:G,G+i*L:G+(i+1)*L],
+                            info[G+i*L:G+(i+1)*L,G+i*L:G+(i+1)*L],
+                            weight)
+        return result
+
+
     #@autoassign
     def setpsis(self, psig, psil):
         self.psig = psig

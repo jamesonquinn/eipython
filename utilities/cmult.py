@@ -1,5 +1,6 @@
 
 from utilities.debugGizmos import *
+from utilities.ramanujan import lfac_ramanujan
 
 import torch
 from torch._six import inf
@@ -108,11 +109,6 @@ class TorchCMult(TorchDistribution):
         log_powers = (logits * value).sum(-1)
         return log_factorial_n - log_factorial_xs + log_powers
 
-ONE_THIRTIETH = torch.tensor(1/30)
-def lfac_ramanujan(t): #like lgamma(t+1), ignoring constant .5 ln pi
-    return t*torch.log(t)-t+torch.log(8*t**3+4*t**2+t+ONE_THIRTIETH)/6
-def lfac_stirling(t): #like lgamma(t+1), ignoring constant .5 ln pi
-    return t*torch.log(t)
 MULT = 30.
 MIN = 1-1/180
 MINMULT = torch.tensor(MIN * MULT)
