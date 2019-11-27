@@ -1,6 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 from __future__ import print_function
+from utilities.debugGizmos import *
 
 from importlib import reload
 import csv
@@ -927,15 +928,6 @@ def jsonizable(thing):
         #print("not tense",t)
         return(t)
     return thing
-
-def jsonize(thing):
-    #print("jsonizing")
-    t = jsonizable(thing)
-
-    #print("jsonizing 2", t)
-    return(json.dumps(t, indent=2, sort_keys=True))
-
-    #print("jsonized")
 
 def saveFit(guidename, save_data,
         sourceparams, errors, S, nparticles,
