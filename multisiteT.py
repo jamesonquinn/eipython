@@ -228,7 +228,7 @@ def evil_hack_fix(t): #ensure a tensor has no zero elements by adding or subtrac
     else:
         evil_hack_epsilon = -EVIL_HACK_EPSILON
     t2 = t.detach()
-    return t + ((t2==0).float() * evil_hack_epsilon)
+    return t + ((t2==0).double() * evil_hack_epsilon)
 
 def getMLE(nscale, tscale, obs, df, return_intermediates=False):
     #assert getDiscriminant(nscale, tscale, obs, df) < 0 #only one root
@@ -345,6 +345,11 @@ def exp_ldaj(t,return_ldaj=False):
         return (result,-torch.sum(t))
     return result
 
+def nop_ldaj(t,return_ldaj=False):
+    if return_ldaj:
+        return (t,0.)
+    return t
+
 def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                         save_data=None,
                         weight=1.,scalehyper=ts(4.),tailhyper=ts(10.),
@@ -370,7 +375,7 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
     star_data = OrderedDict() #
     fstar_data = OrderedDict() #frequentist
-    transformations = defaultdict(lambda: lambda x: x) #
+    transformations = defaultdict(lambda: nop_ldaj) #
     mode_star = pyro.param("mode_star",ts(0.))
     star_data.update(modal_effect=mode_star)
 
@@ -450,7 +455,7 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
     globalpsiraw = pyro.param("globalpsi",torch.ones(G), constraint=constraints.positive)
     latentpsiraw = pyro.param("latentpsi",torch.ones(1), constraint=constraints.positive)
-    arrows.setpsis(globalpsiraw * PSI_MULT,latentpsiraw * PSI_MULT)
+    arrow.setpsis(globalpsiraw * PSI_MULT,latentpsiraw * PSI_MULT)
 
 
 
@@ -506,21 +511,6 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
 
         full_indices = torch.cat([global_indices, precinct_indices],0)
 
-        #off-diagonals
-        ll = hess.index_select(0,precinct_indices).index_select(1,global_indices)#lower left
-        ur = hess.index_select(0,global_indices).index_select(1,precinct_indices)#upper right; could have just used transpose
-
-        #diagonals
-        lr = lowerblocks[i]#hess.index_select(0,precinct_indices).index_select(1,precinct_indices)#lower right
-        ul = head_precision + torch.mm(torch.mm(ur,torch.inverse(lr)),ll) #upper left
-
-        #print("dimensions",ll.size(),ur.size(),ul.size(),lr.size())
-        full_precision = (
-                torch.cat([
-                    torch.cat([ul,ll],0),
-                    torch.cat([ur,lr],0)
-                ],1)
-            )
         l_mean = phi.index_select(0,precinct_indices) #TODO: do in-place!
         new_mean, new_cov = arrow.conditional_ll_mcov(i,g_delta,l_mean)
 
@@ -531,16 +521,16 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
                 if alternateDistribution:
                     ylist.append( pyro.sample(f"y_{i}",
                                     alternateDistribution(new_mean,
-                                            new_precision)
+                                            new_cov)
                                     ,infer={'is_auxiliary': True}))
                 else:
                     ylist.append( pyro.sample(f"y_{i}",
                                     dist.OMTMultivariateNormal(new_mean,
-                                            new_precision.cholesky())
+                                            new_cov.cholesky())
                                     ,infer={'is_auxiliary': True}))
         except:
-            print(new_precision)
-            print(f"det:{np.linalg.det(new_precision.data.numpy())}")
+            print(new_cov)
+            print(f"det:{np.linalg.det(new_cov.data.numpy())}")
             raise
 
     if N == full_N:
@@ -566,7 +556,7 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
     if amortize:
         intermediate_vars = [dm,dt,ddf,full_tpart,
                             sub_tpart,hess,
-                            submean,chol,gamma_cov] + ylist
+                            submean,chol] + ylist
         [eachvar.retain_grad() for eachvar in
             intermediate_vars + MLEvars
         ]
@@ -656,8 +646,7 @@ def laplace_guide(N,full_N,indices,x,full_x,errors,full_errors,maxError,
         save_data.update(astar_data=star_data,
                         logPosterior=logPosterior,
                         raw_hessian=hess,
-                        fixed_hessian_upper = head_precision,
-                        head_adjustment=head_adjustment,
+                        arrow = arrow,
                         grad=grad,
                         df = ddf,
                         globalpsiraw=globalpsiraw,

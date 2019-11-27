@@ -49,16 +49,16 @@ class StudentT_ram(TorchDistribution):
         self.df, self.loc, self.scale = broadcast_all(df, loc, scale)
         self._chi2 = Chi2(self.df)
         batch_shape = self.df.size()
-        super(StudentT, self).__init__(batch_shape, validate_args=validate_args)
+        super(StudentT_ram, self).__init__(batch_shape, validate_args=validate_args)
 
     def expand(self, batch_shape, _instance=None):
-        new = self._get_checked_instance(StudentT, _instance)
+        new = self._get_checked_instance(StudentT_ram, _instance)
         batch_shape = torch.Size(batch_shape)
         new.df = self.df.expand(batch_shape)
         new.loc = self.loc.expand(batch_shape)
         new.scale = self.scale.expand(batch_shape)
         new._chi2 = self._chi2.expand(batch_shape)
-        super(StudentT, new).__init__(batch_shape, validate_args=False)
+        super(StudentT_ram, new).__init__(batch_shape, validate_args=False)
         new._validate_args = self._validate_args
         return new
 
