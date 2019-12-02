@@ -23,11 +23,12 @@ rstan_options(auto_write = TRUE)
 ########################################################################################
 ########################################################################################
 
-ITERS_TO_CHECK = c(0:5,10:14)
-ITER_TO_GRAPH = 10
+ITERS_TO_CHECK = c(0:1)
+ITER_TO_GRAPH = 0
 maxError = 0.27889007329940796
 maxError = 1.
 DEFAULT_N = 400
+G_DIMS = 3
 SMALL_S = 11
 
 VARS_TO_PLOT = c(1:4,20,45)
@@ -61,9 +62,10 @@ for (i in 1:44) {
 
 all_guides = c("amortized_laplace",
                "unamortized_laplace",
-               "meanfield",
-               "fully_amortized",
-               "unparametrized_laplace")
+               "meanfield")
+#,
+#               "fully_amortized",
+#               "unparametrized_laplace")
 
 guide_colors = c("black",
                  "orange",
@@ -79,7 +81,7 @@ guide_labels = c("amortized Laplace",
 names(guide_colors) = all_guides
 names(guide_labels) = all_guides
 
-SUBSAMPLE_NS = c(400, 399,150,50,25,12,10)
+SUBSAMPLE_NS = c(100,50,25,12,10)
 subsample_line_types = c(1,1,2,3,4,5,5)
 names(subsample_line_types) = as.character(SUBSAMPLE_NS)
 subsample_labels = as.character(SUBSAMPLE_NS)
@@ -87,7 +89,7 @@ subsample_labels[1] = "un-subsampled"
 names(subsample_labels) = as.character(SUBSAMPLE_NS)
 
 #temp: no 400
-SUBSAMPLE_NS = c(400,100,50,10,44,399)
+SUBSAMPLE_NS = c(100,50)
 subsample_line_types = 1:length(SUBSAMPLE_NS)
 names(subsample_line_types) = as.character(SUBSAMPLE_NS)
 subsample_labels = as.character(SUBSAMPLE_NS)
@@ -100,16 +102,17 @@ names(particle_widths) = as.character(PARTICLE_NS)
 particle_labels = as.character(PARTICLE_NS)
 names(particle_labels) = c("one","three")#as.character(PARTICLE_NS)
 
-graph_combo_nums =c(10,1
+graph_combo_nums =c(#10,1
                     #,
                     #10,3
-                    ,50,1
+                    #,
+                    50,1
                     ,50,3
                     ,100,1
                     ,100,3
-                    ,400,1
-                    ,400,3
-                    ,399,1
+                    #,400,1
+                    #,400,3
+                    #,399,1
 )
 graph_combos=t(matrix(graph_combo_nums,2,length(graph_combo_nums)/2))
 
@@ -210,22 +213,34 @@ getRawFitFor = function(params,S,guide ="amortized_laplace",particles=1,iter=0,N
                   fittedGuide$t_part_sigma))
     mean = c(fittedGuide$mode_hat,
              fittedGuide$ltscale_hat,
-             fittedGuide$ldfraw_hat,
+             fittedGuide$dfraw_hat,
              fittedGuide$t_part_hat
              )
     d = length(mean)
   } else {
-    rawhess = unlist(fittedGuide$raw_hessian)
+    rawhess = matrix(0,N+G_DIMS,N+G_DIMS)
+    #topPart = 
+    rawhess[1:G_DIMS,1:G_DIMS] = matrix(unlist(fittedGuide$arrow$gg_raw),G_DIMS,G_DIMS)
+    for (l in 1:N) {
+      rawhess[G_DIMS+l,G_DIMS+l] = 1/fittedGuide$arrow$llinvs[[l]][[1]]
+      rawhess[1:G_DIMS,G_DIMS+l] = unlist(fittedGuide$arrow$gls[[l]])
+      rawhess[G_DIMS+l,1:G_DIMS] = unlist(fittedGuide$arrow$gls[[l]])
+      #offmat = matrix(unlist(fittedGuide$arrow$gls[[l]]),G_DIMS,1)
+      
+      #topPart = topPart + offmat %*% t(offmat) *fittedGuide$arrow$llinvs[[l]][[1]]
+    }
+    #rawhess[1:G_DIMS,1:G_DIMS] = topPart
+    #rawhess = unlist(fittedGuide$raw_hessian)
 
-    d = sqrt(length(rawhess))
-    hess = matrix(rawhess,d,d)
-    mean = c(fittedGuide$ahat_data$modal_effect,
-             fittedGuide$ahat_data$t_scale_raw,
-             log(fittedGuide$df - MIN_DF),
-             fittedGuide$ahat_data$t_part)
+    #d = sqrt(length(rawhess))
+    hess = rawhess #matrix(rawhess,d,d)
+    mean = c(fittedGuide$astar_data$modal_effect,
+             fittedGuide$astar_data$t_scale_raw,
+             fittedGuide$astar_data$dfraw,
+             fittedGuide$astar_data$t_part)
 
   }
-  return(list(mean=mean,hess=hess,d=d,fit=fittedGuide))
+  return(list(mean=mean,hess=hess,d=G_DIMS+N,fit=fittedGuide))
 }
 
 
@@ -356,13 +371,13 @@ add_true_vals = function(graphs,params) {
 }
 
 add_coverages = function(graphs, mymean, mycovar, guide, S, particles, vars_to_plot=VARS_TO_PLOT) {
-  print(paste("adding",toString(mymean[1:4]),toString(mycovar[1:4])))
+  print(paste("adding mu ",toString(mymean[1]),toString(mycovar[1,1])))
   ridiculous_var = paste(guide,toString(S+particles+mymean+mycovar))
   #print(ridiculous_var)
   ridiculous_closure = function(graphs, mymean, mycovar, guide, S, particles, vars_to_plot) {
     newgraphs = list()
     for (i in vars_to_plot) {
-      #print(qq("adding @{guide} @{S} @{i}"))
+      print(qq("adding var @{i}: covar @{mycovar[i,i]}   (@{guide} @{S}) "))
       ii = toString(i)
       newgraph = (graphs[[ii]] +
               stat_function(fun=dnorm, args = list(mean=mymean[i], sd = sqrt(mycovar[i,i])),
@@ -447,8 +462,10 @@ get_metrics_for = function(params,N=DEFAULT_N,guides = all_guides, dographs=all_
           myhess = meanhess$hess
           d = meanhess$d
           covar = solve(myhess)
-          #print("mean")
-          #print(mean)
+          print("mean")
+          print(length(mymean))
+          print(dim(covar))
+          #stop("STOP")
           dens = dmvnorm(amat[,1:d],mymean,covar,log=TRUE)
           #print(rbind(amat[99:100,1:d],mean,sqrt(1/diag(hess))))
           #print(paste(guide,head(dens)))
@@ -484,6 +501,7 @@ get_metrics_for = function(params,N=DEFAULT_N,guides = all_guides, dographs=all_
           print(qq("FAILED to add @{guide} N@{N} S@{S} part@{particles} iter@{iter}"))
           print(e)
         })
+        #stop("STOP")
       }
     }
   }
@@ -511,7 +529,7 @@ klOfLogdensities = function(a,b) {
 
 fat = TRUE
 if (fat) {
-  fat_metrics = get_metrics_for(ndom_fat_params,dographs=all_guides[c(1,4,5,6,7)])
+  fat_metrics = get_metrics_for(ndom_fat_params)#,dographs=all_guides[c(1,4,5,6,7)])
   output_table = fat_metrics[,list(EUBO=mean(EUBO),
                     ELBO=mean(ELBO,na.rm=TRUE),
                     #N=length(ELBO),
@@ -521,7 +539,7 @@ if (fat) {
                     Tcover = mean(coverageT)
                     ),
               by=list(df,subsample_sites,particles,guide)][subsample_sites==100][order(particles),][order(guide),]
-  print(xtable(output_table,digits=c(0,1,0,0,0,0,0,0,3,3,3,3)),include.rownames=FALSE)
+  print(xtable(output_table,digits=c(0,1,0,0,0,0,0,3,3,3,3)),include.rownames=FALSE)
 } else {
   norm_metrics = get_metrics_for(ndom_norm_params)
 

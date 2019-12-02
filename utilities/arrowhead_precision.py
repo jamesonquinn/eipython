@@ -70,7 +70,7 @@ class ArrowheadPrecision:
         #NOTE: precision is like NEGATIVE hessian
         info=-hessian
         n = (info.size()[0]-G)//L
-        result = cls(G,L,(-info)[:G,:G])
+        result = cls(G,L,info[:G,:G])
         for i in range(n):
             result.add_one_l(info[:G,G+i*L:G+(i+1)*L],
                             info[G+i*L:G+(i+1)*L,G+i*L:G+(i+1)*L],
@@ -151,6 +151,7 @@ class ArrowheadPrecision:
             L = self.L,
             gg_raw = self.gg,
             raw_lls = self.raw_lls,
+            mgg = self.mgg,
             gg_cov = self.gg_cov,
             chol_lls = self.chol_lls,
             llinvs = self.llinvs,
