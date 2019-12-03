@@ -85,14 +85,18 @@ def jsonizable(thing):
     #print("type",type(thing), type(thing) is FUCKING_TENSOR_TYPE, type(thing) == type(torch.tensor(1.)))
     try:
         return jsonizable(thing.to_jsonable())
-    except Exception as e:
+    except AttributeError as e:
+        #print("jsonize err:",e)
+        #print(type(thing))
         pass#print(e)
     if isinstance(thing, Mapping):
         #dp("jsonizable",[(k,type(t)) for (k,t) in thing.items()])
         return dict([(key, jsonizable(val)) for (key, val) in thing.items()])
-    elif type(thing)==list:
+
+    if type(thing)==list:
         return [jsonizable(a) for a in thing]
-    elif torch.is_tensor(thing):
+
+    if torch.is_tensor(thing):
         t = thing.tolist()
         #print("not tense",t)
         return(t)
@@ -102,7 +106,7 @@ def jsonize(thing):
     #print("jsonizing")
     t = jsonizable(thing)
 
-    #print("jsonizing 2", t)
+    print("jsonizing 2")#, t)
     return(json.dumps(t, indent=2, sort_keys=True))
 
     #print("jsonized")

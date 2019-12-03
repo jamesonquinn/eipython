@@ -151,7 +151,7 @@ class ArrowheadPrecision:
             L = self.L,
             gg_raw = self.gg,
             raw_lls = self.raw_lls,
-            mgg = self.mgg,
+            mgg = self._mgg,
             gg_cov = self.gg_cov,
             chol_lls = self.chol_lls,
             llinvs = self.llinvs,
