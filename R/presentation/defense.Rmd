@@ -34,7 +34,7 @@ library(knitr)
 outputFormat = opts_knit$get("rmarkdown.pandoc.to")
 color="red"
 if(outputFormat %in% c('latex','beamer')) {
-  note = function(x){cat(paste0("\\textcolor{",color,"}{{\\scriptsize ",gsub("[\r\n]", "\\\\\\\\", x),"}}\n\n"))}
+  note = function(x){cat(paste0("\\textcolor{",color,"}{{\\scriptsize ",gsub("[\r\n]", "\\\\\\\\", x),"}}\n\n"))} #2^n backslashes as n->infinity
 } else if(outputFormat %in% c('html','ioslides')) {
   note = function(x){cat(paste0("<font color='",color,"',size='small'>",x,"</font>\n\n"))}
 } else {
@@ -44,7 +44,7 @@ if(outputFormat %in% c('latex','beamer')) {
 final=F
 
 
-note = function(x){cat("")}; final=T #comment out for presenter notes
+#note = function(x){cat("")}; final=T #comment out for presenter notes
 ```
 
 ## Big picture overview
@@ -58,8 +58,12 @@ If $\Theta$ is high-D, any estimator of the denominator that amounts to numerica
 
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("You will notice a few changes to what I sent you, particularly in the chapter 3 results; I will point them out as we go along\\\\Talk about Mira\\\\the major motivating ideas (idea of Laplace family, idea of applying VI to EI) come from me\\\\I did all the coding in Pyro\\\\otherwise Mira is equal collaborator and coauthor\\\\we checked that this is allowed
-")
+note("You will notice a few changes to what I sent you, particularly in the chapter 3 results; I will point them out as we go along
+Talk about Mira
+the major motivating ideas (idea of Laplace family, idea of applying VI to EI) come from me
+I did all the coding in Pyro
+otherwise Mira is equal collaborator and coauthor
+we checked that this is allowed")
 ```
 
 
@@ -142,35 +146,71 @@ Citation for method that we’re actually using")
 
 Let $p(\bm{\theta})$ be a (possibly unnormalized) probability distribution on $\mathbb{R}^d$. Let $\Theta \subseteq \mathbb{R}^d$, $\Psi \subseteq \mathbb{R}^D_+$, and let $f_\Psi$ be a boosting family. 
 
-The Laplace guide family $\mathcal{L}_{\Theta\times\Psi} (p,f_\Psi)$ is the set of $d$-dimesnional normal distributions $\{q_{\bm{\theta}^*,\bm{\psi}}:\bm{\theta}^*\in\Theta,\;\bm{\psi}\in\Psi\}$, where $q_{\bm{\theta}^*,\bm{\psi}}$ has mean $\bm{\theta}^*$ and precision matrix $f_{\bm{\psi}} \left(\I_p(\bm{\theta}^*)\right)$.} 
+The Laplace guide family $\mathcal{L}_{\Theta\times\Psi} (p,f_\Psi)$ is the set of $d$-dimesnional normal distributions $\{q_{\bm{\theta}^*,\bm{\psi}}:\bm{\theta}^*\in\Theta,\;\bm{\psi}\in\Psi\}$, where $q_{\bm{\theta}^*,\bm{\psi}}$ has mean $\bm{\theta}^*$ and precision matrix $f_{\bm{\psi}} \left(\mathcal{I}_p(\bm{\theta}^*)\right)$.
 
 ## Toy model results
-
-Nice picture of toy model
+Comparison of Laplace family fit with meanfield fit on simple model with a bimodal posterior:
+```{r, fig.align='center', out.width = "150px", echo=FALSE, results='asis'}
+knitr::include_graphics("simplegraph.png")
+note("Simple model with bimodal posterior
+Shows several things: Importance of covariance; case where laplace of MAP isn't optimal; case where boosting is necessary, and boosting family is better than boosting function")
+```
 
 ## Latent variable models (or: why hi-D?)
 
-Define, including defining Gamma and Theta
-This is why we need a high-dimensional solution.
+A latent variable model has 3 core elements:
+
+* Global parameters: $\bm{\gamma}\in\Gamma \cong \mathbb{R}^g$,
+* "iid" latent parameter vectors: $\bm{\lambda}_1,\dots,\bm{\lambda}_N\in\Late \cong \mathbb{R}^l$
+* Observation vectors: $\bm{x}_1,\dots,\x_N$, also independent conditional on globals and relevant locals. 
+
+In other words, 
+$$p\left(\globalp, \latent_1,\dots,\latent_N,\x_1,\dots,\x_N\right) = p(\globalp)\prod_{i=1}^N p(\latent_i|\globalp)\; p(\x_i|\latent_i,\globalp)$$
+
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("This is why we need a high-dimensional solution.")
+```
 
 ## Block arrowhead matrices
 
-Show block-arrowhead matrix, say it’s easy to sample from and easy to boost
-(don’t write anything down for this, just point)
+$$\I_p(\ctr) = \left(\begin{array}{ccccc}
+    G & C_1 & C_2 & \dots & C_N \\
+    C_1^T & U_1 & 0 & \dots & 0 \\
+    C_2^T & 0 & U_2 & \dots & 0 \\
+    \vdots & 0 & 0 & \ddots & 0 \\
+    C_N^T & 0 & 0 & \dots & U_N$$
 
-## Additional methods for LV models: subsampling
-
-Explain subsampling
-Mention weights, say we haven’t yet implemented them anywhere
-think about exactly what you want to say about its qusi-unbiasedness (have hidden slides with slide with details)
-Explain amortization: 
-restricting to subspace of the guide where latents are approximate MLEs relative to globals, 
-guide parameters are now just gamma, psi_gamma, psi_lambda
-(possibly mention Newton’s method, but Mira thinks not)
-(Say that they go together nicely, but don’t go into detail)
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("easy to sample from and easy to boost.")
+```
 
 
-## Additional methods for LV models: boosting
+## Additional methods for LV models 1: SVI
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Two methods that are useful with LV models. Conceptually independent, but go well together. First is:")
+```
+Idea: since unnormalized log density is a sum of unit-level terms, use only a randomly-sampled subset of those terms. For a given sampling scheme (possibly weighted), there are obvious estimators for:
+* Posterior log density; unbiased
+* Hessian thereof. Up to boosting, unbiased for both conditional precision $G$ and marginal precision $([\I_p(\ctr)^{-1}]_{\Gamma,\Gamma})^{-1}=G-\sum_i C_iU_i^{-1}C_i^T$
+
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Mention weights, say we haven’t yet implemented them anywhere
+think about exactly what you want to say about its qusi-unbiasedness (have hidden slides with slide with details)")
+```
+
+## Additional methods for LV models 2: amortization
+
+restricting to subspace of the guide where latents are approximate MAPs relative to globals, 
+
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("guide parameters are now just gamma, psi_gamma, psi_lambda
+(possibly mention Newton’s method, but Mira thinks not)")
+```
+
 
 ## Ch 1 Results
 

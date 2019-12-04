@@ -54,7 +54,7 @@ pyro.set_rng_seed(0)
 
 
 EI_VERSION = "4.0.0"
-FILEBASE = "ei_post_results/"
+FILEBASE = "ei_post_results_fixedalpha/"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
