@@ -48,6 +48,128 @@ final=F
 note = function(x){cat("")}; final=T #comment out for presenter notes
 ```
 
+## Big picture overview
+
+## Variational Inference
+
+## Pyro
+
+## Problem with existing (mainstream) VI method
+
+## Introduce Laplace family VI (1)
+
+## Introduce Laplace family VI (2)
+
+## Boosting
+
+## Formal definition of Laplace family (1)
+
+## Toy model results
+
+## Latent variable models (or: why hi-D?)
+
+## Block arrowhead matrices
+
+## Additional methods for LV models: subsampling
+
+## Additional methods for LV models: boosting
+
+## Ch 1 Results
+
+## Ch 2: Ecological inference. Introduction
+
+## EI: example matrices
+
+## Relevance: Thornburg v. Gingles
+
+## History of attempted solutions: ER
+
+## King's EI: 2x2 case (1)
+
+## King's EI: 2x2 case (2)
+
+## Rosen, Jiang, King, & Tanner: RxC case (1)
+
+## Rosen, Jiang, King, & Tanner: RxC case (1)
+
+## Limitations of RJKT...
+
+## ...and our contribution
+
+## Our model
+
+## Modified model
+
+## Polytopize (1)
+
+## Polytopize (2)
+
+## Guide, with amortization
+
+## Testing our EI on simulated data
+
+## EI results (1)
+
+## EI results (2)
+
+## Discussion/future work (Ch. 3)
+
+## Discussion/future work (Ch. 2)
+
+## Thanks
+
+
+
+
+## Directory of extra slides
+
+## Non-meanfield prior work
+
+## Details on toy model
+
+## More on block-arrowhead matrices
+
+## What we expect from subsampling
+
+HARD
+
+## Details of ECHS
+
+## More details on RJKT
+
+## Possible extensions to our EI model
+
+## Boundary issues with polytope; pseudovoters
+
+## How our EI amortization works (1)
+
+## How our EI amortization works (2)
+
+## More EI results
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## END DEFENSE, START OLD PRESENTATION
+
 ## Teaser
 
 ```{r fig.width=8, fig.height=5,echo=FALSE}
