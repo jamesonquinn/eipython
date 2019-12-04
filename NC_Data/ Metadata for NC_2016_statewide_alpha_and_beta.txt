@@ -1,0 +1,6 @@
+Code for NC_2016_statewide_alpha_and_beta.csv
+
+Candidates: 0 = other/not voting, 1 = Clinton(D), 2 = Trump (R)
+Races: 0 = white, 1 = black, 2 = other
+
+The derivation of the alphas and betas is found in the file "NC 2016 statewide alpha and beta calculation.xlsx"
