@@ -50,71 +50,210 @@ note = function(x){cat("")}; final=T #comment out for presenter notes
 
 ## Big picture overview
 
+problem with high-dimensional posteriors
+VERY brief mention of ch 1
+Ch2 : new method
+Ch 3: application of method, extension of existing models
+You will notice a few changes to what I sent you, I will point them out as we go along
+Talk about Mira
+the major motivating ideas (idea of Laplace family, idea of applying VI to EI) come from me
+I did all the coding in Pyro (which is most of the coding and was quite non-trivial)
+otherwise Mira is equal collaborator and coauthor
+we checked that this is allowed
+
 ## Variational Inference
+
+Slide has the basic equations
+Emphasize conceptual part (minimizing KL-divergence)
+Be sure to be clear about difference between model parameters and guide parameters
+Talk about why entropy term is important
+This is cutting edge stuff in ML (esp black box VI)
+Pyro (is being developed as we speak)
 
 ## Pyro
 
+Explain automatic differentiation
+All the impressive software engineering I had to do
+Luke: should this slide be non-hidden, as a way to sell myself more?
+
 ## Problem with existing (mainstream) VI method
 
+mention non-black-box VI
+mean field (for example normal)
+can’t capture posterior correlations, systematically underestimates posterior marginals
+with picture!
+
 ## Introduce Laplace family VI (1)
+
+Normal guide families:
+full normal is too big
+mean field is a subfamily that doesn’t actually contain any good approximations
+we want subfamily that contains at least some good approximations without being too big
+Aha! Laplace approximation!
+Intuitive explanation of Laplace family
 
 ## Introduce Laplace family VI (2)
 
 ## Boosting
 
+Describe boosting 
+Define boosting family
+Explain why boosting family is better than just boosting function
+Version of thesis sent previously has quasi-boosting which we’re no longer using
+Citation for method that we’re actually using
+
 ## Formal definition of Laplace family (1)
+
+All formulas in all their gory detail
 
 ## Toy model results
 
+Nice picture of toy model
+
 ## Latent variable models (or: why hi-D?)
+
+Define, including defining Gamma and Theta
+This is why we need a high-dimensional solution.
 
 ## Block arrowhead matrices
 
+Show block-arrowhead matrix, say it’s easy to sample from and easy to boost
+(don’t write anything down for this, just point)
+
 ## Additional methods for LV models: subsampling
+
+Explain subsampling
+Mention weights, say we haven’t yet implemented them anywhere
+think about exactly what you want to say about its qusi-unbiasedness (have hidden slides with slide with details)
+Explain amortization: 
+restricting to subspace of the guide where latents are approximate MLEs relative to globals, 
+guide parameters are now just gamma, psi_gamma, psi_lambda
+(possibly mention Newton’s method, but Mira thinks not)
+(Say that they go together nicely, but don’t go into detail)
+
 
 ## Additional methods for LV models: boosting
 
 ## Ch 1 Results
 
+Improved version from thesis
+Very brief explanation only, but mention transforming parameters
+
 ## Ch 2: Ecological inference. Introduction
+
+Mainly comes up in voting rights cases, so I’ll talk about it in this setting
+Explain problem in the abstract by showing pictures of matrices and talking about them (you don’t need much else on this slide)
 
 ## EI: example matrices
 
 ## Relevance: Thornburg v. Gingles
 
+Mention Gingles SCOTUS case briefly 
+show Gingles graph
+
 ## History of attempted solutions: ER
 
+Picture of Brexit ER
+Explain problem with this method
+
 ## King's EI: 2x2 case (1)
+
+Describe
+Point out innovation of looking at latents rather than globals
+
 
 ## King's EI: 2x2 case (2)
 
 ## Rosen, Jiang, King, & Tanner: RxC case (1)
 
+Explain model
+
 ## Rosen, Jiang, King, & Tanner: RxC case (1)
+
 
 ## Limitations of RJKT...
 
+it’s cheating (applies racial constraints at wrong level of hierarchy, because they don’t know how to apply both vote-total and racial constraints at same level; I’ll solve this with polytopize)
+hard to extend model (give examples of how you might extend it)
+relies on MCMC, so if you extend by a lot will be too slow
+
+
 ## ...and our contribution
+
+No cheating (polytope)
+More flexible model
+VI instead of MCMC 
+(make this slide parallel to previous one)
+
 
 ## Our model
 
+Talk briefly about how you could add other Christmas tree ornaments
+Talk about why this is hard to make a guide for
+
+
 ## Modified model
 
+Cmult
+Polytopize: ae smooth map from R^n to polytope
+Pseudovoters because of boundary issues that arise from Cmult and polytopize; don’t go into details
+
+All of these make the model itself slightly less-realistic, but make VI work.
+
+
 ## Polytopize (1)
+
+two nice pictures from thesis
+formula written down
+
 
 ## Polytopize (2)
 
 ## Guide, with amortization
 
+picture from paper, but remade to look more sane!!!!
+Maybe a list of things to note (changes form model)
+
+
 ## Testing our EI on simulated data
 
+Describe how we got the simulated NC data
+actual demographics
+realistic alpha and beta
+we get to experiment sigma_nu
+
+
 ## EI results (1)
+
+Show updated tables from paper
+Point out that this is different (better!) than what you originally sent, because:
+does not underestimate variance (fixed bug)
+corrected alphas and betas (so that overall percentages of people of each race voting for each candidate approximate the true 2016 data, as intended)
+improved amortization (optimize Y → optimize W)
+
+Conclusion: We are as good as RJKT, but we’re just getting started
+
 
 ## EI results (2)
 
 ## Discussion/future work (Ch. 3)
 
+Including the covariate 
+Multiple elections
+Actual NC data
+Compare hierachical model without EI, Standard RJKT, and our model
+Cross-validation
+Say that this is the stuff we plan to include in final paper
+
+
 ## Discussion/future work (Ch. 2)
+
+More on subsampling:
+general theory of how to assign weights to minimize variance of estimator in subsampling (use Ch 3 as example)
+maybe some theory to help choose sample size for SVI
+Replace normal with T in guide
+Say that this will not be in current paper, which is basically done
+
 
 ## Thanks
 
@@ -125,9 +264,19 @@ note = function(x){cat("")}; final=T #comment out for presenter notes
 
 ## Non-meanfield prior work
 
+Just the list from the paper
+Give example of actual theorem you can prove when you have conjugate model structure
+
 ## Details on toy model
 
+Just the model
+
 ## More on block-arrowhead matrices
+
+Formulas for boosting
+Formulas for sampling
+
+(basically just the stuff in the appendix)
 
 ## What we expect from subsampling
 
@@ -135,15 +284,29 @@ HARD
 
 ## Details of ECHS
 
+The actual model
+Result tables
+
 ## More details on RJKT
 
 ## Possible extensions to our EI model
 
 ## Boundary issues with polytope; pseudovoters
 
+HARD
+
 ## How our EI amortization works (1)
 
+Which variables are we amortizing: Y, nu, sigma_nu
+Steps:
+Find approximate mode of p(Y|alpha, beta, nu) constrained to lie on polytope (this is linear algebra plus stirling’s approximation)
+One-dimensional Newton’s method to find approximate mode of W. (Not the same thing, because there’s Jacobian, mode of W is further away from boundary)
+Find approximate mode of p(nu, sigma_nu| gamma, W) 
+Newton’s method (for free!!)
+
 ## How our EI amortization works (2)
+
+Details on how we get nu and sigma_nu
 
 ## More EI results
 
