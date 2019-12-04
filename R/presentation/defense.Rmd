@@ -1,7 +1,6 @@
 ---
-title: "Flexible Ecological Inference using Variational Methods"
-author: "Jameson Quinn (work with Mira Bernstein)"
-date: "3/13/2019"
+title: "Dissertation Defense: Numerical Methods for Approximating High-Dimensional Posterior Distributions"
+author: "Jameson Quinn"
 output: beamer_presentation
 
 header-includes:
@@ -35,7 +34,7 @@ library(knitr)
 outputFormat = opts_knit$get("rmarkdown.pandoc.to")
 color="red"
 if(outputFormat %in% c('latex','beamer')) {
-  note = function(x){cat(paste0("\\textcolor{",color,"}{{\\scriptsize ",x,"}}\n\n"))}
+  note = function(x){cat(paste0("\\textcolor{",color,"}{{\\scriptsize ",gsub("[\r\n]", "\\\\\\\\", x),"}}\n\n"))}
 } else if(outputFormat %in% c('html','ioslides')) {
   note = function(x){cat(paste0("<font color='",color,"',size='small'>",x,"</font>\n\n"))}
 } else {
@@ -50,57 +49,94 @@ note = function(x){cat("")}; final=T #comment out for presenter notes
 
 ## Big picture overview
 
-problem with high-dimensional posteriors
-VERY brief mention of ch 1
-Ch2 : new method
-Ch 3: application of method, extension of existing models
-You will notice a few changes to what I sent you, I will point them out as we go along
-Talk about Mira
-the major motivating ideas (idea of Laplace family, idea of applying VI to EI) come from me
-I did all the coding in Pyro (which is most of the coding and was quite non-trivial)
-otherwise Mira is equal collaborator and coauthor
-we checked that this is allowed
+$$P(\theta|x)=\frac{P(x|\theta)P(\theta)}{\int_{\theta'\in\Theta} P(x|\theta')P(\theta')d\theta'}$$
+If $\Theta$ is high-D, any estimator of the denominator that amounts to numerical integration will fail; variance exponential in dim.
+
+* Chapter 1: online data assimilation on spatiotemporal system
+* Chapter 2: new method applicable to latent variable models
+* Chapter 3: application of method, extension of existing models
+
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("You will notice a few changes to what I sent you, particularly in the chapter 3 results; I will point them out as we go along\\\\Talk about Mira\\\\the major motivating ideas (idea of Laplace family, idea of applying VI to EI) come from me\\\\I did all the coding in Pyro\\\\otherwise Mira is equal collaborator and coauthor\\\\we checked that this is allowed
+")
+```
+
 
 ## Variational Inference
 
-Slide has the basic equations
-Emphasize conceptual part (minimizing KL-divergence)
+Approximate posterior with a guide distribution $q_{\bm{\phi}}(\bm{\theta})$ and choose $\bm{\phi}$ to mimize KL: 
+$$\hat{{\bm{\phi}}}=\mathrm{argmin}_{\bm{\phi}}\left[D_{\mathrm{KL}} \left(\;q_{\bm{\phi}}(\bm{\theta})\;\big|\big|\; p(\bm{\theta}|\bm{x})\;\right)\right].$$
+Equivalent to maximizing ELBO:
+$$\mathrm{ELBO}({\bm{\phi}}):=E_{q_{\bm{\phi}}}
+\left[\mathrm{log} p(\bm{x},\bm{\theta})-\mathrm{log} q_{\bm{\phi}}(\bm{\theta})\right]$$
+
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Emphasize conceptual part (minimizing KL-divergence)
 Be sure to be clear about difference between model parameters and guide parameters
 Talk about why entropy term is important
-This is cutting edge stuff in ML (esp black box VI)
-Pyro (is being developed as we speak)
+Mention EUBO")
+```
+
 
 ## Pyro
 
-Explain automatic differentiation
-All the impressive software engineering I had to do
-Luke: should this slide be non-hidden, as a way to sell myself more?
+Released in 2017 and still under very active development, pyro is a cutting-edge python package for black-box VI.
+* Automatic differentiation via PyTorch ML
+* Stochastic optimization
+* BBVI seems empirically robust
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Explain automatic differentiation
+All the impressive software engineering I had to do")
+```
 
 ## Problem with existing (mainstream) VI method
 
-mention non-black-box VI
-mean field (for example normal)
-can’t capture posterior correlations, systematically underestimates posterior marginals
-with picture!
+This talk will focus on MVN guide families.
+
+A common assumption is posterior independence of parameters, referred to as "meanfield" guides. Problem:
+
+
+```{r, fig.align='center', out.width = "150px", echo=FALSE, results='asis'}
+if(final){knitr::include_graphics("meanfield_covar_figure.jpg")}
+note("can’t capture posterior correlations
+systematically underestimates posterior marginals
+with picture!")
+```
 
 ## Introduce Laplace family VI (1)
 
-Normal guide families:
-full normal is too big
-mean field is a subfamily that doesn’t actually contain any good approximations
-we want subfamily that contains at least some good approximations without being too big
-Aha! Laplace approximation!
-Intuitive explanation of Laplace family
+Among MVN guide families:
+* Set of all normals, unrestricted covariance, is too big
+* Meanfield subset doesn’t actually contain any good approximations
+* We want subfamily that contains at least some good approximations without being too big
 
 ## Introduce Laplace family VI (2)
 
+Let's guarantee that the family contains the Laplace approximation around any posterior mode.
+
+Define covariance matrix using observed information of posterior; negative of Hessian of unnormalized log-density:
+
+$\mathcal{I}_p\left(\bm{\theta}^*\right)  := -H\left[\log p(\bm{\theta})\right]\bigg\rvert_{\bm{\theta}^*}$
+
 ## Boosting
 
-Describe boosting 
-Define boosting family
-Explain why boosting family is better than just boosting function
+$\mathcal{I}_p$ not guaranteed to be positive definite. So define "boosting" function $f(\mathcal{I}_p)$ s.t.:
+* Smooth almost everywhere.
+* $f(\mathcal{I}_p)\approx\mathcal{I}_p$ if $\mathcal{I}_p$ already p.d.
+A similar problem arises in optimization (quasi-Newton methods); solved via modified Cholesky algorithms (Fang, 2008)
+
+Furthermore, we can parametrize $f$ to create a boosting family $f_{\bm{\psi}}$, for $\psi_i>0$, s.t.:
+* Each dimension of $\bm{\psi}$ corresponds to a model parameter
+* As $\bm{\psi}\rightarrow\vec{\bm{0}}$ from above, $f(\mathcal{I}_p)\rightarrow\mathcal{I}_p$ if $\mathcal{I}_p$ already p.d.
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Explain why boosting family is better than just boosting function
 Version of thesis sent previously has quasi-boosting which we’re no longer using
-Citation for method that we’re actually using
+Citation for method that we’re actually using")
+```
 
 ## Formal definition of Laplace family (1)
 
@@ -834,6 +870,8 @@ Together, they're maximized if $q_\phi$ "imitates" $p$.
 ```{r fig.width=5, fig.height=2.5,echo=FALSE}
 library(ggplot2)
 library(data.table)
+
+options(tinytex.verbose = TRUE)
 
 combined = data.table()
 varidat = data.table(x=(-300:300)/100)
