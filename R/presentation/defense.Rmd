@@ -140,7 +140,9 @@ Citation for method that we’re actually using")
 
 ## Formal definition of Laplace family (1)
 
-All formulas in all their gory detail
+Let $p(\bm{\theta})$ be a (possibly unnormalized) probability distribution on $\mathbb{R}^d$. Let $\Theta \subseteq \mathbb{R}^d$, $\Psi \subseteq \mathbb{R}^D_+$, and let $f_\Psi$ be a boosting family. 
+
+The Laplace guide family $\mathcal{L}_{\Theta\times\Psi} (p,f_\Psi)$ is the set of $d$-dimesnional normal distributions $\{q_{\bm{\theta}^*,\bm{\psi}}:\bm{\theta}^*\in\Theta,\;\bm{\psi}\in\Psi\}$, where $q_{\bm{\theta}^*,\bm{\psi}}$ has mean $\bm{\theta}^*$ and precision matrix $f_{\bm{\psi}} \left(\I_p(\bm{\theta}^*)\right)$.} 
 
 ## Toy model results
 
