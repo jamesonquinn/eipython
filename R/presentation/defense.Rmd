@@ -1015,11 +1015,131 @@ All of these make the model itself slightly less-realistic, but make VI work.")
 
 ## Polytopize (1)
 
-two nice pictures from thesis
-formula written down
+\begin{tikzpicture}[
+squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle (6.5,4);
+\draw[ultra thick](0,0) rectangle (6.5,4);}
+]
+\foreach \x in {.75,0.5,.25,0}\pic at (\x,\x){squared notebook};
+\node[rotate=90] (h) at (.5,2) {Race};
+\node (w) at (4,3.5) {Candidate};
+
+%separator
+\draw[style=-] (8,0) -- +(0,5) node[below left=.25cm,anchor=base,midway,rotate=-45] {};
+
+\node (w) at (3.5,2) {$\begin{array}{r|lll|l}
+& X & Y & Z & \bm{n}_u\\
+\hline
+\textit{White} & \red{50} & \red{50} & 50 & 150 \\
+\textit{Black} & 70 & 70 & 70 & 210   \\
+\hline
+\bm{v}_u & 120 & 120 & 120 & 360\end{array}$};
+
+\draw[red,fill=red] (11.667,1.667) circle (.5ex);
+\node[] at (11.667,1.267)   (c) {$\dot{\bm{Y}}$};
+
+%\tkzDefPoint(7.667,1.667){M}
+%\tkzLabelPoint[right,below](M){Independence}
+
+\node[] at (12, -1.1)   (c) {$\mathcal{Y}_u$};
+
+%polytope
+\draw[style=-] (11,0) -- +(-1,1) node[below left=.25cm,anchor=base,midway,rotate=-45] {$y_{p11}+y_{p12}>\textcolor{black}{30}$};
+\draw[style=-] (11,0) -- +(3,0) node[below=.3cm,anchor=base,midway] {$\textcolor{black}{y_{p12}}>0$};
+\draw[style=-] (14,0) -- +(0,1) node[right = .3cm,anchor=base,midway,rotate=90] {$\textcolor{black}{y_{p11}<120}$};
+\draw[style=-] (14,1) -- +(-3,3) node[above right=.15cm,anchor=base,midway,rotate=-45] {$y_{p11}+y_{p12}<\textcolor{black}{150}$};
+\draw[style=-] (11,4) -- +(-1,0) node[above=.2cm,anchor=base,midway] {$\textcolor{black}{y_{p12}<120}$};
+\draw[style=-] (10,1) -- +(0,3) node[left = .2cm,anchor=base,midway,rotate=90] {$\textcolor{black}{y_{p11}}>0$};
+
+
+\end{tikzpicture}
 
 
 ## Polytopize (2)
+
+\begin{tikzpicture}
+
+%axes
+\draw[dashed,-latex] (4,2) -- +(.5,0) node[below right,midway,rotate=45] {};
+\draw[dashed,-latex] (2,2) -- +(-2.5,0) node[below right,midway,rotate=45] {};
+\draw[dashed,-latex] (2,2) -- +(0,2) node[below right,midway,rotate=45] {};
+\draw[dashed,-latex] (2,2) -- +(0,-2) node[below right,midway,rotate=45] {};
+
+%vectors in y'
+\draw[-latex] (2,2) -- +(.3,.4) node[below right,midway,rotate=45] {};
+\draw[-latex] (2.3,2.4) -- +(.3,.4) node[below right,midway,rotate=45] {};
+\draw[-latex] (2.6,2.8) -- +(.3,.4) node[below right,midway,rotate=45] {};
+\draw[-latex] (2.9,3.2) -- +(.3,.4) node[below right,midway,rotate=45] {};
+\draw[fill=black] (3.2, 3.6) circle (.3ex);
+\node[above left=0pt of {(3.2, 3.6)}]  {$\bm{w}_1$};
+
+
+\draw[-latex] (2,2) -- +(-.4,-.3) node[below right,midway,rotate=45] {};
+\draw[-latex] (1.6,1.7) -- +(-.4,-.3) node[below right,midway,rotate=45] {};
+\draw[-latex] (1.2,1.4) -- +(-.4,-.3) node[below right,midway,rotate=45] {};
+\draw[-latex] (0.8,1.1) -- +(-.4,-.3) node[below right,midway,rotate=45] {};
+\draw[fill=black] (0.4, 0.8) circle (.3ex);
+\node[below right=0pt of {(0.4, 0.8)}]  {$\bm{w}_3$};
+
+\draw[-latex] (2,2) -- +(.5,0) node[below right,midway,rotate=45] {};
+\draw[-latex] (2.5,2) -- +(.5,0) node[below right,midway,rotate=45] {};
+\draw[-latex] (3,2) -- +(.5,0) node[below right,midway,rotate=45] {};
+\draw[-latex] (3.5,2) -- +(.5,0) node[below right,midway,rotate=45] {};
+\draw[fill=black] (4, 2) circle (.3ex);
+\node[below=0pt of {(4, 2)}]  {$\bm{w}_2$};
+
+%function connector
+\node[] at (6, 2)   (a) {$m_u(\bm{w})$};
+\node[] at (6, 1.5)   (b) {$\longrightarrow$};
+
+%labels for spaces
+\node[] at (2, -1.1)   (c) {};
+\node[] at (10, -1.1)   (d) {$\mathcal{Y}_u$};
+
+
+%polytope
+\draw[style=-] (9,0) -- +(-1,1) node[below left=.25cm,anchor=base,midway,rotate=-45] {};
+\draw[style=-] (9,0) -- +(3,0) node[below=.3cm,anchor=base,midway] {};
+\draw[style=-] (12,0) -- +(0,1) node[right = .3cm,anchor=base,midway,rotate=90] {};
+\draw[style=-] (12,1) -- +(-3,3) node[above right=.15cm,anchor=base,midway,rotate=-45] {};
+\draw[style=-] (9,4) -- +(-1,0) node[above=.2cm,anchor=base,midway] {};
+\draw[style=-] (8,1) -- +(0,3) node[left = .2cm,anchor=base,midway,rotate=90] {};
+
+
+%vectors in polytope
+\draw[-latex] (9.5,1.5) -- +(.3,.4) node[below right,midway,rotate=45] {};
+\draw[-latex] (9.8,1.9) -- +(.2,.266) node[below right,midway,rotate=45] {};
+\draw[-latex] (10.0,2.166) -- +(.133,.177) node[below right,midway,rotate=45] {};
+\draw[-latex] (10.133,2.344) -- +(.0889,.1185) node[below right,midway,rotate=45] {};
+\draw[fill=black] (10.222, 2.4625) circle (.3ex);
+\node[above left=0pt of {(10.222, 2.4625)}]  {$m_u(\bm{w}_1)$};
+
+
+
+\draw[-latex] (9.5,1.5) -- +(-.4,-.3) node[below right,midway,rotate=45] {};
+\draw[-latex] (9.1,1.2) -- +(-.2667,-.2) node[below right,midway,rotate=45] {};
+\draw[-latex] (8.833,1.0) -- +(-.1778,-.133) node[below right,midway,rotate=45] {};
+\draw[-latex] (8.655,.866) -- +(-.1185,-.0889) node[below right,midway,rotate=45] {};
+\draw[fill=black] (8.5366, 0.777) circle (.3ex);
+\node[below right=0pt of {(8.5366, 0.777)}]  {$m_u(\bm{w}_3)$};
+
+\draw[-latex] (9.5,1.5) -- +(.5,0) node[below right,midway,rotate=45] {};
+\draw[-latex] (10,1.5) -- +(.375,0) node[below right,midway,rotate=45] {};
+\draw[-latex] (10.375,1.5) -- +(.281,0) node[below right,midway,rotate=45] {};
+\draw[-latex] (10.656,1.5) -- +(.211,0) node[below right,midway,rotate=45] {};
+\draw[fill=black] (10.8777, 1.5) circle (.3ex);
+\node[below=0pt of {(10.8777, 1.5)}]  {$m_u(\bm{w}_2)$};
+
+%dots at 0,0 and independence
+
+\draw[red,fill=red] (9.5,1.5) circle (.3ex);
+\node[above left=0pt of {(9.5,1.5)}]  {$\red{m_u(\vec{0})}$};
+\node[below=0pt of {(9.5,1.5)}]  {$\red{\dot{\bm{Y}}}$};
+\draw[red,fill=red] (2,2) circle (.3ex);
+\node[above left=0pt of {(2,2)}]  {$\red{\vec{0}}$};
+
+\end{tikzpicture}
+
+
 
 ## Guide, with amortization
 
@@ -1029,15 +1149,15 @@ formula written down
   % Define nodes
   \node[const]                                          (hats) {$\orange{\bm{\gamma}^*}$};
   \node[det, below=1 of hats,  align=center, xshift=3.5cm]            (yhat) {$\green{\bm{\lambda}}^{\blue{*}}_{\blue{u}}$};
-  \node[latent, diamond, below=2 of hats, xshift=.5cm]            (sighat) {$\orange{\sigma_{\nu}^*}$};
+  \node[latent, diamond, below=2 of hats, xshift=.7cm]            (sighat) {$\orange{\sigma_{\nu}^*}$};
   
-  \node[latent, diamond, aspect=2.5, below=3 of hats]            (Iparams) {$\mathscr{I}^{-1}(\bm{\gamma}^*)$};
+  \node[latent, diamond, aspect=2.5, below=3 of hats]            (Iparams) {$\mathcal{I}^{-1}(\bm{\gamma}^*)$};
   \factor[left=of Iparams] {paramdist} {left:$\mathcal{N}$} {} {};
   \node[latent, below=of paramdist]            (params) {$\orange{\bm{\gamma}}$};
   
 
   
-  \node[latent, diamond, aspect=3,  below=3 of hats,  align=center, xshift=3.5cm]  (Ifull) {$\mathscr{I}^{-1}(\bm{\gamma}^*,\bm{\lambda}^*_{u})$};
+  \node[latent, diamond, aspect=3,  below=3 of hats,  align=center, xshift=3.5cm]  (Ifull) {$\mathcal{I}^{-1}(\bm{\gamma}^*,\bm{\lambda}^*_{u})$};
   \factor[right=of Ifull] {fulldist} {right:$\mathcal{N}$} {} {};
   \factor[below=1.25 of fulldist] {condfulldist} {right:$\mathcal{N}|\bm{\gamma}$} {} {};
   \node[latent, below=of condfulldist]            (W) {$\green{\bm{\lambda}}_{\blue{u}}$};
@@ -1076,13 +1196,13 @@ Maybe a list of things to note (changes form model)
 <!--   \node[det, right=1.5 of hats, yshift=-2cm]            (nuhat) {$\bm{\nu}^*_{u}$}; -->
 <!--   \node[latent,fill=gray!25, diamond, right=.3 of hats, yshift=-2.6cm]            (sighat) {$\sigma_{\nu}^*$}; -->
 
-<!--   \node[latent, diamond, aspect=2.5, below=3.4 of hats]            (Iparams) {$\mathscr{I}^{-1}(\bm{\gamma}^*)$}; -->
+<!--   \node[latent, diamond, aspect=2.5, below=3.4 of hats]            (Iparams) {$\mathcal{I}^{-1}(\bm{\gamma}^*)$}; -->
 <!--   \factor[left=of Iparams, xshift = -1cm] {paramdist} {left:$\mathcal{N}$} {} {}; -->
 <!--   \node[latent, below=.8 of Iparams]            (params) {$\bm{\gamma}$}; -->
 
 
 
-<!--   \node[latent, diamond, aspect=2.5, right=.33 of Iparams]  (Ifull) {$\mathscr{I}^{-1}(\bm{\gamma}^*,\bm{W}^*_{u})$}; -->
+<!--   \node[latent, diamond, aspect=2.5, right=.33 of Iparams]  (Ifull) {$\mathcal{I}^{-1}(\bm{\gamma}^*,\bm{W}^*_{u})$}; -->
 <!--   \factor[right=.8 of Ifull] {fulldist} {right:$\mathcal{N}$} {} {}; -->
 <!--   \factor[below=1.5 of fulldist] {condfulldist} {right:$\mathcal{N}|\bm{\gamma}$} {} {}; -->
 <!--   \node[latent, below=2 of Ifull]            (W) {$(W_u,\bm{\nu}_{u})$}; -->
@@ -1124,33 +1244,50 @@ we get to experiment sigma_nu
 ## EI results (1)
 
 Show updated tables from paper
-Point out that this is different (better!) than what you originally sent, because:
+
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Point out that this is different (better!) than what you originally sent, because:
 does not underestimate variance (fixed bug)
 corrected alphas and betas (so that overall percentages of people of each race voting for each candidate approximate the true 2016 data, as intended)
 improved amortization (optimize Y → optimize W)
+Conclusion: We are as good as RJKT, but we’re just getting started")
+```
 
-Conclusion: We are as good as RJKT, but we’re just getting started
+
 
 
 ## EI results (2)
 
 ## Discussion/future work (Ch. 3)
 
-Including the covariate 
-Multiple elections
-Actual NC data
-Compare hierachical model without EI, Standard RJKT, and our model
-Cross-validation
-Say that this is the stuff we plan to include in final paper
+* Including the covariate 
+* Multiple elections
+* Actual NC data
+* Compare hierachical model without EI, Standard RJKT, and our model
+* Cross-validation
+
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Say that this is the stuff we plan to include in final paper")
+```
+
 
 
 ## Discussion/future work (Ch. 2)
 
-More on subsampling:
-general theory of how to assign weights to minimize variance of estimator in subsampling (use Ch 3 as example)
-maybe some theory to help choose sample size for SVI
-Replace normal with T in guide
-Say that this will not be in current paper, which is basically done
+* More on subsampling:
+
+    * general theory of how to assign weights to minimize variance of estimator in subsampling (use Ch 3 as example)
+    * maybe some theory to help choose sample size for SVI
+* Replace normal with T in guide
+
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Say that this will not be in current paper, which is basically done")
+```
+
+
 
 
 ## Thanks
@@ -1650,7 +1787,7 @@ There's an obvious way to approximate a twice-differentiable, unnormalized distr
 
 That is, use the observed information matrix:
 
-$$\mathscr{I}(\hat{\bm{y}}',\hat{\theta})=D^2\left(\log[p(\hat{\theta},g(\hat{y}'))\operatorname{det}(J(g(y')))]\right)$$
+$$\mathcal{I}(\hat{\bm{y}}',\hat{\theta})=D^2\left(\log[p(\hat{\theta},g(\hat{y}'))\operatorname{det}(J(g(y')))]\right)$$
 as the precision matrix of $q$. 
 
 ## Graphical posterior
@@ -1663,7 +1800,7 @@ as the precision matrix of $q$.
   \node[const, right=2.5 of hats]            (What) {$\hat{W}_{u}$};
   
   \factor[below=of hats,yshift=-.3cm] {paramdist} {right:$\mathcal{N}$} {} {};
-  \node[latent, diamond, aspect=2.5, left=.8 of paramdist]            (Iparams) {$\mathscr{I}^{-1}(\hat{\bm{\theta}})$};
+  \node[latent, diamond, aspect=2.5, left=.8 of paramdist]            (Iparams) {$\mathcal{I}^{-1}(\hat{\bm{\theta}})$};
   \node[latent, below=of paramdist]            (params) {$\bm{\theta}$};
   
   
@@ -1671,7 +1808,7 @@ as the precision matrix of $q$.
   \node[const, below=1.5 of What,xshift=-3cm] (stuff) {};
   
   \factor[below=2.11 of What] {fulldist} {above left:$\mathcal{N}$} {} {};
-  \node[latent, diamond, aspect=2.5, right=.8 of fulldist]            (Ifull) {$\mathscr{I}^{-1}(\hat{\bm{\theta}},\hat{W}_{u})$};
+  \node[latent, diamond, aspect=2.5, right=.8 of fulldist]            (Ifull) {$\mathcal{I}^{-1}(\hat{\bm{\theta}},\hat{W}_{u})$};
   \node[latent, below=of fulldist]            (W) {$W_u$};
   \node[const, right=0.3 of W]            (detour) {};
   \node[det, below=0.6 of W]            (gamma) {$\bm{\gamma}_{u,r}$};
@@ -1697,8 +1834,8 @@ as the precision matrix of $q$.
 ## Computability
 
 * Using pyro, a variational inference package for python.
-* $\mathscr{I}(\hat{\bm{y}}',\hat{\theta})$ can be calculated using automated differentiation.
-* $\mathscr{I}(\hat{\bm{y}}',\hat{\theta})$ is high-dimensional, but due to the structure of the model, sparse (block arrowhead format), so working with it is reasonably efficient. In practice, this means doing sampling "top down" (hyperparameters->parameters->hyperlatents->latents), one precinct at a time at the lower levels.
+* $\mathcal{I}(\hat{\bm{y}}',\hat{\theta})$ can be calculated using automated differentiation.
+* $\mathcal{I}(\hat{\bm{y}}',\hat{\theta})$ is high-dimensional, but due to the structure of the model, sparse (block arrowhead format), so working with it is reasonably efficient. In practice, this means doing sampling "top down" (hyperparameters->parameters->hyperlatents->latents), one precinct at a time at the lower levels.
 
 ## Thanks
 
