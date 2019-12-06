@@ -93,6 +93,7 @@ Mention EUBO")
 ## Pyro
 
 Released in 2017 and still under very active development, pyro is a cutting-edge python package for black-box VI.
+
 * Automatic differentiation via PyTorch ML
 * Stochastic optimization
 * BBVI seems empirically robust
@@ -121,8 +122,8 @@ knitr::include_graphics("meanfield_covar_figure.jpg")
 
 Among MVN guide families:
 
-* Set of all normals, unrestricted covariance, is too big
-* Meanfield subset doesn’t actually contain any good approximations
+* Set of all normals, with unrestricted covariance, is too big
+* Meanfield subfamily doesn’t actually contain any good approximations
 * We want subfamily that contains at least some good approximations without being too big
 
 
@@ -201,6 +202,8 @@ $$\mathcal{I}_p(\bm{\theta}^*) = \left(\begin{array}{ccccc}
 
 Useful fact: if this is viewed as a precision matrix, then the "marginal precision" $([\mathcal{I}_p(\bm{\theta}^*)^{-1}]_{\Gamma,\Gamma})^{-1}=G-\sum_i C_iU_i^{-1}C_i^T$
 
+Call this marginal precision matrix $\mathcal{G}_p(\bm{\theta}^*)$.
+
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
 note("easy to sample from and easy to boost.")
 ```
@@ -217,7 +220,7 @@ SVI (Stochastic Variational Inference)
 Basic idea: since unnormalized log density is a sum of unit-level terms, use only a randomly-sampled subset of those terms. For a given sampling scheme (possibly weighted), there are obvious estimators for:
 
 * Posterior log density; unbiased
-* Hessian thereof. Up to boosting, unbiased for both conditional precision $G$ and marginal precision $([\mathcal{I}_p(\bm{\theta}^*)^{-1}]_{\Gamma,\Gamma})^{-1}=G-\sum_i C_iU_i^{-1}C_i^T$
+* Hessian thereof. Up to boosting, unbiased for both conditional precision $G$ and marginal precision $\mathcal{G}_p$.
 * ELBO and ELBO gradient wrt guide parameters, using the above. Not unbiased, even without boosting; but seem to work well.
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
@@ -228,24 +231,30 @@ think about exactly what you want to say about its qusi-unbiasedness (have hidde
 
 ## Additional methods for LV models 2: amortization
 
-restricting to subspace of the guide where latents are approximate MAPs relative to globals, 
+An amortized guide family is one that's restricted to a subspace where the latent variables are a function of the globals.
+
+The aim is to find an analytic a priori function that sets the latents to their conditional MAP values, under the assumption that this is the value that will approximately maximize the ELBO given the globals.
+
+If you can get into the right neighborhood, you can take 1 step of Newton's method for free.
 
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("guide parameters are now just gamma, psi_gamma, psi_lambda
-possibly mention Newton’s method, but Mira thinks not")
+note("guide parameters are now just gamma, psi-gamma, psi-lambda
+Note that it's MAP not MLE")
 ```
 
 
 ## Ch 1 Results
 
-Improved version from thesis
-Very brief explanation only, but mention transforming parameters
+\includegraphics[width=4in]{ECHSfits.pdf}
 
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Changes: df; boosting")
+```
 
 ## Ch 2: Ecological inference. Introduction
 
-\resizebox{99in}{1.5in}{%
+\resizebox{99in}{1.25in}{%
 \begin{tikzpicture}[thick,scale=0.9, every node/.style={transform shape},
 squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle (6.5,4);
 \draw[ultra thick](0,0) rectangle (6.5,4);}
@@ -277,7 +286,7 @@ note("Mainly comes up in voting rights cases, so I’ll talk about it in this se
 
 ## EI: example matrices
 
-\resizebox{99in}{1.5in}{%
+\resizebox{99in}{1.25in}{%
 \begin{tikzpicture}[thick,scale=0.9, every node/.style={transform shape},
 squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle (6.5,4);
 \draw[ultra thick](0,0) rectangle (6.5,4);}
@@ -328,38 +337,35 @@ v_u & 400 & 200 & 200 & 800\end{array}$};
 
 ## Relevance: Thornburg v. Gingles
 
-Mention Gingles SCOTUS case briefly 
-show Gingles graph
+Since the 1986 Supreme Court decision in Thornburg v. Gingles, EI is key to proving the need for redistricting under the Voting Rights Act. Which seems important:
+
+```{r fig.height=5,echo=FALSE}
+img <- readPNG("mira's ei slides.png")
+ grid.raster(img)
+```
 
 ## History of attempted solutions: ER
 
-```{r fig.height=5,echo=FALSE}
-img <- readPNG("brexit_ER.png")
- grid.raster(img)
-```
+![](brexit_ER.png){height=2in}
 
-Brexit voting data. (Example from "The Stats Guy" blog by Adam Jacobs.) Valid under certain (strong) assumptions.
+Brexit voting data. (Example by Adam Jacobs.)
 
 ## History of attempted solutions: ERrrrr...
 
+![](brexit_ER_oops.png){height=2in}
 
-```{r fig.height=5,echo=FALSE}
-img <- readPNG("brexit_ER_oops.png")
- grid.raster(img)
-```
+Brexit support: -16% of those with a degree???
 
-Brexit supported by 79% of people without a degree... and -16% of those with one??? Ecological fallacy, Simpson's paradox, etc.
+<!-- ## King's EI: 2x2 case (1) -->
 
-## King's EI: 2x2 case (1)
-
-Key insight: 
+<!-- Key insight:  -->
 
 
-## King's EI: 2x2 case (2)
+<!-- ## King's EI: 2x2 case (2) -->
 
-## Rosen, Jiang, King, & Tanner: RxC case (1)
+<!-- ## Rosen, Jiang, King, & Tanner: RxC case (1) -->
 
-Explain model
+<!-- Explain model -->
 
 ## Comparison of models
 
@@ -375,7 +381,7 @@ Explain model
   \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
   \node[const, below=9.2 of level]          (observed) {\purple{observed}};
   \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level]          (issues) {Issues};
+  \node[const, below=11.5 of level, align=center]          (issues) {Issues\\ \\ \\ \\};
   
   
   
@@ -407,7 +413,7 @@ Explain model
   \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
   \node[const, below=9.2 of level]          (observed) {\purple{observed}};
   \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level]          (issues) {Issues\\ \\ \\.};
+  \node[const, below=11.5 of level, align=center]          (issues) {Issues\\ \\ \\ \\};
   
   
   
@@ -463,7 +469,7 @@ Explain model
   \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
   \node[const, below=9.2 of level]          (observed) {\purple{observed}};
   \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level]          (issues) {Issues\\ \\ \\.};
+  \node[const, below=11.5 of level, align=center]          (issues) {Issues\\ \\ \\ \\};
   
   
   
@@ -523,7 +529,7 @@ Explain model
   \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
   \node[const, below=9.2 of level]          (observed) {\purple{observed}};
   \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level]          (issues) {Issues\\ \\ \\.};
+  \node[const, below=11.5 of level, align=center]          (issues) {Issues\\ \\ \\ \\};
   
   
   
@@ -608,7 +614,7 @@ Explain model
   \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
   \node[const, below=9.2 of level]          (observed) {\purple{observed}};
   \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level]          (issues) {Issues\\ \\ \\.};
+  \node[const, below=11.5 of level, align=center]          (issues) {Issues\\ \\ \\ \\};
   
   
   
@@ -695,7 +701,7 @@ Explain model
   \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
   \node[const, below=9.2 of level]          (observed) {\purple{observed}};
   \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level]          (issues) {Issues\\ \\ \\.};
+  \node[const, below=11.5 of level, align=center]          (issues) {Issues\\ \\ \\ \\};
   
   
   
@@ -808,7 +814,7 @@ Explain model
   \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
   \node[const, below=9.2 of level]          (observed) {\purple{observed}};
   \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level]          (issues) {Issues\\ \\ \\.};
+  \node[const, below=11.5 of level, align=center]          (issues) {Issues\\ \\ \\ \\};
   
   
   
@@ -989,6 +995,7 @@ Talk about why this is hard to make a guide for")
   \node[const, right=0.8 of y, yshift=-1.6cm] (ubighide) {};
   \node[const, right=1.4 of y] (rbighide) {};
   \node[det, below=of y]            (W) {$\blue{W_{u}}$};
+  \factor[above=.25 of W] {poly} {right:$m$} {} {};
   \node[obs, diamond, left=.66 of W]            (v) {$\purple{\bm{v}_{u}}$};
 
   % Connect the nodes
@@ -997,9 +1004,9 @@ Talk about why this is hard to make a guide for")
   \edge {sdg} {gamma}; 
   \edge {alpha,beta,gamma} {pi} ;
   \factoredge {pi,n} {multi} {y} ; 
-  \edge[] {y} {W} ; 
-  \edge[] {v} {W} ; 
-  \edge[] {y} {v} ; 
+  \edge[<->] {y} {W} ; 
+  \edge[<->] {v} {poly} ; 
+  \edge[dashed] {y} {v} ; 
 
   % Plates
   \plate {U} {(gamma)(y)(multi)(pi)(n)(W)(v)(ubighide)} {$U$} ;
@@ -1153,15 +1160,17 @@ squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle
   \node[det, below=1 of hats,  align=center, xshift=3.5cm]            (yhat) {$\green{\bm{\lambda}}^{\blue{*}}_{\blue{u}}$};
   \node[latent, diamond, below=2 of hats, xshift=.7cm]            (sighat) {$\orange{\sigma_{\nu}^*}$};
   
-  \node[latent, diamond, aspect=2.5, below=3 of hats]            (Iparams) {$\mathcal{I}^{-1}(\bm{\gamma}^*)$};
-  \factor[left=of Iparams] {paramdist} {left:$\mathcal{N}$} {} {};
+  \node[latent, diamond, aspect=2.05, below=3 of hats]            (Iparams) {$\mathcal{I}_p(\bm{\gamma}^*)$};
+  
+  \node[latent, diamond, aspect=2.05, below=4.5 of hats]            (Iparams2) {$\mathcal{G}_p(\bm{\gamma}^*)$};
+  \factor[left=of Iparams2] {paramdist} {left:$\mathcal{N}$} {} {};
   \node[latent, below=of paramdist]            (params) {$\orange{\bm{\gamma}}$};
   
 
   
-  \node[latent, diamond, aspect=3,  below=3 of hats,  align=center, xshift=3.5cm]  (Ifull) {$\mathcal{I}^{-1}(\bm{\gamma}^*,\bm{\lambda}^*_{u})$};
+  \node[latent, diamond, aspect=3,  below=3 of hats,  align=center, xshift=3.5cm]  (Ifull) {$\mathcal{I}_p^{-1}(\bm{\gamma}^*,\bm{\lambda}^*_{u})$};
   \factor[right=of Ifull] {fulldist} {right:$\mathcal{N}$} {} {};
-  \factor[below=1.25 of fulldist] {condfulldist} {right:$\mathcal{N}|\bm{\gamma}$} {} {};
+  \factor[below=2.75 of fulldist] {condfulldist} {right:$\mathcal{N}|\bm{\gamma}$} {} {};
   \node[latent, below=of condfulldist]            (W) {$\green{\bm{\lambda}}_{\blue{u}}$};
   %\node[const, below=0.2 of W,xshift=-0.2cm]            (uhide) {};
   \node[const, below=0 of W,xshift=.8cm]            (uhide2) {};
@@ -1172,7 +1181,8 @@ squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle
   \edge[-] {hats} {paramdist} ;           % /
   \edge {hats} {yhat} ;             %   ⟍
   \edge {hats,yhat,sighat} {Ifull} ;       %   \|
-  \edge[-] {Iparams} {paramdist} ;        % - 
+  \edge {Iparams,Ifull} {Iparams2} ;       %   \|
+  \edge[-] {Iparams2} {paramdist} ;        % - 
   \edge {paramdist} {params} ;            % \
   \edge[-] {Ifull} {fulldist}  ; 
   \edge[-] {fulldist} {condfulldist}  ; 
@@ -1184,8 +1194,6 @@ squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle
   \plate {U} {(Ifull)(fulldist)(W)(uhide2)(yhat)} {$U$} ;
 \end{tikzpicture}}
 
-picture from paper, but remade to look more sane!!!!
-Maybe a list of things to note (changes form model)
 
 <!-- ## Guide, with amortization -->
 

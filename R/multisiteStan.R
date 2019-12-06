@@ -67,11 +67,9 @@ all_guides = c("amortized_laplace",
 #               "fully_amortized",
 #               "unparametrized_laplace")
 
-guide_colors = c("black",
-                 "orange",
-                 "green",
-                 "red",
-                 "blue")
+guide_colors = c("red",
+                 "blue",
+                 "#007700")
 guide_labels = c("amortized Laplace",
                "unamortized Laplace",
                "mean-field",
@@ -201,7 +199,7 @@ getMCMCfor = function(params,N) {
                                      dscale=DSCALE,
                                      sscale=SSCALE),
                   #,init=toMCMClanguage(params,scenario[,x])
-                  iter=3000,
+                  iter=4000,
                   warmup=1000
                   )
   amat = as.matrix(afit)
