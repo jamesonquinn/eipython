@@ -326,4 +326,53 @@ Max.   :3335878   Max.   :242156   Max.   :285997
  Median :2149858   Median :81708   Median :164317
  Mean   :2149837   Mean   :81717   Mean   :164335
  3rd Qu.:2150370   3rd Qu.:81948   3rd Qu.:164853
- Max.   :2152351   Max.   :82762   Max.   :166825  
+ Max.   :2152351   Max.   :82762   Max.   :166825
+
+
+
+
+[1] "../ei_post_results_fixedalpha/fit_0_parts15_steps520_SIG0.02_0_N692_S100_.json"
+> summary(Ksamp)
+       V1                V2               V3
+ Min.   :1560530   Min.   :596355   Min.   :214853
+ 1st Qu.:1567840   1st Qu.:601034   1st Qu.:220281
+ Median :1571581   Median :604889   Median :223291
+ Mean   :1570731   Mean   :603934   Mean   :222745
+ 3rd Qu.:1573518   3rd Qu.:606948   3rd Qu.:224908
+ Max.   :1580097   Max.   :612548   Max.   :228643
+       V4                V5               V6
+ Min.   :1067723   Min.   :856353   Min.   :209432
+ 1st Qu.:1072398   1st Qu.:861173   1st Qu.:212572
+ Median :1073930   Median :862984   Median :214106
+ Mean   :1074039   Mean   :862852   Mean   :214207
+ 3rd Qu.:1075560   3rd Qu.:864587   3rd Qu.:215350
+ Max.   :1080186   Max.   :868571   Max.   :220365
+       V7                V8              V9
+ Min.   :2151182   Min.   :67446   Min.   :142846
+ 1st Qu.:2156752   1st Qu.:71307   1st Qu.:148376
+ Median :2159421   Median :72907   Median :150638
+ Mean   :2160443   Mean   :72665   Mean   :151002
+ 3rd Qu.:2164198   3rd Qu.:74159   3rd Qu.:153716
+ Max.   :2171227   Max.   :78231   Max.   :158702
+> summary(VIsamp - 1)
+       V8               V11              V14
+ Min.   :1550289   Min.   :581514   Min.   :268382
+ 1st Qu.:1551778   1st Qu.:582592   1st Qu.:269999
+ Median :1552316   Median :582989   Median :270550
+ Mean   :1552289   Mean   :582967   Mean   :270524
+ 3rd Qu.:1552775   3rd Qu.:583340   3rd Qu.:271029
+ Max.   :1554257   Max.   :584989   Max.   :272455
+       V9               V12              V15
+ Min.   :1093643   Min.   :875015   Min.   :185733
+ 1st Qu.:1094981   1st Qu.:875877   1st Qu.:187343
+ Median :1095442   Median :876187   Median :187749
+ Mean   :1095460   Mean   :876188   Mean   :187734
+ 3rd Qu.:1095919   3rd Qu.:876530   3rd Qu.:188126
+ Max.   :1097194   Max.   :877341   Max.   :189322
+      V10               V13             V16
+ Min.   :2163470   Min.   :87510   Min.   :135151
+ 1st Qu.:2165239   1st Qu.:88356   1st Qu.:137438
+ Median :2165800   Median :88625   Median :137945
+ Mean   :2165783   Mean   :88616   Mean   :138015
+ 3rd Qu.:2166327   3rd Qu.:88872   3rd Qu.:138555
+ Max.   :2168132   Max.   :89725   Max.   :140199  

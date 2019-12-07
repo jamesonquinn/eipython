@@ -53,8 +53,8 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "6.0.0"
-FILEBASE = "ei_post_results_fixedalpha/"
+EI_VERSION = "6.0.1"
+FILEBASE = "ei_post_results_MSEbiasterm/"
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -76,7 +76,7 @@ SDS_TO_SHRINK_BY = 2/3 #neutral = 1.
 REATTACH_GRAD_PORTION = 1. #neutral = 1.
 SIGMA_NU_DETACHED_FRACTION = 1. #Neutral = 0. but very defensible up to 1. Moreover, seems to work!
 
-NSTEPS = 2#000
+NSTEPS = 2000
 SUBSET_SIZE = 30
 #BIG_PRIME = 73 #Wow, that's big!
 
@@ -1367,7 +1367,11 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
 
         gg_cov = ba.marginal_gg_cov()
         if use_grad:
-            gg_cov = gg_cov + torch.diag(fit["big_grad"][:G]**2)
+            print("BAsize",torch.squeeze(ba.gg,0).size())
+            adj_cov = torch.mv(torch.inverse(torch.squeeze(ba.gg,0)),fit["big_grad"][:7])**2
+            print("Inner comparing mean diagonals: gg_cov",torch.mean(torch.diag(ba.marginal_gg_cov())), torch.mean(adj_cov))
+
+            gg_cov = gg_cov + torch.diag(adj_cov)
 
         dgamma = torch.distributions.MultivariateNormal(am[:G], gg_cov)
         gammas = dgamma.sample([n])
@@ -1420,9 +1424,9 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
         try:
             denses, nps = model_density_of(ys,lambdas[:,wdim:],base_logits,sigma_nu,R,C,wdim)
             moddenses = moddenses + denses
+            modnps = modnps + nps
         except:
             print("Denses fail")
-        modnps = modnps + nps
         dp("sampleYs", sizes(lambdas,lmean,lstar,ll,gammas,base_logits,ldajs))
         ldajsums = ldajsums + ldajs.squeeze()
         YSums = YSums + ys
@@ -1538,11 +1542,13 @@ def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase
 
         Ysamps = sampleYs(fitted_model_info, dataToSave, num_y_samps, Ysamps, weight, use_grad=False)
         YsampsGrad = sampleYs(fitted_model_info, dataToSave, num_y_samps, YsampsGrad, weight, use_grad=True)
+        ba = fitted_model_info["big_arrow"]
+        print("Comparing mean diagonals: gg_cov",torch.mean(torch.diag(ba.marginal_gg_cov())), torch.mean(torch.mv(torch.inverse(torch.squeeze(ba.gg,0)),fitted_model_info["big_grad"][:7])**2),filebase)
+
         del fitted_model_info
 
     isamps = saveYsamps(Ysamps, dataToSave, subsample_n, nsamps,steps,dversion=dversion,filebase=filebase,i=isamps,N=U, use_grad=False)
     isampsGrad = saveYsamps(YsampsGrad, dataToSave, subsample_n, nsamps,steps,dversion=dversion,filebase=filebase,i=isamps,N=U, use_grad=True)
-    print("Comparing mean diagonals: gg_cov",torch.mean(torch.diag(fitted_model_info.marginal_gg_cov()), torch.mean(fitted_model_infofit["big_grad"][:7]**2)),filebase)
 
 
 def trainGuide(subsample_n = SUBSET_SIZE,
