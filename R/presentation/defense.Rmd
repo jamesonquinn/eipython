@@ -391,12 +391,12 @@ Brexit support: -16% of those with a degree???
   %Row headers
   \node[const]                          (level) {Level};
   \node[const, below=1.2 of level]          (prior) {\red{Prior}};
-  \node[const, below=3.2 of level, align=center]          (global) {\orange{Global voting propensities}\\\orange{(for each race)}};
-  \node[const, below=5.2 of level, align=center]          (latent) {\green{Precinct-level variation}\\\green{(for each race)}};
-  \node[const, below=7.2 of level, align=center]          (unobserved) {\blue{Precinct vote totals}\\\blue{by race \& candidate}\\\blue{(unobserved)}};
-  \node[const, below=9.2 of level, align=center]          (observed) {\purple{Precinct vote totals}\\\purple{by candidate (observed)}};
-  \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level, align=center]          (issues) {Issues\\ \\ \\ \\};
+  \node[const, below=2.2 of level, align=center]          (global) {\orange{Global voting propensities}\\\orange{(for each race)}};
+  \node[const, below=4.2 of level, align=center]          (latent) {\green{Precinct-level variation}\\\green{(for each race)}};
+  \node[const, below=8.2 of level, align=center]          (unobserved) {\blue{Precinct vote totals}\\\blue{by race \& candidate}\\\blue{(unobserved)}};
+  \node[const, below=10.2 of level, align=center]          (observed) {\purple{Precinct vote totals}\\\purple{by candidate (observed)}};
+  \node[const, below=11.2 of level]          (issues) {Advantages};
+  \node[const, below=12.5 of level, align=center]          (issues) {Issues\\ \\ \\ \\};
   
   
   
@@ -404,14 +404,14 @@ Brexit support: -16% of those with a degree???
   \node[const, right=2.5 of level]          (ER) {ER};
   \node[const, below=0.1 of ER]          (ERyear) {(1953)};
   
-  \node[latent, below=3 of ER] (ERglobal) {$\orange{\gamma}$};
-  \node[obs, below=9 of ER]  (ERx) {$\purple{x}$};
+  \node[latent, below=2 of ER] (ERglobal) {$\orange{\gamma}$};
+  \node[obs, below=10 of ER]  (ERx) {$\purple{x}$};
   
   % Connect the nodes
   \edge {ERglobal} {ERx} ;
   
-  \node[const, align=center, below=10.2 of ER]      (ERpro) {Simple.};
-  \node[const, align=center, below=11.5 of ER]      (ERcon) {Impossible\\estimates.};
+  \node[const, align=center, below=11.2 of ER]      (ERpro) {Simple.};
+  \node[const, align=center, below=12.5 of ER]      (ERcon) {Impossible\\estimates.};
   
   
   % King
@@ -419,11 +419,11 @@ Brexit support: -16% of those with a degree???
   \node[const, below=0.1 of King]          (Kingyear) {(1997)};
   
   \node[const, below=1.2 of King]           (Kingprior) {$\red{\Pi}$};
-  \node[latent, below=3 of King] (Kingglobal) {$\orange{\gamma}$};
-  \node[latent, below=5 of King] (Kinglatent) {$\green{\lambda}$};
-  \node[latent, diamond, below=7 of King] (Kingy) {$\blue{y}$};
-  \node[obs, diamond, below=9 of King]  (Kingx) {$\purple{x}$};
-  \factor[below=6.25 of King] {Kingdot} {} {} {};
+  \node[latent, below=2 of King] (Kingglobal) {$\orange{\gamma}$};
+  \node[latent, below=4 of King] (Kinglatent) {$\green{\lambda}$};
+  \node[latent, diamond, below=8 of King] (Kingy) {$\blue{y}$};
+  \node[obs, diamond, below=10 of King]  (Kingx) {$\purple{x}$};
+  \factor[below=5.25 of King] {Kingdot} {} {} {};
   \node[obs, left=.5 of Kingdot] (Kingn) {$\purple{n_r}$};
   
   
@@ -435,8 +435,8 @@ Brexit support: -16% of those with a degree???
   \edge[<->] {Kingy} {Kinglatent} ;
   
   
-  \node[const, align=center, below=10.2 of King]      (Kingpro) {Uses constraints;\\Precinct-level variation};
-  \node[const, align=center, below=11.5 of King]      (Kingcon) {Only $2\times 2$;\\No voter-level\\randomness.};
+  \node[const, align=center, below=11.2 of King]      (Kingpro) {Uses constraints;\\Precinct-level variation};
+  \node[const, align=center, below=12.5 of King]      (Kingcon) {Only $2\times 2$;\\No voter-level\\randomness.};
   
   
   
@@ -446,10 +446,10 @@ Brexit support: -16% of those with a degree???
   \node[const, below=0.1 of RJKT]          (RJKTyear) {(2001)};
   
   \node[const, below=1.2 of RJKT]           (RJKTprior) {$\red{\Pi}$};
-  \node[latent, below=3 of RJKT] (RJKTglobal) {$\orange{\gamma}$};
-  \node[latent, below=4.3 of RJKT] (RJKTlatent) {$\green{\beta}$};
-  \node[latent, diamond, below=5.7 of RJKT] (RJKTtheta) {$\green{\theta}$};
-  \node[obs, below=9 of RJKT]  (RJKTx) {$\purple{x}$};
+  \node[latent, below=2 of RJKT] (RJKTglobal) {$\orange{\gamma}$};
+  \node[latent, below=4 of RJKT] (RJKTlatent) {$\green{\beta}$};
+  \node[latent, diamond, below=6 of RJKT] (RJKTtheta) {$\green{\theta}$};
+  \node[obs, below=10 of RJKT]  (RJKTx) {$\purple{x}$};
   \factor[below=5.25 of RJKT] {RJKTdot} {} {} {};
   \node[obs, left=.5 of RJKTdot] (RJKTn) {$\purple{n_r}$};
   
@@ -461,8 +461,8 @@ Brexit support: -16% of those with a degree???
   \edge[<->] {RJKTtheta} {RJKTlatent} ;
   
   
-  \node[const, align=center, below=10.2 of RJKT]      (RJKTpro) {$R\times C$; includes\\voter multinomial.};
-  \node[const, align=center, below=11.5 of RJKT]      (RJKTcon) {Cheats a bit on\\constraints: no $y$.};
+  \node[const, align=center, below=11.2 of RJKT]      (RJKTpro) {$R\times C$; includes\\voter multinomial.};
+  \node[const, align=center, below=12.5 of RJKT]      (RJKTcon) {Cheats a bit on\\constraints: no $y$.};
   
   
   %Us
@@ -470,11 +470,11 @@ Brexit support: -16% of those with a degree???
   \node[const, below=0.1 of us]          (usyear) {(2019)};
   
   \node[const, below=1.2 of us]           (usprior) {$\red{\Pi}$};
-  \node[latent, below=3 of us] (usglobal) {$\orange{\gamma}$};
-  \node[latent, below=5 of us] (uslatent) {$\green{\nu}$};
-  \node[latent, below=7 of us] (usy) {$\blue{y}$};
-  \node[obs, diamond, below=9 of us]  (usx) {$\purple{x}$};
-  \factor[below=6.25 of us] {usdot} {} {} {};
+  \node[latent, below=2 of us] (usglobal) {$\orange{\gamma}$};
+  \node[latent, below=4 of us] (uslatent) {$\green{\nu}$};
+  \node[latent, below=8 of us] (usy) {$\blue{y}$};
+  \node[obs, diamond, below=10 of us]  (usx) {$\purple{x}$};
+  \factor[below=5.25 of us] {usdot} {} {} {};
   \node[obs, left=.5 of usdot] (usn) {$\purple{n_r}$};
   
   % Connect the nodes
@@ -483,9 +483,9 @@ Brexit support: -16% of those with a degree???
   \factoredge {uslatent,usn} {usdot} {usy} ; 
   \edge {usy} {usx} ;
   
-  \node[const, align=center, below=10.2 of us]      (uspro) {Respects constraints;\\$R\times C$; "multinomial".\\
+  \node[const, align=center, below=11.2 of us]      (uspro) {Respects constraints;\\$R\times C$; "multinomial".\\
   Extensible!};
-  %\node[const, align=center, below=11.5 of us]      (uscon) {Few — let me\\describe it first};
+  %\node[const, align=center, below=12.5 of us]      (uscon) {Few — let me\\describe it first};
 
   % Plates
   %\plate {U} {(gamma)(y)(multi)(pi)(n)(v)(ubighide)} {$U$} ;
