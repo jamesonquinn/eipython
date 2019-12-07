@@ -14,7 +14,7 @@ library(GetoptLong)
 library(latex2exp)
 library(xtable)
 
-samp_eis = function(filename="../eiresults/scenario_SIG0.02_0_N2774.csv") {
+samp_eis = function(filename="xxx"){#../eiresults/scenario_SIG0.02_0_N2774.csv") {
     rawNC = fread(filename)
     
     nc_obs = rawNC[var %in% c("n","v"),]
@@ -39,7 +39,7 @@ samp_eis = function(filename="../eiresults/scenario_SIG0.02_0_N2774.csv") {
 }
 
 
-data_dir = "../ei_post_results"
+data_dir = "../ei_post_results_fixedalpha"
 all.fits = list.files(data_dir, pattern="fit.*.json",full.names=T)
 all.samps = list.files(data_dir, pattern="dsamps.*.csv",full.names=T)
 all.samps

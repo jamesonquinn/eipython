@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "4.0.0"
+EI_VERSION = "6.0.0"
 FILEBASE = "ei_post_results_fixedalpha/"
 init_narrow = 10  # Numerically stabilize initialization.
 
@@ -76,7 +76,7 @@ SDS_TO_SHRINK_BY = 2/3 #neutral = 1.
 REATTACH_GRAD_PORTION = 1. #neutral = 1.
 SIGMA_NU_DETACHED_FRACTION = 1. #Neutral = 0. but very defensible up to 1. Moreover, seems to work!
 
-NSTEPS = 2000
+NSTEPS = 2#000
 SUBSET_SIZE = 30
 #BIG_PRIME = 73 #Wow, that's big!
 
@@ -1085,6 +1085,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
             ddp("scoper",sizes(tots,vs,ns,indeps,ecstar_raw ,
                 ercstar_raw))
             dat =[data,big_arrow,big_grad]
+
             import pdb; pdb.set_trace()
         ec_then_erc_star.grad = ec_then_erc_star.grad + ecerc2r.grad * REATTACH_GRAD_PORTION
         #dp("mode_star.grad",mode_star.grad)
@@ -1164,7 +1165,6 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
         log_posterior=log_posterior
     )
     return result
-
 
 
 
@@ -1351,7 +1351,7 @@ def weighted_incremental_variance(dataWeightPairs):
     #         weights = self.weights
     # big_grad = big_grad,
     # adjusted_means = adjusted_means
-def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_sigma=ICKY_SIGMA):
+def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_sigma=ICKY_SIGMA, use_grad=False):
     ba = fit["big_arrow"]
     am = fit["all_means"]
     G,L = ba.G, ba.L
@@ -1365,7 +1365,11 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
         moddenses = torch.zeros(n)
         modnps = torch.zeros(n)
 
-        dgamma = torch.distributions.MultivariateNormal(am[:G], ba.marginal_gg_cov())
+        gg_cov = ba.marginal_gg_cov()
+        if use_grad:
+            gg_cov = gg_cov + torch.diag(ba.big_grad**2)
+
+        dgamma = torch.distributions.MultivariateNormal(am[:G], gg_cov)
         gammas = dgamma.sample([n])
         base_logits = base_logits_of(gammas,R,C,wdim)
         guidesampdenses += dgamma.log_prob(gammas)
@@ -1385,7 +1389,7 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
         #import pdb; pdb.set_trace()
         base_logits = base_logits_of(gammas,R,C,wdim)
 
-
+    g_deltas = gammas - am[:G]
     ll = ba.llinvs
     U = len(ll)
     if indices is None:
@@ -1398,7 +1402,7 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
             #wmean = wstar.unsqueeze(0) + torch.matmul(gammas.unsqueeze(1), ba.gls[u][:,:wdim] )
             #dw = torch.distributions.MultivariateNormal(wmean, ll[u][:wdim,:wdim].unsqueeze(0))
         else:
-            lmean = lstar.unsqueeze(0) + torch.matmul(gammas.unsqueeze(1), ba.gls[u])
+            lmean = lstar.unsqueeze(0) + torch.matmul(g_deltas.unsqueeze(1), torch.matmul(ba.gls[u],ll[u]))
             dl = torch.distributions.MultivariateNormal(lmean, ll[u].unsqueeze(0) * weightToUndo)
         lambdas = dl.sample()
         llp = dl.log_prob(lambdas).squeeze()
@@ -1493,6 +1497,7 @@ def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase
     isamps = None
     print("rerunGuide",U,savedSoFar,isamps,stride)
     Ysamps = None
+    YsampsGrad = None
 
     cur_perm = torch.randperm(U)
     while savedSoFar < U:
@@ -1524,11 +1529,13 @@ def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase
 
         ifit  = saveFit(fitted_model_info, dataToSave, subsample_n, nsamps,steps,dversion=dversion,filebase=filebase,i=ifit)
 
-        Ysamps = sampleYs(fitted_model_info, dataToSave, num_y_samps, Ysamps, weight)
+        Ysamps = sampleYs(fitted_model_info, dataToSave, num_y_samps, Ysamps, weight, use_grad=False)
+        YsampsGrad = sampleYs(fitted_model_info, dataToSave, num_y_samps, YsampsGrad, weight, use_grad=True)
         del fitted_model_info
 
-    isamps = saveYsamps(Ysamps, dataToSave, subsample_n, nsamps,steps,dversion=dversion,filebase=filebase,i=isamps,N=U)
-
+    isamps = saveYsamps(Ysamps, dataToSave, subsample_n, nsamps,steps,dversion=dversion,filebase=filebase,i=isamps,N=U, use_grad=False)
+    isampsGrad = saveYsamps(YsampsGrad, dataToSave, subsample_n, nsamps,steps,dversion=dversion,filebase=filebase,i=isamps,N=U, use_grad=True)
+    print("Comparing mean diagonals: gg_cov",torch.mean(torch.diag(fitted_model_info.marginal_gg_cov()), torch.mean(fitted_model_info.big_grad**2)),filebase)
 
 
 def trainGuide(subsample_n = SUBSET_SIZE,
@@ -1544,7 +1551,7 @@ def trainGuide(subsample_n = SUBSET_SIZE,
     # Let's generate voting data. I'm conditioning concentration=1 for numerical stability.
 
     dummydata.sigmanu = sigmanu
-    data = createOrLoadScenario(dummydata,filebase=filebase,dversion=dversion)
+    data = createOrLoadScenario(dummydata,filebase=filebase,dversion=0)#dversion)
     N = data.U
     scale = N / subsample_n
     #dp(data)
