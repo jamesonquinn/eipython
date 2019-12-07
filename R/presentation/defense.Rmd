@@ -1,6 +1,7 @@
 ---
 title: "Dissertation Defense: Numerical Methods for Approximating High-Dimensional Posterior Distributions"
 author: "Jameson Quinn"
+date: "12/9/19"
 output: beamer_presentation
 
 header-includes:
@@ -72,6 +73,11 @@ otherwise Mira is equal collaborator and coauthor
 we checked that this is allowed")
 ```
 
+## Collaborator: Mira Bernstein
+
+* On most things, equal collaborator and coauthor
+* All the major motivating ideas, and >95% of the coding, is mine
+* We checked that this is OK
 
 ## Variational Inference
 
@@ -385,10 +391,10 @@ Brexit support: -16% of those with a degree???
   %Row headers
   \node[const]                          (level) {Level};
   \node[const, below=1.2 of level]          (prior) {\red{Prior}};
-  \node[const, below=3.2 of level]          (global) {\orange{Global}};
-  \node[const, below=5.2 of level]          (latent) {\green{Latent}};
-  \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
-  \node[const, below=9.2 of level]          (observed) {\purple{observed}};
+  \node[const, below=3.2 of level, align=center]          (global) {\orange{Global voting propensities}\\\orange{(for each race)}};
+  \node[const, below=5.2 of level, align=center]          (latent) {\green{Precinct-level variation}\\\green{(for each race)}};
+  \node[const, below=7.2 of level, align=center]          (unobserved) {\blue{Actual vote totals}\\\blue{(by race \& candidate)}\\\blue{(unobserved)}};
+  \node[const, below=9.2 of level, align=center]          (observed) {\purple{Vote totals for each candidate}\\\purple{(observed)}};
   \node[const, below=10.2 of level]          (issues) {Advantages};
   \node[const, below=11.5 of level, align=center]          (issues) {Issues\\ \\ \\ \\};
   
@@ -396,6 +402,7 @@ Brexit support: -16% of those with a degree???
   
   %ER
   \node[const, right=2.5 of level]          (ER) {ER};
+  \node[const, below=0.1 of ER]          (ERyear) {1953};
   
   \node[latent, below=3 of ER] (ERglobal) {$\orange{\gamma}$};
   \node[obs, below=9 of ER]  (ERx) {$\purple{x}$};
@@ -403,12 +410,13 @@ Brexit support: -16% of those with a degree???
   % Connect the nodes
   \edge {ERglobal} {ERx} ;
   
-  \node[const, align=center, below=10.2 of ER]      (ERpro) {It's a thing.};
+  \node[const, align=center, below=10.2 of ER]      (ERpro) {Simple.};
   \node[const, align=center, below=11.5 of ER]      (ERcon) {Impossible\\estimates.};
   
   
   % King
-  \node[const, right=2.5 of ER]           (King) {King (97)};
+  \node[const, right=2.5 of ER]           (King) {King};
+  \node[const, below=0.1 of King]          (Kingyear) {1997};
   
   \node[const, below=1.2 of King]           (Kingprior) {$\red{\Pi}$};
   \node[latent, below=3 of King] (Kingglobal) {$\orange{\gamma}$};
@@ -435,6 +443,7 @@ Brexit support: -16% of those with a degree???
   
   %RJKT
   \node[const, right=2.5 of King]           (RJKT) {RJKT};
+  \node[const, below=0.1 of RJKT]          (RJKTyear) {2001};
   
   \node[const, below=1.2 of RJKT]           (RJKTprior) {$\red{\Pi}$};
   \node[latent, below=3 of RJKT] (RJKTglobal) {$\orange{\gamma}$};
@@ -453,11 +462,12 @@ Brexit support: -16% of those with a degree???
   
   
   \node[const, align=center, below=10.2 of RJKT]      (RJKTpro) {$R\times C$; includes\\voter multinomial.};
-  \node[const, align=center, below=11.5 of RJKT]      (RJKTcon) {No $y$; cheats a bit\\on constraints.};
+  \node[const, align=center, below=11.5 of RJKT]      (RJKTcon) {Cheats a bit on\\constraints: no $y$.};
   
   
   %Us
   \node[const, right=2.5 of RJKT]           (us) {Us};
+  \node[const, below=0.1 of us]          (usyear) {2019};
   
   \node[const, below=1.2 of us]           (usprior) {$\red{\Pi}$};
   \node[latent, below=3 of us] (usglobal) {$\orange{\gamma}$};
@@ -474,7 +484,7 @@ Brexit support: -16% of those with a degree???
   \edge {usy} {usx} ;
   
   \node[const, align=center, below=10.2 of us]      (uspro) {Respects constraints;\\$R\times C$; "multinomial".\\
-  Extensible! VI!};
+  Extensible!};
   %\node[const, align=center, below=11.5 of us]      (uscon) {Few — let me\\describe it first};
 
   % Plates
