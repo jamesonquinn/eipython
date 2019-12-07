@@ -1417,8 +1417,11 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
             dp("sdprc",sizes(sigma_nu))
         else:
             sigma_nu = torch.exp(gammas[:,-1])
-        denses, nps = model_density_of(ys,lambdas[:,wdim:],base_logits,sigma_nu,R,C,wdim)
-        moddenses = moddenses + denses
+        try:
+            denses, nps = model_density_of(ys,lambdas[:,wdim:],base_logits,sigma_nu,R,C,wdim)
+            moddenses = moddenses + denses
+        except:
+            print("Denses fail")
         modnps = modnps + nps
         dp("sampleYs", sizes(lambdas,lmean,lstar,ll,gammas,base_logits,ldajs))
         ldajsums = ldajsums + ldajs.squeeze()
