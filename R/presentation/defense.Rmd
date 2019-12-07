@@ -246,13 +246,22 @@ Note that it's MAP not MLE")
 
 ## Ch 1 Results
 
-\includegraphics[width=4in]{ECHSfits.pdf}
+\includegraphics[width=3.65in]{ECHSfits.pdf}
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
 note("Changes: df; boosting")
 ```
 
-## Ch 2: Ecological inference. Introduction
+## Ch 2: Ecological inference. Relevance: Thornburg v. Gingles
+
+Since the 1986 Supreme Court decision in Thornburg v. Gingles, EI is key to proving the need for redistricting under the Voting Rights Act. Which seems important:
+
+```{r fig.height=5,echo=FALSE}
+img <- readPNG("mira's ei slides.png")
+ grid.raster(img)
+```
+
+## EI: Problem statement (1)
 
 \resizebox{99in}{1.25in}{%
 \begin{tikzpicture}[thick,scale=0.9, every node/.style={transform shape},
@@ -284,7 +293,7 @@ note("Mainly comes up in voting rights cases, so I’ll talk about it in this se
 ```
 
 
-## EI: example matrices
+## EI: Problem statement (2)
 
 \resizebox{99in}{1.25in}{%
 \begin{tikzpicture}[thick,scale=0.9, every node/.style={transform shape},
@@ -335,15 +344,6 @@ v_u & 400 & 200 & 200 & 800\end{array}$};
 
 \end{tikzpicture}}
 
-## Relevance: Thornburg v. Gingles
-
-Since the 1986 Supreme Court decision in Thornburg v. Gingles, EI is key to proving the need for redistricting under the Voting Rights Act. Which seems important:
-
-```{r fig.height=5,echo=FALSE}
-img <- readPNG("mira's ei slides.png")
- grid.raster(img)
-```
-
 ## History of attempted solutions: ER
 
 ![](brexit_ER.png){height=2in}
@@ -367,37 +367,14 @@ Brexit support: -16% of those with a degree???
 
 <!-- Explain model -->
 
-## Comparison of models
 
-\resizebox{99in}{3in}{%
-\begin{tikzpicture}
-  % Define nodes
-  
-  %Row headers
-  \node[const]                          (level) {Level};
-  \node[const, below=1.2 of level]          (prior) {\red{Prior}};
-  \node[const, below=3.2 of level]          (global) {\orange{Global}};
-  \node[const, below=5.2 of level]          (latent) {\green{Latent}};
-  \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
-  \node[const, below=9.2 of level]          (observed) {\purple{observed}};
-  \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level, align=center]          (issues) {Issues\\ \\ \\ \\};
-  
-  
-  
-  %ER
-  \node[const, right=2.5 of level]          (ER) {ER};
-  
-  \node[latent, below=3 of ER] (ERglobal) {$\orange{\gamma}$};
-  \node[obs, below=9 of ER]  (ERx) {$\purple{x}$};
-  
-  % Connect the nodes
-  \edge {ERglobal} {ERx} ;
-  
-  \node[const, align=center, below=10.2 of ER]      (ERpro) {It's a thing.};
-  \node[const, align=center, below=11.5 of ER]      (ERcon) {Impossible\\estimates.};
-  
-\end{tikzpicture}}
+
+
+
+
+
+
+
 
 ## Comparison of models
 
@@ -439,9 +416,7 @@ Brexit support: -16% of those with a degree???
   \node[latent, diamond, below=7 of King] (Kingy) {$\blue{y}$};
   \node[obs, diamond, below=9 of King]  (Kingx) {$\purple{x}$};
   \factor[below=6.25 of King] {Kingdot} {} {} {};
-  \node[obs, right=.5 of Kingdot] (Kingn) {$n_r$};
-  \factor[below=4.25 of King] {KingdotN} {} {} {};
-  \node[obs, right=.5 of KingdotN] (KingN) {$n?$};
+  \node[obs, left=.5 of Kingdot] (Kingn) {$\purple{n_r}$};
   
   
   % Connect the nodes
@@ -450,123 +425,6 @@ Brexit support: -16% of those with a degree???
   \factoredge {Kinglatent,Kingn} {Kingdot} {Kingy} ; 
   \edge {Kingy} {Kingx} ;
   \edge[<->] {Kingy} {Kinglatent} ;
-  \edge[dashed,-] {KingdotN} {KingN} ;
-  
-  \node[const, align=center, below=10.2 of King]      (Kingpro) {Respects constraints.};
-\end{tikzpicture}}
-
-## Comparison of models
-
-\resizebox{99in}{3in}{%
-\begin{tikzpicture}
-  % Define nodes
-  
-  %Row headers
-  \node[const]                          (level) {Level};
-  \node[const, below=1.2 of level]          (prior) {\red{Prior}};
-  \node[const, below=3.2 of level]          (global) {\orange{Global}};
-  \node[const, below=5.2 of level]          (latent) {\green{Latent}};
-  \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
-  \node[const, below=9.2 of level]          (observed) {\purple{observed}};
-  \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level, align=center]          (issues) {Issues\\ \\ \\ \\};
-  
-  
-  
-  %ER
-  \node[const, right=2.5 of level]          (ER) {ER};
-  
-  \node[latent, below=3 of ER] (ERglobal) {$\orange{\gamma}$};
-  \node[obs, below=9 of ER]  (ERx) {$\purple{x}$};
-  
-  % Connect the nodes
-  \edge {ERglobal} {ERx} ;
-  
-  \node[const, align=center, below=10.2 of ER]      (ERpro) {It's a thing.};
-  \node[const, align=center, below=11.5 of ER]      (ERcon) {Impossible\\estimates.};
-  
-  
-  % King
-  \node[const, right=2.5 of ER]           (King) {King (97)};
-  
-  \node[const, below=1.2 of King]           (Kingprior) {$\red{\Pi}$};
-  \node[latent, below=3 of King] (Kingglobal) {$\orange{\gamma}$};
-  \node[latent, below=5 of King] (Kinglatent) {$\green{\lambda}$};
-  \node[latent, diamond, below=7 of King] (Kingy) {$\blue{y}$};
-  \node[obs, diamond, below=9 of King]  (Kingx) {$\purple{x}$};
-  \factor[below=6.25 of King] {Kingdot} {} {} {};
-  \node[obs, right=.5 of Kingdot] (Kingn) {$n_r$};
-  \factor[below=4.25 of King] {KingdotN} {} {} {};
-  \node[obs, right=.5 of KingdotN] (KingN) {$n?$};
-  
-  
-  % Connect the nodes
-  \edge {Kingprior} {Kingglobal} ;
-  \edge {Kingglobal} {Kinglatent} ;
-  \factoredge {Kinglatent,Kingn} {Kingdot} {Kingy} ; 
-  \edge {Kingy} {Kingx} ;
-  \edge[<->] {Kingy} {Kinglatent} ;
-  \edge[dashed,-] {KingdotN} {KingN} ;
-  
-  
-  \node[const, align=center, below=10.2 of King]      (Kingpro) {Respects constraints.};
-  \node[const, align=center, below=11.5 of King]      (Kingcon) {Only $2\times 2$;\\No voter-level\\randomness.};
-  
-  
-\end{tikzpicture}}
-
-## Comparison of models
-
-\resizebox{99in}{3in}{%
-\begin{tikzpicture}
-  % Define nodes
-  
-  %Row headers
-  \node[const]                          (level) {Level};
-  \node[const, below=1.2 of level]          (prior) {\red{Prior}};
-  \node[const, below=3.2 of level]          (global) {\orange{Global}};
-  \node[const, below=5.2 of level]          (latent) {\green{Latent}};
-  \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
-  \node[const, below=9.2 of level]          (observed) {\purple{observed}};
-  \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level, align=center]          (issues) {Issues\\ \\ \\ \\};
-  
-  
-  
-  %ER
-  \node[const, right=2.5 of level]          (ER) {ER};
-  
-  \node[latent, below=3 of ER] (ERglobal) {$\orange{\gamma}$};
-  \node[obs, below=9 of ER]  (ERx) {$\purple{x}$};
-  
-  % Connect the nodes
-  \edge {ERglobal} {ERx} ;
-  
-  \node[const, align=center, below=10.2 of ER]      (ERpro) {It's a thing.};
-  \node[const, align=center, below=11.5 of ER]      (ERcon) {Impossible\\estimates.};
-  
-  
-  % King
-  \node[const, right=2.5 of ER]           (King) {King (97)};
-  
-  \node[const, below=1.2 of King]           (Kingprior) {$\red{\Pi}$};
-  \node[latent, below=3 of King] (Kingglobal) {$\orange{\gamma}$};
-  \node[latent, below=5 of King] (Kinglatent) {$\green{\lambda}$};
-  \node[latent, diamond, below=7 of King] (Kingy) {$\blue{y}$};
-  \node[obs, diamond, below=9 of King]  (Kingx) {$\purple{x}$};
-  \factor[below=6.25 of King] {Kingdot} {} {} {};
-  \node[obs, right=.5 of Kingdot] (Kingn) {$n_r$};
-  \factor[below=4.25 of King] {KingdotN} {} {} {};
-  \node[obs, right=.5 of KingdotN] (KingN) {$n?$};
-  
-  
-  % Connect the nodes
-  \edge {Kingprior} {Kingglobal} ;
-  \edge {Kingglobal} {Kinglatent} ;
-  \factoredge {Kinglatent,Kingn} {Kingdot} {Kingy} ; 
-  \edge {Kingy} {Kingx} ;
-  \edge[<->] {Kingy} {Kinglatent} ;
-  \edge[dashed,-] {KingdotN} {KingN} ;
   
   
   \node[const, align=center, below=10.2 of King]      (Kingpro) {Respects constraints.};
@@ -580,13 +438,11 @@ Brexit support: -16% of those with a degree???
   
   \node[const, below=1.2 of RJKT]           (RJKTprior) {$\red{\Pi}$};
   \node[latent, below=3 of RJKT] (RJKTglobal) {$\orange{\gamma}$};
-  \node[latent, below=4.3 of RJKT] (RJKTlatent) {$\green{\beta}$};
-  \node[latent, diamond, below=5.7 of RJKT] (RJKTtheta) {$\green{\theta}$};
+  \node[latent, below=5 of RJKT] (RJKTlatent) {$\green{\beta}$};
+  \node[latent, diamond, below=7 of RJKT] (RJKTtheta) {$\green{\theta}$};
   \node[obs, below=9 of RJKT]  (RJKTx) {$\purple{x}$};
-  \factor[below=5.25 of RJKT] {RJKTdot} {} {} {};
-  \node[obs, right=.5 of RJKTdot] (RJKTn) {$n_r$};
-  \factor[below=8.25 of RJKT] {RJKTdotN} {} {} {};
-  \node[obs, right=.5 of RJKTdotN] (RJKTN) {$n$};
+  \factor[below=6.25 of RJKT] {RJKTdot} {} {} {};
+  \node[obs, left=.5 of RJKTdot] (RJKTn) {$\purple{n_r}$};
   
   % Connect the nodes
   \edge {RJKTprior} {RJKTglobal} ;
@@ -594,179 +450,6 @@ Brexit support: -16% of those with a degree???
   \factoredge {RJKTlatent,RJKTn} {RJKTdot} {RJKTtheta} ; 
   \edge {RJKTtheta} {RJKTx} ;
   \edge[<->] {RJKTtheta} {RJKTlatent} ;
-  \edge[-] {RJKTdotN} {RJKTN} ;
-  
-  
-  \node[const, align=center, below=10.2 of RJKT]      (RJKTpro) {$R\times C$; includes\\voter multinomial.};
-\end{tikzpicture}}
-
-## Comparison of models
-
-\resizebox{99in}{3in}{%
-\begin{tikzpicture}
-  % Define nodes
-  
-  %Row headers
-  \node[const]                          (level) {Level};
-  \node[const, below=1.2 of level]          (prior) {\red{Prior}};
-  \node[const, below=3.2 of level]          (global) {\orange{Global}};
-  \node[const, below=5.2 of level]          (latent) {\green{Latent}};
-  \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
-  \node[const, below=9.2 of level]          (observed) {\purple{observed}};
-  \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level, align=center]          (issues) {Issues\\ \\ \\ \\};
-  
-  
-  
-  %ER
-  \node[const, right=2.5 of level]          (ER) {ER};
-  
-  \node[latent, below=3 of ER] (ERglobal) {$\orange{\gamma}$};
-  \node[obs, below=9 of ER]  (ERx) {$\purple{x}$};
-  
-  % Connect the nodes
-  \edge {ERglobal} {ERx} ;
-  
-  \node[const, align=center, below=10.2 of ER]      (ERpro) {It's a thing.};
-  \node[const, align=center, below=11.5 of ER]      (ERcon) {Impossible\\estimates.};
-  
-  
-  % King
-  \node[const, right=2.5 of ER]           (King) {King (97)};
-  
-  \node[const, below=1.2 of King]           (Kingprior) {$\red{\Pi}$};
-  \node[latent, below=3 of King] (Kingglobal) {$\orange{\gamma}$};
-  \node[latent, below=5 of King] (Kinglatent) {$\green{\lambda}$};
-  \node[latent, diamond, below=7 of King] (Kingy) {$\blue{y}$};
-  \node[obs, diamond, below=9 of King]  (Kingx) {$\purple{x}$};
-  \factor[below=6.25 of King] {Kingdot} {} {} {};
-  \node[obs, right=.5 of Kingdot] (Kingn) {$n_r$};
-  \factor[below=4.25 of King] {KingdotN} {} {} {};
-  \node[obs, right=.5 of KingdotN] (KingN) {$n?$};
-  
-  
-  % Connect the nodes
-  \edge {Kingprior} {Kingglobal} ;
-  \edge {Kingglobal} {Kinglatent} ;
-  \factoredge {Kinglatent,Kingn} {Kingdot} {Kingy} ; 
-  \edge {Kingy} {Kingx} ;
-  \edge[<->] {Kingy} {Kinglatent} ;
-  \edge[dashed,-] {KingdotN} {KingN} ;
-  
-  
-  \node[const, align=center, below=10.2 of King]      (Kingpro) {Respects constraints.};
-  \node[const, align=center, below=11.5 of King]      (Kingcon) {Only $2\times 2$;\\No voter-level\\randomness.};
-  
-  
-  
-  
-  %RJKT
-  \node[const, right=2.5 of King]           (RJKT) {RJKT};
-  
-  \node[const, below=1.2 of RJKT]           (RJKTprior) {$\red{\Pi}$};
-  \node[latent, below=3 of RJKT] (RJKTglobal) {$\orange{\gamma}$};
-  \node[latent, below=4.3 of RJKT] (RJKTlatent) {$\green{\beta}$};
-  \node[latent, diamond, below=5.7 of RJKT] (RJKTtheta) {$\green{\theta}$};
-  \node[obs, below=9 of RJKT]  (RJKTx) {$\purple{x}$};
-  \factor[below=5.25 of RJKT] {RJKTdot} {} {} {};
-  \node[obs, right=.5 of RJKTdot] (RJKTn) {$n_r$};
-  \factor[below=8.25 of RJKT] {RJKTdotN} {} {} {};
-  \node[obs, right=.5 of RJKTdotN] (RJKTN) {$n$};
-  
-  % Connect the nodes
-  \edge {RJKTprior} {RJKTglobal} ;
-  \edge {RJKTglobal} {RJKTlatent} ;
-  \factoredge {RJKTlatent,RJKTn} {RJKTdot} {RJKTtheta} ; 
-  \edge {RJKTtheta} {RJKTx} ;
-  \edge[<->] {RJKTtheta} {RJKTlatent} ;
-  \edge[-] {RJKTdotN} {RJKTN} ;
-  
-  
-  \node[const, align=center, below=10.2 of RJKT]      (RJKTpro) {$R\times C$; includes\\voter multinomial.};
-  \node[const, align=center, below=11.5 of RJKT]      (RJKTcon) {No $y$; cheats a bit\\on constraints.};
-  
-\end{tikzpicture}}
-
-## Comparison of models
-
-\resizebox{99in}{3in}{%
-\begin{tikzpicture}
-  % Define nodes
-  
-  %Row headers
-  \node[const]                          (level) {Level};
-  \node[const, below=1.2 of level]          (prior) {\red{Prior}};
-  \node[const, below=3.2 of level]          (global) {\orange{Global}};
-  \node[const, below=5.2 of level]          (latent) {\green{Latent}};
-  \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
-  \node[const, below=9.2 of level]          (observed) {\purple{observed}};
-  \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level, align=center]          (issues) {Issues\\ \\ \\ \\};
-  
-  
-  
-  %ER
-  \node[const, right=2.5 of level]          (ER) {ER};
-  
-  \node[latent, below=3 of ER] (ERglobal) {$\orange{\gamma}$};
-  \node[obs, below=9 of ER]  (ERx) {$\purple{x}$};
-  
-  % Connect the nodes
-  \edge {ERglobal} {ERx} ;
-  
-  \node[const, align=center, below=10.2 of ER]      (ERpro) {It's a thing.};
-  \node[const, align=center, below=11.5 of ER]      (ERcon) {Impossible\\estimates.};
-  
-  
-  % King
-  \node[const, right=2.5 of ER]           (King) {King (97)};
-  
-  \node[const, below=1.2 of King]           (Kingprior) {$\red{\Pi}$};
-  \node[latent, below=3 of King] (Kingglobal) {$\orange{\gamma}$};
-  \node[latent, below=5 of King] (Kinglatent) {$\green{\lambda}$};
-  \node[latent, diamond, below=7 of King] (Kingy) {$\blue{y}$};
-  \node[obs, diamond, below=9 of King]  (Kingx) {$\purple{x}$};
-  \factor[below=6.25 of King] {Kingdot} {} {} {};
-  \node[obs, right=.5 of Kingdot] (Kingn) {$n_r$};
-  \factor[below=4.25 of King] {KingdotN} {} {} {};
-  \node[obs, right=.5 of KingdotN] (KingN) {$n?$};
-  
-  
-  % Connect the nodes
-  \edge {Kingprior} {Kingglobal} ;
-  \edge {Kingglobal} {Kinglatent} ;
-  \factoredge {Kinglatent,Kingn} {Kingdot} {Kingy} ; 
-  \edge {Kingy} {Kingx} ;
-  \edge[<->] {Kingy} {Kinglatent} ;
-  \edge[dashed,-] {KingdotN} {KingN} ;
-  
-  
-  \node[const, align=center, below=10.2 of King]      (Kingpro) {Respects constraints.};
-  \node[const, align=center, below=11.5 of King]      (Kingcon) {Only $2\times 2$;\\No voter-level\\randomness.};
-  
-  
-  
-  
-  %RJKT
-  \node[const, right=2.5 of King]           (RJKT) {RJKT};
-  
-  \node[const, below=1.2 of RJKT]           (RJKTprior) {$\red{\Pi}$};
-  \node[latent, below=3 of RJKT] (RJKTglobal) {$\orange{\gamma}$};
-  \node[latent, below=4.3 of RJKT] (RJKTlatent) {$\green{\beta}$};
-  \node[latent, diamond, below=5.7 of RJKT] (RJKTtheta) {$\green{\theta}$};
-  \node[obs, below=9 of RJKT]  (RJKTx) {$\purple{x}$};
-  \factor[below=5.25 of RJKT] {RJKTdot} {} {} {};
-  \node[obs, right=.5 of RJKTdot] (RJKTn) {$n_r$};
-  \factor[below=8.25 of RJKT] {RJKTdotN} {} {} {};
-  \node[obs, right=.5 of RJKTdotN] (RJKTN) {$n$};
-  
-  % Connect the nodes
-  \edge {RJKTprior} {RJKTglobal} ;
-  \edge {RJKTglobal} {RJKTlatent} ;
-  \factoredge {RJKTlatent,RJKTn} {RJKTdot} {RJKTtheta} ; 
-  \edge {RJKTtheta} {RJKTx} ;
-  \edge[<->] {RJKTtheta} {RJKTlatent} ;
-  \edge[-] {RJKTdotN} {RJKTN} ;
   
   
   \node[const, align=center, below=10.2 of RJKT]      (RJKTpro) {$R\times C$; includes\\voter multinomial.};
@@ -778,131 +461,16 @@ Brexit support: -16% of those with a degree???
   
   \node[const, below=1.2 of us]           (usprior) {$\red{\Pi}$};
   \node[latent, below=3 of us] (usglobal) {$\orange{\gamma}$};
-  \node[latent, below=4.3 of us] (uslatent) {$\green{\nu}$};
-  \node[latent, diamond, below=5.7 of us] (usnu) {$\green{\pi}$};
+  \node[latent, below=5 of us] (uslatent) {$\green{\nu}$};
   \node[latent, below=7 of us] (usy) {$\blue{y}$};
   \node[obs, diamond, below=9 of us]  (usx) {$\purple{x}$};
-  \factor[below=6.55 of us] {usdot} {} {} {};
-  \node[obs, right=.5 of usdot] (usn) {$n_r$};
+  \factor[below=6.25 of us] {usdot} {} {} {};
+  \node[obs, left=.5 of usdot] (usn) {$\purple{n_r}$};
   
   % Connect the nodes
   \edge {usprior} {usglobal} ;
   \edge {usglobal} {uslatent} ;
-  \edge[<->] {usnu} {uslatent} ;
-  \factoredge {usnu,usn} {usdot} {usy} ; 
-  \edge {usy} {usx} ;
-  
-  \node[const, align=center, below=10.2 of us]      (uspro) {Respects constraints;\\$R\times C$; "multinomial".};
-  %\node[const, align=center, below=11.5 of us]      (uscon) {Few — let me\\describe it first};
-
-  % Plates
-  %\plate {U} {(gamma)(y)(multi)(pi)(n)(v)(ubighide)} {$U$} ;
-  %\plate {R} {(beta)(gamma)(y)(rbighide)(U.north east)} {$R$} ;
-\end{tikzpicture}}
-
-## Comparison of models
-
-\resizebox{99in}{3in}{%
-\begin{tikzpicture}
-  % Define nodes
-  
-  %Row headers
-  \node[const]                          (level) {Level};
-  \node[const, below=1.2 of level]          (prior) {\red{Prior}};
-  \node[const, below=3.2 of level]          (global) {\orange{Global}};
-  \node[const, below=5.2 of level]          (latent) {\green{Latent}};
-  \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
-  \node[const, below=9.2 of level]          (observed) {\purple{observed}};
-  \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level, align=center]          (issues) {Issues\\ \\ \\ \\};
-  
-  
-  
-  %ER
-  \node[const, right=2.5 of level]          (ER) {ER};
-  
-  \node[latent, below=3 of ER] (ERglobal) {$\orange{\gamma}$};
-  \node[obs, below=9 of ER]  (ERx) {$\purple{x}$};
-  
-  % Connect the nodes
-  \edge {ERglobal} {ERx} ;
-  
-  \node[const, align=center, below=10.2 of ER]      (ERpro) {It's a thing.};
-  \node[const, align=center, below=11.5 of ER]      (ERcon) {Impossible\\estimates.};
-  
-  
-  % King
-  \node[const, right=2.5 of ER]           (King) {King (97)};
-  
-  \node[const, below=1.2 of King]           (Kingprior) {$\red{\Pi}$};
-  \node[latent, below=3 of King] (Kingglobal) {$\orange{\gamma}$};
-  \node[latent, below=5 of King] (Kinglatent) {$\green{\lambda}$};
-  \node[latent, diamond, below=7 of King] (Kingy) {$\blue{y}$};
-  \node[obs, diamond, below=9 of King]  (Kingx) {$\purple{x}$};
-  \factor[below=6.25 of King] {Kingdot} {} {} {};
-  \node[obs, right=.5 of Kingdot] (Kingn) {$n_r$};
-  \factor[below=4.25 of King] {KingdotN} {} {} {};
-  \node[obs, right=.5 of KingdotN] (KingN) {$n?$};
-  
-  
-  % Connect the nodes
-  \edge {Kingprior} {Kingglobal} ;
-  \edge {Kingglobal} {Kinglatent} ;
-  \factoredge {Kinglatent,Kingn} {Kingdot} {Kingy} ; 
-  \edge {Kingy} {Kingx} ;
-  \edge[<->] {Kingy} {Kinglatent} ;
-  \edge[dashed,-] {KingdotN} {KingN} ;
-  
-  
-  \node[const, align=center, below=10.2 of King]      (Kingpro) {Respects constraints.};
-  \node[const, align=center, below=11.5 of King]      (Kingcon) {Only $2\times 2$;\\No voter-level\\randomness.};
-  
-  
-  
-  
-  %RJKT
-  \node[const, right=2.5 of King]           (RJKT) {RJKT};
-  
-  \node[const, below=1.2 of RJKT]           (RJKTprior) {$\red{\Pi}$};
-  \node[latent, below=3 of RJKT] (RJKTglobal) {$\orange{\gamma}$};
-  \node[latent, below=4.3 of RJKT] (RJKTlatent) {$\green{\beta}$};
-  \node[latent, diamond, below=5.7 of RJKT] (RJKTtheta) {$\green{\theta}$};
-  \node[obs, below=9 of RJKT]  (RJKTx) {$\purple{x}$};
-  \factor[below=5.25 of RJKT] {RJKTdot} {} {} {};
-  \node[obs, right=.5 of RJKTdot] (RJKTn) {$n_r$};
-  \factor[below=8.25 of RJKT] {RJKTdotN} {} {} {};
-  \node[obs, right=.5 of RJKTdotN] (RJKTN) {$n$};
-  
-  % Connect the nodes
-  \edge {RJKTprior} {RJKTglobal} ;
-  \edge {RJKTglobal} {RJKTlatent} ;
-  \factoredge {RJKTlatent,RJKTn} {RJKTdot} {RJKTtheta} ; 
-  \edge {RJKTtheta} {RJKTx} ;
-  \edge[<->] {RJKTtheta} {RJKTlatent} ;
-  \edge[-] {RJKTdotN} {RJKTN} ;
-  
-  
-  \node[const, align=center, below=10.2 of RJKT]      (RJKTpro) {$R\times C$; includes\\voter multinomial.};
-  \node[const, align=center, below=11.5 of RJKT]      (RJKTcon) {No $y$; cheats a bit\\on constraints.};
-  
-  
-  %Us
-  \node[const, right=2.5 of RJKT]           (us) {Us};
-  
-  \node[const, below=1.2 of us]           (usprior) {$\red{\Pi}$};
-  \node[latent, below=3 of us] (usglobal) {$\orange{\gamma}$};
-  \node[latent, below=4.3 of us] (uslatent) {$\green{\nu}$};
-  \node[latent, diamond, below=5.7 of us] (usnu) {$\green{\pi}$};
-  \node[latent, below=7 of us] (usy) {$\blue{y}$};
-  \node[obs, diamond, below=9 of us]  (usx) {$\purple{x}$};
-  \factor[below=6.55 of us] {usdot} {} {} {};
-  \node[obs, right=.5 of usdot] (usn) {$n_r$};
-  
-  % Connect the nodes
-  \edge {usprior} {usglobal} ;
-  \edge {usglobal} {uslatent} ;
-  \edge[<->] {usnu} {uslatent} ;
-  \factoredge {usnu,usn} {usdot} {usy} ; 
+  \factoredge {uslatent,usn} {usdot} {usy} ; 
   \edge {usy} {usx} ;
   
   \node[const, align=center, below=10.2 of us]      (uspro) {Respects constraints;\\$R\times C$; "multinomial".\\
@@ -1152,96 +720,7 @@ squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle
 
 ## Guide, with amortization
 
-\resizebox{99in}{2.5in}{%
-\begin{tikzpicture}
-
-  % Define nodes
-  \node[const]                                          (hats) {$\orange{\bm{\gamma}^*}$};
-  \node[det, below=1 of hats,  align=center, xshift=3.5cm]            (yhat) {$\green{\bm{\lambda}}^{\blue{*}}_{\blue{u}}$};
-  \node[latent, diamond, below=2 of hats, xshift=.7cm]            (sighat) {$\orange{\sigma_{\nu}^*}$};
-  
-  \node[latent, diamond, aspect=2.05, below=3 of hats]            (Iparams) {$\mathcal{I}_p(\bm{\gamma}^*)$};
-  
-  \node[latent, diamond, aspect=2.05, below=4.5 of hats]            (Iparams2) {$\mathcal{G}_p(\bm{\gamma}^*)$};
-  \factor[left=of Iparams2] {paramdist} {left:$\mathcal{N}$} {} {};
-  \node[latent, below=of paramdist]            (params) {$\orange{\bm{\gamma}}$};
-  
-
-  
-  \node[latent, diamond, aspect=3,  below=3 of hats,  align=center, xshift=3.5cm]  (Ifull) {$\mathcal{I}_p^{-1}(\bm{\gamma}^*,\bm{\lambda}^*_{u})$};
-  \factor[right=of Ifull] {fulldist} {right:$\mathcal{N}$} {} {};
-  \factor[below=2.75 of fulldist] {condfulldist} {right:$\mathcal{N}|\bm{\gamma}$} {} {};
-  \node[latent, below=of condfulldist]            (W) {$\green{\bm{\lambda}}_{\blue{u}}$};
-  %\node[const, below=0.2 of W,xshift=-0.2cm]            (uhide) {};
-  \node[const, below=0 of W,xshift=.8cm]            (uhide2) {};
-
-  % Connect the nodes
-  \edge[] {hats,sighat,yhat} {Iparams} ;        %  |/
-  \edge[] {yhat} {sighat} ;                %   ⟋
-  \edge[-] {hats} {paramdist} ;           % /
-  \edge {hats} {yhat} ;             %   ⟍
-  \edge {hats,yhat,sighat} {Ifull} ;       %   \|
-  \edge {Iparams,Ifull} {Iparams2} ;       %   \|
-  \edge[-] {Iparams2} {paramdist} ;        % - 
-  \edge {paramdist} {params} ;            % \
-  \edge[-] {Ifull} {fulldist}  ; 
-  \edge[-] {fulldist} {condfulldist}  ; 
-  \edge[-] {params} {condfulldist}; 
-  \edge[-] {yhat} {fulldist} ; 
-  \edge {condfulldist} {W} ; 
-
-  % Plates
-  \plate {U} {(Ifull)(fulldist)(W)(uhide2)(yhat)} {$U$} ;
-\end{tikzpicture}}
-
-
-<!-- ## Guide, with amortization -->
-
-<!-- \resizebox{99in}{2.5in}{% -->
-<!-- \begin{tikzpicture} -->
-
-<!--   % Define nodes -->
-<!--   \node[const]                                          (hats) {$\bm{\gamma}^*$}; -->
-<!--   \node[det, right=2.5 of hats, yshift=-1.2cm]            (yhat) {$\bm{W}^*_{u}$}; -->
-<!--   \node[det, right=1.5 of hats, yshift=-2cm]            (nuhat) {$\bm{\nu}^*_{u}$}; -->
-<!--   \node[latent,fill=gray!25, diamond, right=.3 of hats, yshift=-2.6cm]            (sighat) {$\sigma_{\nu}^*$}; -->
-
-<!--   \node[latent, diamond, aspect=2.5, below=3.4 of hats]            (Iparams) {$\mathcal{I}^{-1}(\bm{\gamma}^*)$}; -->
-<!--   \factor[left=of Iparams, xshift = -1cm] {paramdist} {left:$\mathcal{N}$} {} {}; -->
-<!--   \node[latent, below=.8 of Iparams]            (params) {$\bm{\gamma}$}; -->
-
-
-
-<!--   \node[latent, diamond, aspect=2.5, right=.33 of Iparams]  (Ifull) {$\mathcal{I}^{-1}(\bm{\gamma}^*,\bm{W}^*_{u})$}; -->
-<!--   \factor[right=.8 of Ifull] {fulldist} {right:$\mathcal{N}$} {} {}; -->
-<!--   \factor[below=1.5 of fulldist] {condfulldist} {right:$\mathcal{N}|\bm{\gamma}$} {} {}; -->
-<!--   \node[latent, below=2 of Ifull]            (W) {$(W_u,\bm{\nu}_{u})$}; -->
-<!--   \node[const, below=0.2 of W,xshift=-0.2cm]            (uhide) {}; -->
-<!--   \node[const, below=0.2 of W,xshift=3.6cm]            (uhide2) {}; -->
-
-<!--   % Connect the nodes -->
-<!--   \edge[] {hats,nuhat,sighat} {Iparams} ;        %  |/ -->
-<!--   \draw [->] (yhat) to [out=270, in=30] (Iparams) ; -->
-<!--   \edge[] {yhat} {nuhat} ;                %   ⟋ -->
-<!--   \edge[] {nuhat} {sighat} ;                %   ⟋ -->
-<!--   \edge[-] {hats} {paramdist} ;           % / -->
-<!--   \edge {hats} {nuhat,yhat} ;             %   ⟍ -->
-<!--   \edge {hats,yhat,nuhat,sighat} {Ifull} ;       %   \| -->
-<!--   \edge[-] {Iparams} {paramdist} ;        % -  -->
-<!--   \edge {paramdist} {params} ;            % \ -->
-<!--   \edge[-] {Ifull} {fulldist}  ;  -->
-<!--   \edge[-] {fulldist} {condfulldist}  ;  -->
-<!--   \edge[-] {params} {condfulldist};  -->
-<!--   \edge[-] {yhat,nuhat} {fulldist} ;  -->
-<!--   \edge {condfulldist} {W} ;  -->
-
-<!--   % Plates -->
-<!--   \plate {U} {(Ifull)(fulldist)(W)(uhide)(uhide2)(yhat)(nuhat)} {$U$} ; -->
-<!-- \end{tikzpicture}} -->
-
-<!-- picture from paper, but remade to look more sane!!!! -->
-<!-- Maybe a list of things to note (changes form model) -->
-
+too ugly
 
 ## Testing our EI on simulated data
 
