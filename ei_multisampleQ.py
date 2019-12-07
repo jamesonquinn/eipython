@@ -1437,9 +1437,13 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
     dp("denses",sizes(denses))
     return [t.clone().detach().requires_grad_(False) for t in (gammas,YSums, denses,Qvarcounters)]
 
-def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase=FILEBASE + "funnyname_",i=None,N=None):
+def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase=FILEBASE + "funnyname_",i=None,N=None, use_grad=False):
 
-    filename = nameWithParams(filebase+"dsamps_"+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
+    if use_grad:
+        dsamps = "dsamps_"
+    else:
+        dsamps = "dsampsWgrad_"
+    filename = nameWithParams(filebase+dsamps+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
             data,dversion,subsample_n,extension=".csv",N=N)
     if i is None:
         i = 0
