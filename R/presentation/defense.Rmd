@@ -393,8 +393,8 @@ Brexit support: -16% of those with a degree???
   \node[const, below=1.2 of level]          (prior) {\red{Prior}};
   \node[const, below=3.2 of level, align=center]          (global) {\orange{Global voting propensities}\\\orange{(for each race)}};
   \node[const, below=5.2 of level, align=center]          (latent) {\green{Precinct-level variation}\\\green{(for each race)}};
-  \node[const, below=7.2 of level, align=center]          (unobserved) {\blue{Vote totals}\\\blue{by race \& candidate}\\\blue{(unobserved)}};
-  \node[const, below=9.2 of level, align=center]          (observed) {\purple{Vote totals by candidate}\\\purple{(observed)}};
+  \node[const, below=7.2 of level, align=center]          (unobserved) {\blue{Precinct vote totals}\\\blue{by race \& candidate}\\\blue{(unobserved)}};
+  \node[const, below=9.2 of level, align=center]          (observed) {\purple{Precinct vote totals}\\\purple{by candidate (observed)}};
   \node[const, below=10.2 of level]          (issues) {Advantages};
   \node[const, below=11.5 of level, align=center]          (issues) {Issues\\ \\ \\ \\};
   
@@ -415,7 +415,7 @@ Brexit support: -16% of those with a degree???
   
   
   % King
-  \node[const, right=2.5 of ER]           (King) {King};
+  \node[const, right=2.5 of ER]           (King) {King's EI};
   \node[const, below=0.1 of King]          (Kingyear) {(1997)};
   
   \node[const, below=1.2 of King]           (Kingprior) {$\red{\Pi}$};
@@ -447,10 +447,10 @@ Brexit support: -16% of those with a degree???
   
   \node[const, below=1.2 of RJKT]           (RJKTprior) {$\red{\Pi}$};
   \node[latent, below=3 of RJKT] (RJKTglobal) {$\orange{\gamma}$};
-  \node[latent, below=5 of RJKT] (RJKTlatent) {$\green{\beta}$};
-  \node[latent, diamond, below=7 of RJKT] (RJKTtheta) {$\green{\theta}$};
+  \node[latent, below=4.3 of RJKT] (RJKTlatent) {$\green{\beta}$};
+  \node[latent, diamond, below=5.7 of RJKT] (RJKTtheta) {$\green{\theta}$};
   \node[obs, below=9 of RJKT]  (RJKTx) {$\purple{x}$};
-  \factor[below=6.25 of RJKT] {RJKTdot} {} {} {};
+  \factor[below=5.25 of RJKT] {RJKTdot} {} {} {};
   \node[obs, left=.5 of RJKTdot] (RJKTn) {$\purple{n_r}$};
   
   % Connect the nodes
