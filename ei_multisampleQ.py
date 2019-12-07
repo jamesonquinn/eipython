@@ -1367,7 +1367,7 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
 
         gg_cov = ba.marginal_gg_cov()
         if use_grad:
-            gg_cov = gg_cov + torch.diag(ba.big_grad**2)
+            gg_cov = gg_cov + torch.diag(fit["big_grad"][:G]**2)
 
         dgamma = torch.distributions.MultivariateNormal(am[:G], gg_cov)
         gammas = dgamma.sample([n])
@@ -1539,7 +1539,7 @@ def rerunGuide(data,guide,mean_losses,loss,subsample_n, nsamps,dversion,filebase
 
     isamps = saveYsamps(Ysamps, dataToSave, subsample_n, nsamps,steps,dversion=dversion,filebase=filebase,i=isamps,N=U, use_grad=False)
     isampsGrad = saveYsamps(YsampsGrad, dataToSave, subsample_n, nsamps,steps,dversion=dversion,filebase=filebase,i=isamps,N=U, use_grad=True)
-    print("Comparing mean diagonals: gg_cov",torch.mean(torch.diag(fitted_model_info.marginal_gg_cov()), torch.mean(fitted_model_info.big_grad**2)),filebase)
+    print("Comparing mean diagonals: gg_cov",torch.mean(torch.diag(fitted_model_info.marginal_gg_cov()), torch.mean(fitted_model_infofit["big_grad"][:7]**2)),filebase)
 
 
 def trainGuide(subsample_n = SUBSET_SIZE,
