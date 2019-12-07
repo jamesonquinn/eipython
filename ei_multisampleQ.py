@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "6.0.1"
+EI_VERSION = "6.0.2"
 FILEBASE = "ei_post_results_MSEbiasterm/"
 init_narrow = 10  # Numerically stabilize initialization.
 
@@ -1368,10 +1368,11 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
         gg_cov = ba.marginal_gg_cov()
         if use_grad:
             print("BAsize",torch.squeeze(ba.gg,0).size())
-            adj_cov = torch.mv(torch.inverse(torch.squeeze(ba.gg,0)),fit["big_grad"][:7])**2
-            print("Inner comparing mean diagonals: gg_cov",torch.mean(torch.diag(ba.marginal_gg_cov())), torch.mean(adj_cov))
+            g_grad = fit["big_grad"][:7]
+            adj_cov = torch.mv(torch.inverse(torch.squeeze(ba.gg,0)),torch.matmul(g_grad.view(-1,1),g_grad.view(1,-1)))
+            print("Inner comparing mean diagonals: gg_cov",torch.mean(torch.diag(ba.marginal_gg_cov())), torch.mean(torch.diag(adj_cov)))
 
-            gg_cov = gg_cov + torch.diag(adj_cov)
+            gg_cov = gg_cov + adj_cov
 
         dgamma = torch.distributions.MultivariateNormal(am[:G], gg_cov)
         gammas = dgamma.sample([n])
@@ -1447,15 +1448,13 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
 def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase=FILEBASE + "funnyname_",i=None,N=None, use_grad=False):
 
     if use_grad:
-        dsamps = "dsamps_"
+        dsamps = "DsampsWgrad_"
     else:
-        dsamps = "dsampsWgrad_"
-    filename = nameWithParams(filebase+dsamps+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
-            data,dversion,subsample_n,extension=".csv",N=N)
+        dsamps = "Dsamps_"
     if i is None:
         i = 0
         while True:
-            filename = nameWithParams(filebase+"dsamps_"+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
+            filename = nameWithParams(filebase+dsamps+str(i)+"_parts"+str(nparticles)+"_steps"+str(nsteps),
                     data,dversion,subsample_n,extension=".csv",N=N)
             if not os.path.exists(filename):
                 break
