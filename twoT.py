@@ -494,42 +494,48 @@ def trainGuides(guidenames = ["laplace"],
     fig, ax = plt.subplots(figsize=(8, 8))
 
 
-    ax.set_title('Laplace ellipses')
-    colorlist = [(1.,0.,0.),(0.,0.,1.),(0.,1.,0.)] #['red','blue','green','pink']
+    ax.set_title('Two-T model')
+
+
+    lims = [-3,10]
+    ax.scatter(lims, lims, s=0.5,alpha=.001)
+    ax.axvline(c='grey', lw=1)
+    ax.axhline(c='grey', lw=1)
+
+
+    ps = getTruePosteriors([.5,.95],-9,.1,**vals)
+
+    plab = "True posterior (95%, 50% credible)"
+    for p in ps:
+        ax.fill([x for x,y in p], [y for x,y in p], fill=False, color=(0.,1.,0.),
+                label=plab)
+        plab = None
+
+    colorlist = [(0.,0.,1.),(1.,0.,0.),(0.,1.,0.)] #['red','blue','green','pink']
     for store,color,guidename in zip(stores,colorlist,guidenames):
+        plt.savefig("figures/before"+guidename+".pdf")
         for i,line in enumerate(store):
             #print(line)
             if i+1==len(store):
                 alpha = .5
                 edgecolor = 'black'
                 label = guidename
-            elif (i % STORES_BETWEEN_ELLIPSES == 0):
-                alpha = .003
-                edgecolor = None
-                label = None
-            else:
-                alpha = .001
-                edgecolor = None
-                label = None
+            # elif (i % STORES_BETWEEN_ELLIPSES == 0):
+            #     alpha = 0
+            #     edgecolor = None
+            #     label = None
+            # else:
+            #     alpha = .001
+            #     edgecolor = None
+            #     label = None
 
-            confidence_ellipse(line["effects"],line["cov"],ax,
-                    alpha=alpha, facecolor=color, edgecolor=edgecolor, zorder=0,
-                    label=label)
-            ax.scatter(line["effects"][0].detach().view(1), line["effects"][1].detach().view(1), s=0.5, alpha=.05,color=color)
+                confidence_ellipse(line["effects"],line["cov"],ax,
+                        alpha=alpha, facecolor=color, edgecolor=edgecolor, zorder=0,
+                        label=label)
+            ax.scatter(line["effects"][0].detach().view(1), line["effects"][1].detach().view(1), s=0.5, alpha=.15,color=color)
 
-    lims = [-3,9]
-    ax.scatter(lims, lims, s=0.5,alpha=.001)
-    ax.axvline(c='grey', lw=1)
-    ax.axhline(c='grey', lw=1)
     ax.legend()
-
-
-    ps = getTruePosteriors([.5,.95],-9,.1,**vals)
-
-
-    for p in ps:
-        ax.fill([x for x,y in p], [y for x,y in p], fill=False, color=(0.,1.,0.),
-                label="True posterior (95%, 50% credible)")
+    plt.savefig("figures/full.pdf")
     plt.show()
 
     KLdivs(fitted_guides, vals, filebase)
