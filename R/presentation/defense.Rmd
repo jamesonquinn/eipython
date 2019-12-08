@@ -1354,12 +1354,14 @@ $$
         g(M) := \left\{
         \begin{array}{cl}
             \dot{Y}&\text{if } M = \dot{Y}, \\
-            \dot{Y} + \exp\left(-\frac{\Vert b(M)-\dot{Y}\Vert}{\Vert M-\dot{Y}\Vert}\right)\cdot(b(M)-\dot{Y})&\text{ otherwise}.
+            \dot{Y} + \exp\left(-\frac{\vert b(M)-\dot{Y}\vert}{\vert M-\dot{Y}\vert}\right)\cdot(b(M)-\dot{Y})&\text{ otherwise}.
         \end{array}\right.
 $$
 
 * Note that $m_u(\bm{0}) = \dot{Y}$.
 
+
+$| 4 \vert$
 
 ## Testing our EI on simulated data
 
@@ -1473,61 +1475,39 @@ Say that this will not be in current paper, which is basically done")
 
 ## Thanks
 
-
+Thank you!
 
 
 ## Directory of extra slides
 
+* Prior work
+* EI amortization
+* *Thornburg v. Gingles*
+* Model (for discussing extensions)
+
 ## Non-meanfield prior work
 
-Just the list from the paper
-Give example of actual theorem you can prove when you have conjugate model structure
+* Copula VI (Han et al 2015): create arbitrary transformations, to allow "quasi-correlation matrices" for non-Gaussian families. The values for such matrices are unrestricted, though.
+* Time-series (Zhang et al 2017): model-specific tricks.
+* Hierarchical VI (Ranganath et al 2015): put a prior on the guide then marginalize it out. Relies on conjugacy.
+* Variational Boosting (Miller et al 2016): Correlation structure: low-rank plus diagonal.
+* Normalizing flows (Rezende et al 2015): Kinda like adding a step of MCMC after sampling from guide.
+* "Laplace Variational Inference" (Wang \& Blei, 2012): Use Laplace approximation to approve update step in a conjugate meanfield VI.
+* Imaging (Zhang et al 2017): Use Laplace approximation around posterior mode for certain fixed-size subsets of parameters. No boosting.
 
-## Details on toy model
-
-Just the model
-
-## More on block-arrowhead matrices
-
-Formulas for boosting
-Formulas for sampling
-
-(basically just the stuff in the appendix)
-
-## What we expect from subsampling
-
-HARD
-
-## Details of ECHS
-
-The actual model
-Result tables
-
-## More details on RJKT
-
-## Possible extensions to our EI model
-
-## Boundary issues with polytope; pseudovoters
-
-HARD
-
-## How our EI amortization works (1)
+## How our EI amortization works
 
 Which variables are we amortizing: Y, nu, sigma_nu
+
 Steps:
-Find approximate mode of p(Y|alpha, beta, nu) constrained to lie on polytope (this is linear algebra plus stirling’s approximation)
-One-dimensional Newton’s method to find approximate mode of W. (Not the same thing, because there’s Jacobian, mode of W is further away from boundary)
-Find approximate mode of p(nu, sigma_nu| gamma, W) 
-Newton’s method (for free!!)
 
-## How our EI amortization works (2)
-
-Details on how we get nu and sigma_nu
-
-## More EI results
+* Find approximate mode of $p(\bm{Y}|\bm{\alpha}, \bm{\beta};\bm{\nu}=0)$ constrained to lie on polytope (this is linear algebra plus Stirling’s approximation)
+* Not yet done: One-dimensional Newton’s method to find approximate mode of W. (Not the same thing, because there’s Jacobian, mode of W is further away from boundary)
+* Find approximate mode of $p(\bm{\nu}_u, \sigma_{\nu}| \bm{\gamma}, \bm{W}_u)$ (ad hoc algorithm, but see next step)
+* Newton’s method (for free!!)
 
 
-## Thornburg v Gingles, 1986
+## *Thornburg v Gingles*, 1986
 
 A majority-minority district must be created if:
 
@@ -1539,19 +1519,19 @@ A majority-minority district must be created if:
 
 
 
-## Flexible model (3)
+## Flexible model
 
 ![](holidaytree_bare.jpg){ width=30% } ![](holidaytree_decorated.png){ width=30% }
 
 
 
 
-$$\vec{y}_{p,r}=y_{p,r,c}\Vert_{c=1}^C\sim \operatorname{CMult}\left(n_{p,r},\frac{exp(\alpha_c+\beta_{r,c}\red{+\lambda_{r,c,p}})\Vert_{c=1}^C}{\sum_{c=1}^Cexp(\alpha_c+\beta_{r,c}\red{+\lambda_{r,c,p}})}\right)$$
+$$\vec{y}_{p,r}=y_{p,r,c}\vert_{c=1}^C\sim \operatorname{CMult}\left(n_{p,r},\frac{exp(\alpha_c+\beta_{r,c}\red{+\nu_{r,c,p}})\vert_{c=1}^C}{\sum_{c=1}^Cexp(\alpha_c+\beta_{r,c}\red{+\nu_{r,c,p}})}\right)$$
 
-$$\alpha_c\sim\mathcal{N}(0,\sigma_\alpha)~~~~~~~\sigma_\alpha\sim\operatorname{Expo}(5)$$
+$$\alpha_c\sim\mathcal{N}(0,2)$$
 
-$$\beta_{r,c}\sim\mathcal{N}(0,\sigma_\beta)~~~~~~~\sigma_\beta\sim\operatorname{Expo}(5)$$
+$$\beta_{r,c}\sim\mathcal{N}(0,2)$$
 
-$$\red{\lambda_{r,c,p}\sim\mathcal{N}(0,\sigma_\beta)}~~~~~~~\sigma_\lambda\sim\operatorname{Expo}(5)$$
-$\lambda$ handles overdispersion. Note: Bayesian Occam's Razor.
+$$\red{\nu_{r,c,p}\sim\mathcal{N}(0,\sigma_\beta)}~~~~~~~\sigma_\lambda\sim\operatorname{LogNormal}(-1.5,.5)$$
+$\nu$ handles overdispersion. Note: Bayesian Occam's Razor.
 
