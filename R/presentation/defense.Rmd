@@ -360,7 +360,7 @@ note("ELBO \\& gradient not unbiased as in meanfield, but seem to work well")
 
 Say we can find an analytic function for the (approximate) MAP:  $f(\bm{\gamma}^*,\bm{x}_i)\approx \mathrm{MAP}(\bm{\lambda}_i|\bm{\gamma}^*,\bm{x}_i)$
 
-Restrict to a lower-dimensional subfamily of $\mathcal{L}$
+We can use it to restrict to a lower-dimensional subfamily of $\mathcal{L}$
 
 * Restrict $\Theta$: reduce the number of guide parameters by setting $\bm{\lambda}^*_i$ to $f(\bm{\gamma}^*,\bm{x}_i)$
 * Also restrict $\Psi$: reuse the same boosting parameters for each unit
