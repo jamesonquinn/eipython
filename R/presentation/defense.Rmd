@@ -360,9 +360,9 @@ note("ELBO \\& gradient not unbiased as in meanfield, but seem to work well")
 
 Suppose we can find an analytic function for the (approximate) conditional MAP:  $f(\bm{\gamma},\bm{x}_i)\approx \mathrm{argmax}_{\bm{\lambda}_i}p(\bm{\lambda}_i|\bm{\gamma},\bm{x}_i)$
 
-We can use it to restrict to a lower-dimensional subfamily of $\mathcal{L}$:
+Then we can reduce the number of guide parameters by restrict to a lower-dimensional subfamily of $\mathcal{L}$:
 
-* Restrict $\Theta$: reduce the number of guide parameters by setting $\bm{\lambda}^*_i$ to $f(\bm{\gamma}^*,\bm{x}_i)$
+* Restrict $\Theta$: set $\bm{\lambda}^*_i$ to $f(\bm{\gamma}^*,\bm{x}_i)$
 * Also restrict $\Psi$: reuse the same boosting parameters for each unit
 
 Laplace guide parameters: $\bm{\gamma}^*,\bm{\psi}_\gamma,\bm{\psi}_\lambda$
