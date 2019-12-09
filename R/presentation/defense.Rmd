@@ -330,11 +330,11 @@ note("easy to sample from and easy to boost.")
 note("Two methods useful w/ LVM. Conceptually independent, but combine. 1st, standard:")
 ```
 
-Let S be a sample xxxxxxx with $p(i\in S)=\pi_i$
+Let $\mathcal{S}$ be a random sample of units with $p(i\in \mathcal{S})=\pi_i$.
 
 Replace
 $$\mathrm{log}\;p(\bm{\theta},\bm{x}) := \mathrm{log}\;p(\bm{\gamma})+\sum_{i= 1}^N \Big[\mathrm{log}\;p(\bm{\lambda}_{i}|\bm{\gamma})\; +\mathrm{log}\;p(\bm{x}_{i}|\bm{\lambda}_{i},\bm{\gamma})\Big]$$
-with unbiased estimator
+with the unbiased estimator
 $$\mathrm{log}\;p_\mathcal{S}(\bm{\theta}_\mathcal{S},\bm{x}_\mathcal{S}) := \mathrm{log}\;p(\bm{\gamma})+\frac{1}{\pi_{i}}\sum_{i\in \mathcal{S}} \Big[\mathrm{log}\;p(\bm{\lambda}_{i}|\bm{\gamma})\; +\mathrm{log}\;p(\bm{x}_{i}|\bm{\lambda}_{i},\bm{\gamma})\Big]$$
 With Laplace guide, this makes:
 
