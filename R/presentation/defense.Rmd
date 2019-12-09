@@ -66,7 +66,7 @@ $$\huge{P(\theta|x)=\frac{P(x|\theta)P(\theta)}{\int_{\theta'\in\Theta} P(x|\the
 note("Always good to start a stats talk with Bayes' Thm. 
 You've all seen this before.
      As you know, the trickiest part is the denominator. 
-If integral is over hi-D space, numerical methods for estimating will have unacceptably high variance. 
+If integral is over hi-D space, naive numerical methods for estimating will have unacceptably high variance. 
 So you need tricks.")
 ```
 
@@ -160,8 +160,8 @@ The first obvious possibility for the guide family of a $d$-parameter model is j
 
 Guide parameters:
 
-* Means: 1 per model parameter
-* Covariances: ...
+* Means: $d$, 1 per model parameter
+* (Co)variances: ...
 
 ## Choosing a guide family
 
@@ -171,13 +171,17 @@ The first obvious possibility for the guide family of a $d$-parameter model is j
 
 Guide parameters:
 
-* Means: 1 per model parameter
-* Covariances: $\mathcal{O}(d^2)$
+* Means: $d$, 1 per model parameter
+* (Co)variances: $\mathcal{O}(d^2)$
 
 ## Meanfield guide family
 
-A common assumption is posterior independence of parameters, referred to as "meanfield" guides. Problem:
+A common assumption is posterior independence of parameters, referred to as "meanfield" guides. Thus guide parameters:
 
+* Means: $d$, 1 per model parameter
+* Variances: $d$, 1 per model parameter
+
+Problem:
 
 ```{r, fig.align='center', out.width = "150px", echo=FALSE, results='asis'}
 note("can’t capture posterior correlations
@@ -200,6 +204,12 @@ Let's guarantee that the family contains the Laplace approximation around any po
 $\mathcal{I}_p\left(\bm{\theta}^*\right)  := -H\left[\log p(\bm{\theta})\right]\bigg\rvert_{\bm{\theta}^*}$
 
 Thus, the guide parameters for a model $p(\theta)$ would be $\theta^*$, defining the point at which to take a Laplace approximation.
+
+Guide parameters
+
+* Means: $d$, 1 per model parameter (so far - later, only globals)
+* Variances: 0 guide parameters!
+* Other? Well...
 
 
 ```{r, fig.align='center', out.width = "150px", echo=FALSE, results='asis'}
@@ -227,19 +237,19 @@ Version of thesis sent previously has quasi-boosting which we’re no longer usi
 
 ## Formal definition of Laplace family
 
-Let $p(\bm{\theta})$ be a probability density over $\mathbb{R}^d$. 
+Let $p(\bm{\theta})$ be a (twice-differentiable) probability density over $\mathbb{R}^d$. 
 
 Let $\Theta \subseteq \mathbb{R}^d$, $\Psi \subseteq \mathbb{R}^d_+$, and let $f_\Psi$ be a boosting family. 
 
-Laplace guide: $q_{\bm{\theta}^*,\bm{\psi}}(\bm{\theta})$, a $d$-dimensional Gaussian with mean $\bm{\theta}^*$ and precision precision matrix $f_{\bm{\psi}} \left(\mathcal{I}_p(\bm{\theta}^*)\right)$.
+Laplace guide: $q_{\bm{\theta}^*\in\Theta,\bm{\psi}\in\Psi}(\bm{\theta})$, a $d$-dimensional Gaussian with mean $\bm{\theta}^*$ and precision precision matrix $f_{\bm{\psi}} \left(\mathcal{I}_p(\bm{\theta}^*)\right)$.
 
 Laplace guide family $\mathcal{L}_{\Theta\times\Psi} (p,f_\Psi)$: $\{q_{\bm{\theta}^*,\bm{\psi}}:\bm{\theta}^*\in\Theta,\;\bm{\psi}\in\Psi\}$
 
+Thus, $2d$ guide parameters.
+
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("Boosting family is better than just boosting function.
-D-dimensional so we can boost dif params dif.
-Version of thesis sent previously has quasi-boosting which we’re no longer using
-Citation for method that we’re actually using")
+note("Note that capital greek letters can be subspaces
+theta-star tells mean; psi tells how aggressively to boost")
 ```
 
 
@@ -326,9 +336,9 @@ note("Two methods useful w/ LVM. Conceptually independent, but combine. 1st, sta
 ```
 
 Replace
-$$\mathrm{log}p\bm{\theta},\bm{x}) := \mathrm{log}p(\bm{\gamma})+\sum_{i= 1}^N \Big[\mathrm{log}p\bm{\lambda}_{i}|\bm{\gamma})\; +\mathrm{log}p\bm{x}_{i}|\bm{\lambda}_{i},\bm{\gamma})\Big]$$
+$$\mathrm{log}p(\bm{\theta},\bm{x}) := \mathrm{log}p(\bm{\gamma})+\sum_{i= 1}^N \Big[\mathrm{log}p(\bm{\lambda}_{i}|\bm{\gamma})\; +\mathrm{log}p(\bm{x}_{i}|\bm{\lambda}_{i},\bm{\gamma})\Big]$$
 with
-$$p_\mathcal{S}(\bm{\theta}_\mathcal{S},\bm{x}_\mathcal{S}) := \mathrm{log}p\bm{\gamma})+\frac{1}{\pi_{i}}\sum_{i\in \mathcal{S}} \Big[\mathrm{log}p\bm{\lambda}_{i}|\bm{\gamma})\; +\mathrm{log}p\bm{x}_{i}|\bm{\lambda}_{i},\bm{\gamma})\Big]$$
+$$p_\mathcal{S}(\bm{\theta}_\mathcal{S},\bm{x}_\mathcal{S}) := \mathrm{log}p(\bm{\gamma})+\frac{1}{\pi_{i}}\sum_{i\in \mathcal{S}} \Big[\mathrm{log}p(\bm{\lambda}_{i}|\bm{\gamma})\; +\mathrm{log}p(\bm{x}_{i}|\bm{\lambda}_{i},\bm{\gamma})\Big]$$
 With Laplace guide, this makes:
 
 * Posterior log density: unbiased (as in meanfield)
@@ -343,7 +353,10 @@ ELBO \\& gradient not unbiased as in meanfield, but seem to work well")
 
 ## Amortization
 
-Lower-dimensional subfamily of a Laplace family: reduce the number of guide parameters by setting $\bm{\lambda^*}$ to $f(\bm{\gamma^*})$
+Lower-dimensional subfamily
+
+* Restrict $\Theta$: reduce the number of guide parameters by setting $\bm{\lambda^*}_i$ to $f(\bm{\gamma^*},\bm{x}_i)$
+* (Also restrict $\Psi$: reuse the same boosting parameters for each unit)
 
 The aim is to find an analytic a priori function that sets the latents to (approximately) their conditional MAP values.
 
@@ -668,7 +681,7 @@ note("Strong model assumption, which is incorrect: no precinct-level variation")
 
 
 
-## Polytopize 
+## Polytope 
 
 \resizebox{99in}{1.5in}{%
 \begin{tikzpicture}[
@@ -690,14 +703,14 @@ squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle
 \hline
 \bm{v}_u & 120 & 120 & 240\end{array}$};
 
-\draw[red,fill=red] (11.75,2.25) circle (.5ex);
+\draw[blue,fill=blue] (11.75,2.25) circle (.5ex);
 \node[] at (11.75,1.85)   (c) {$\dot{\bm{Y}}$};
 
 \node[] at (12, -1.1)   (c) {$\mathcal{Y}_u$};
 
 %polytope
-\draw[style=-] (13.5,0) -- +(0,1) node[right = .3cm,anchor=base,midway,rotate=90] {$\textcolor{black}{y_{p11}<100}$};
-\draw[style=-] (10,3.5) -- +(0,1) node[left = .2cm,anchor=base,midway,rotate=90] {$\textcolor{black}{y_{p11}}>0$};
+\draw[style=-] (13,0.5) -- +(1,0) node[below = .3cm,anchor=base,midway] {$\textcolor{black}{y_{p12}>0}$};
+\draw[style=-] (10,3.5) -- +(0,1) node[left = .2cm,anchor=base,midway,rotate=90] {$\red{y_{p11}}>0$};
 \draw[style=-] (10,4) -- +(3.5,-3.5) node[left = .2cm,anchor=base,midway,rotate=90] {};
 
 
@@ -723,7 +736,7 @@ squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle
 \hline
 \bm{v}_u & 120 & 120 & 120 & 360\end{array}$};
 
-\draw[red,fill=red] (11.667,1.667) circle (.5ex);
+\draw[blue,fill=blue] (11.667,1.667) circle (.5ex);
 \node[] at (11.667,1.267)   (c) {$\dot{\bm{Y}}$};
 
 %\tkzDefPoint(7.667,1.667){M}
@@ -732,12 +745,12 @@ squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle
 \node[] at (12, -1.1)   (c) {$\mathcal{Y}_u$};
 
 %polytope
-\draw[style=-] (11,0) -- +(-1,1) node[below left=.25cm,anchor=base,midway,rotate=-45] {$y_{p11}+y_{p12}>\textcolor{black}{30}$};
-\draw[style=-] (11,0) -- +(3,0) node[below=.3cm,anchor=base,midway] {$\textcolor{black}{y_{p12}}>0$};
-\draw[style=-] (14,0) -- +(0,1) node[right = .3cm,anchor=base,midway,rotate=90] {$\textcolor{black}{y_{p11}<120}$};
-\draw[style=-] (14,1) -- +(-3,3) node[above right=.15cm,anchor=base,midway,rotate=-45] {$y_{p11}+y_{p12}<\textcolor{black}{150}$};
-\draw[style=-] (11,4) -- +(-1,0) node[above=.2cm,anchor=base,midway] {$\textcolor{black}{y_{p12}<120}$};
-\draw[style=-] (10,1) -- +(0,3) node[left = .2cm,anchor=base,midway,rotate=90] {$\textcolor{black}{y_{p11}}>0$};
+\draw[style=-] (11,0) -- +(-1,1) node[below left=.25cm,anchor=base,midway,rotate=-45] {$y_{p23}>0$};
+\draw[style=-] (11,0) -- +(3,0) node[below=.3cm,anchor=base,midway] {$\red{y_{p12}}>0$};
+\draw[style=-] (14,0) -- +(0,1) node[right = .3cm,anchor=base,midway,rotate=90] {$\textcolor{black}{y_{p21}>0}$};
+\draw[style=-] (14,1) -- +(-3,3) node[above right=.15cm,anchor=base,midway,rotate=-45] {$y_{p13}>0$};
+\draw[style=-] (11,4) -- +(-1,0) node[above=.2cm,anchor=base,midway] {$\textcolor{black}{y_{p22}>0}$};
+\draw[style=-] (10,1) -- +(0,3) node[left = .2cm,anchor=base,midway,rotate=90] {$\red{y_{p11}}>0$};
 
 
 \end{tikzpicture}}
