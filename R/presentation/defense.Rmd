@@ -80,12 +80,13 @@ So you need tricks.")
 
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("Ch. 2: The VI framework is to assume the posterior is well-approximated... construct a new guide family that's able to...
+note("SAY VI XXXXXXXXXXXXXX
+Ch. 2: The VI framework is to assume the posterior is well-approximated... construct a new guide family that's able to...
 Ch 3: More than a simple application. The model is more realistic and more extensible than the most common method, and applying VI here requires several tricks.
 You will notice a few changes to what I sent you, particularly in the chapter 3 results; I will point them out as we go along")
 ```
 
-## Collaborator: Mira Bernstein
+## Collaborator on Ch. 2-3: Mira Bernstein
 
 * On most things, equal collaborator and coauthor
 * All the major motivating ideas, and >95% of the coding, is mine
@@ -128,14 +129,12 @@ combined[,`Density:`:=factor(`Density:`,levels=1:4,labels=c("Log posterior (unno
 filtered = combined[y> -7, ]
 
 ggplot(data=filtered, aes(x=x,y=y,color=`Density:`)) + geom_line(size=.3) + theme_void()
-```
 
 
-```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("minimizing KL-divergence, or without normalization, the ELBO)
+note("Re center, breathe. minimizing KL-divergence, ELBO ('this quantity')
 Note model parameters here and guide parameters there
-Optimizing, but over distributions, so entropy; 
-hill-climing means automatic differentiation, so...")
+point to terms in ELBO b4 picture 
+hill-climing means AD for gradient of the ELBO, so...")
 ```
 
 
@@ -158,28 +157,22 @@ This talk will focus on Gaussian guide families.
 
 The first obvious possibility for the guide family of a $d$-parameter model is just the unrestricted set of Gaussians.
 
-Guide parameters:
+* Mean: $d$ guide parameters (1 per model parameter)
+* Covariances: $\mathcal{O}(d^2)$ guide parameters
 
-* Means: $d$, 1 per model parameter
-* (Co)variances: ...
 
-## Choosing a guide family
-
-This talk will focus on Gaussian guide families.
-
-The first obvious possibility for the guide family of a $d$-parameter model is just the unrestricted set of Gaussians.
-
-Guide parameters:
-
-* Means: $d$, 1 per model parameter
-* (Co)variances: $\mathcal{O}(d^2)$
+```{r, fig.align='center', out.width = "150px", echo=FALSE, results='asis'}
+note("can’t capture posterior correlations
+systematically underestimates posterior marginals")
+knitr::include_graphics("meanfield_covar_figure.jpg")
+```
 
 ## Meanfield guide family
 
 A common assumption is posterior independence of parameters, referred to as "meanfield" guides. Thus guide parameters:
 
-* Means: $d$, 1 per model parameter
-* Variances: $d$, 1 per model parameter
+* Mean: $d$ guide parameters (1 per model parameter)
+* Variances: $d$ guide parameters (1 per model parameter; diagonal covariance matrix)
 
 Problem:
 
@@ -205,18 +198,14 @@ $\mathcal{I}_p\left(\bm{\theta}^*\right)  := -H\left[\log p(\bm{\theta})\right]\
 
 Thus, the guide parameters for a model $p(\theta)$ would be $\theta^*$, defining the point at which to take a Laplace approximation.
 
-Guide parameters
-
-* Means: $d$, 1 per model parameter (so far - later, only globals)
-* Variances: 0 guide parameters!
-* Other? Well...
-
+* Means ($\theta^*$): $d$ guide parameters (1 per model parameter)
+* Covariance: 0 guide parameters! Just compute $\mathcal{I}_p(\theta^*)$.
 
 ```{r, fig.align='center', out.width = "150px", echo=FALSE, results='asis'}
 note("Don't ignore correlation. Don't optimize over it. Just get it by calculus.")
 ```
 
-## Boosting
+## Boosting function
 
 $\mathcal{I}_p$ not guaranteed to be positive definite. So define "boosting" function $f(\mathcal{I}_p)$ s.t.:
 
@@ -225,6 +214,10 @@ $\mathcal{I}_p$ not guaranteed to be positive definite. So define "boosting" fun
 * $f(\mathcal{I}_p)\approx\mathcal{I}_p$ if $\mathcal{I}_p$ already p.d.
 
 A similar problem arises in optimization (quasi-Newton methods); solved via modified Cholesky algorithms (Surveyed in Fang, 2008; we use GMW81 by Gill, Murray, & Wright)
+
+## Boosting family
+
+xxxxx
 
 Furthermore, we can parametrize $f$ to create a boosting family $f_{\bm{\psi}}$, for $\psi_i\in\mathbb{R}^D_+$, s.t. as $\bm{\psi}\rightarrow\vec{\bm{0}}$, $f(\mathcal{I}_p)\rightarrow\mathcal{I}_p$ if $\mathcal{I}_p$ already p.d.
 
@@ -255,6 +248,7 @@ theta-star tells mean; psi tells how aggressively to boost")
 
 ## Toy model
 
+We want: $p(T_1,T_2|x=7)$
 $$x= T_1+T_2+\epsilon$$
 $$T_i\sim StudentT_{\nu}(0,1); i\in\{1,2\}$$
 $$\epsilon\sim \mathcal{N}(0,\sigma^2)$$
@@ -303,14 +297,15 @@ A latent variable model has 3 core elements:
 
 $$p\left(\bm{\gamma}, \bm{\lambda}_1,\dots,\bm{\lambda}_N,\bm{x}_1,\dots,\bm{x}_N\right) = p(\bm{\gamma})\prod_{i=1}^N p(\bm{\lambda}_i|\bm{\gamma})\; p(\bm{x}_i|\bm{\lambda}_i,\bm{\gamma})$$
 
-Laplace guide parameters: $\bm{\gamma}^*,\bm{\lambda}^*,\bm{\psi}_\gamma,\bm{\psi}_\lambda$
+Laplace guide parameters: $\bm{\gamma}^*,\bm{\lambda}^*_1...\bm{\lambda}^*_N,\bm{\psi}$
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("This is why we need a high-dimensional solution.")
+note("conditional independence
+This is why we need a high-dimensional solution.")
 ```
 
 
-## Latent variable models: Hessians
+## Latent variable models: Block Arrowhead Hessians
 
 $$\mathcal{I}_p(\bm{\theta}^*) = \left(\begin{array}{cccccc}
     & \blue{\bm{\gamma}} & \blue{\bm{\lambda}_1} & \blue{\bm{\lambda}_2} & \blue{\dots} & \blue{\bm{\lambda}_N} \\
@@ -335,14 +330,15 @@ note("easy to sample from and easy to boost.")
 note("Two methods useful w/ LVM. Conceptually independent, but combine. 1st, standard:")
 ```
 
+Let S be a sample xxxxxxx with p(i\inS)=\pi_i
+
 Replace
-$$\mathrm{log}p(\bm{\theta},\bm{x}) := \mathrm{log}p(\bm{\gamma})+\sum_{i= 1}^N \Big[\mathrm{log}p(\bm{\lambda}_{i}|\bm{\gamma})\; +\mathrm{log}p(\bm{x}_{i}|\bm{\lambda}_{i},\bm{\gamma})\Big]$$
-with
-$$p_\mathcal{S}(\bm{\theta}_\mathcal{S},\bm{x}_\mathcal{S}) := \mathrm{log}p(\bm{\gamma})+\frac{1}{\pi_{i}}\sum_{i\in \mathcal{S}} \Big[\mathrm{log}p(\bm{\lambda}_{i}|\bm{\gamma})\; +\mathrm{log}p(\bm{x}_{i}|\bm{\lambda}_{i},\bm{\gamma})\Big]$$
+$$\mathrm{log}\;p(\bm{\theta},\bm{x}) := \mathrm{log}\;p(\bm{\gamma})+\sum_{i= 1}^N \Big[\mathrm{log}\;p(\bm{\lambda}_{i}|\bm{\gamma})\; +\mathrm{log}\;p(\bm{x}_{i}|\bm{\lambda}_{i},\bm{\gamma})\Big]$$
+with unbiased estimator
+$$\mathrm{log}\;p_\mathcal{S}(\bm{\theta}_\mathcal{S},\bm{x}_\mathcal{S}) := \mathrm{log}\;p(\bm{\gamma})+\frac{1}{\pi_{i}}\sum_{i\in \mathcal{S}} \Big[\mathrm{log}\;p(\bm{\lambda}_{i}|\bm{\gamma})\; +\mathrm{log}\;p(\bm{x}_{i}|\bm{\lambda}_{i},\bm{\gamma})\Big]$$
 With Laplace guide, this makes:
 
-* Posterior log density: unbiased (as in meanfield)
-* Hessian: Up to boosting, unbiased for both conditional precision and "marginal precision" (inverse of marginal covariance).
+* Guide covariance of globals for given $\bm{\theta}^*$: Up to boosting, unbiased for both conditional precision and "marginal precision" (inverse of marginal covariance).
 * ELBO and ELBO gradient: Not unbiased (unlike meanfield)
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
@@ -382,7 +378,7 @@ $$\nu_{\min}=2.5,\;\sigma_{\min}=\max(s_i)*1.9$$
 \includegraphics[width=3.65in]{ECHSfits.pdf}
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("Changes: df; boosting")
+note("Changes: df; boosting (once for each diagonal block)")
 ```
 
 ## Ecological inference (EI)
