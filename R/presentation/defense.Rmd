@@ -54,7 +54,7 @@ if(outputFormat %in% c('latex','beamer')) {
 final=F
 
 
-#note = function(x){cat("")}; final=T #comment out for presenter notes
+note = function(x){cat("")}; final=T #comment out for presenter notes
 ```
 
 ## 
@@ -76,11 +76,11 @@ So you need tricks.")
 * Chapter 2: new method for variational inference on latent variable models
     * Contributions: Laplace guide families; analytic amortization
 * Chapter 3: application to ecological inference (EI)
-    * Contributions: Extensible model for EI; full algorithm and implementation of Laplace VI for this model
+    * Contributions: extensible model for EI; full algorithm and implementation of Laplace VI for this model
 
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("SAY VI XXXXXXXXXXXXXX
+note("SAY VI
 Ch. 2: The VI framework is to assume the posterior is well-approximated... construct a new guide family that's able to...
 Ch 3: More than a simple application. The model is more realistic and more extensible than the most common method, and applying VI here requires several tricks.
 You will notice a few changes to what I sent you, particularly in the chapter 3 results; I will point them out as we go along")
@@ -155,16 +155,14 @@ All the significant software engineering I had to do")
 
 This talk will focus on Gaussian guide families.
 
-The first obvious possibility for the guide family of a $d$-parameter model is just the unrestricted set of Gaussians.
+The first obvious possibility for the guide family of a $d$-parameter model is just the unrestricted set of $d$-dimensional Gaussians.
 
 * Mean: $d$ guide parameters (1 per model parameter)
 * Covariances: $\mathcal{O}(d^2)$ guide parameters
 
 
 ```{r, fig.align='center', out.width = "150px", echo=FALSE, results='asis'}
-note("can’t capture posterior correlations
-systematically underestimates posterior marginals")
-knitr::include_graphics("meanfield_covar_figure.jpg")
+note("")
 ```
 
 ## Meanfield guide family
@@ -215,16 +213,22 @@ $\mathcal{I}_p$ not guaranteed to be positive definite. So define "boosting" fun
 
 A similar problem arises in optimization (quasi-Newton methods); solved via modified Cholesky algorithms (Surveyed in Fang, 2008; we use GMW81 by Gill, Murray, & Wright)
 
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("
+Version of thesis sent previously has quasi-boosting which we’re no longer using
+Note, boosting applies to precision, not covariance
+adds along diagonal")
+```
+
 ## Boosting family
 
-xxxxx
+Boosting functions are designed to ensure that their output is positive definite "enough". But how much is "enough"?
 
-Furthermore, we can parametrize $f$ to create a boosting family $f_{\bm{\psi}}$, for $\psi_i\in\mathbb{R}^D_+$, s.t. as $\bm{\psi}\rightarrow\vec{\bm{0}}$, $f(\mathcal{I}_p)\rightarrow\mathcal{I}_p$ if $\mathcal{I}_p$ already p.d.
+Instead of deciding arbitrarily, we can parametrize $f$ to create a boosting family $f_{\bm{\psi}}$, for $\psi_i\in\mathbb{R}^D_+$, s.t. as $\bm{\psi}\rightarrow\vec{\bm{0}}$, $f(\mathcal{I}_p)\rightarrow\mathcal{I}_p$ if $\mathcal{I}_p$ already p.d.
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
 note("Boosting family is better than just boosting function.
-D-dimensional so we can boost dif params dif.
-Version of thesis sent previously has quasi-boosting which we’re no longer using")
+D-dimensional so we can boost dif params dif.")
 ```
 
 
@@ -248,7 +252,7 @@ theta-star tells mean; psi tells how aggressively to boost")
 
 ## Toy model
 
-We want: $p(T_1,T_2|x=7)$
+$$p(T_1,T_2|x=7)$$
 $$x= T_1+T_2+\epsilon$$
 $$T_i\sim StudentT_{\nu}(0,1); i\in\{1,2\}$$
 $$\epsilon\sim \mathcal{N}(0,\sigma^2)$$
@@ -262,6 +266,7 @@ saddle point is ideal in this case, probably not always")
 
 ## Toy model
 
+$$p(T_1,T_2|x=7)$$
 $$x= T_1+T_2+\epsilon$$
 $$T_i\sim StudentT_{\nu}(0,1); i\in\{1,2\}$$
 $$\epsilon\sim \mathcal{N}(0,\sigma^2)$$
@@ -275,6 +280,7 @@ saddle point is ideal in this case, probably not always")
 
 ## Toy model
 
+$$p(T_1,T_2|x=7)$$
 $$x= T_1+T_2+\epsilon$$
 $$T_i\sim StudentT_{\nu}(0,1); i\in\{1,2\}$$
 $$\epsilon\sim \mathcal{N}(0,\sigma^2)$$
@@ -360,10 +366,10 @@ note("ELBO \\& gradient not unbiased as in meanfield, but seem to work well")
 
 Suppose we can find an analytic function for the (approximate) conditional MAP:  $f(\bm{\gamma},\bm{x}_i)\approx \mathrm{argmax}_{\bm{\lambda}_i}p(\bm{\lambda}_i|\bm{\gamma},\bm{x}_i)$
 
-Then we can reduce the number of guide parameters by restrict to a lower-dimensional subfamily of $\mathcal{L}$:
+Then we can reduce the number of guide parameters by restricting to a lower-dimensional subfamily of $\mathcal{L}$:
 
 * Restrict $\Theta$: set $\bm{\lambda}^*_i$ to $f(\bm{\gamma}^*,\bm{x}_i)$
-* Also restrict $\Psi$: reuse the same boosting parameters for each unit
+* Restrict $\Psi$: reuse the same boosting parameters for each unit
 
 Laplace guide parameters: $\bm{\gamma}^*,\bm{\psi}_\gamma,\bm{\psi}_\lambda$
 
@@ -376,11 +382,18 @@ computationally cheap refinement is available")
 
 ## Multisite model
 
+$$T_i/\sigma\sim StudentT_\nu; \quad i\in\{1,...,N\}$$
+$$\tau_i=\mu+T_i$$
+$$x_i\sim\mathcal{N}(\tau_i,s_i^2)$$
 $$d := \log(\nu-\nu_{\min})\sim \mathcal{N}(1,1.5^2)$$
 $$\varsigma := \log(\sigma-\sigma_{\min})\sim \mathcal{N}(0,2^2)$$
 $$\mu\sim\mathcal{N}(0,20)\nonumber$$
-$$\nu_{\min}=2.5,\;\sigma_{\min}=\max(s_i)*1.9$$
 
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Built for ECHS
+Things like this could also be useful for meta-analysis")
+```
 
 ## Results
 
@@ -390,7 +403,7 @@ $$\nu_{\min}=2.5,\;\sigma_{\min}=\max(s_i)*1.9$$
 note("Changes: df; boosting (once for each diagonal block)")
 ```
 
-## Ecological inference (EI)
+## Ch. 3: Ecological inference (EI)
 
 EI: inferring individual behavior from aggregated data. 
 
@@ -479,6 +492,10 @@ v_u & 400 & 200 & 200 & 800\end{array}$};
 %\node (w) at (13,-1) [text width=8.25cm]{Possible underlying data B: assuming candidate's percent support is independent of race};
 
 \end{tikzpicture}}
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("polarized or not")
+```
 
 ## *Thornburg v. Gingles*, 1986
 
@@ -1254,6 +1271,43 @@ Talk about why this is hard to make a guide for")
   \node[latent, below=.5 of multi]            (y) {$\blue{\bm{y}_{u,r}}$};
   \node[const, right=0.8 of y, yshift=-1.6cm] (ubighide) {};
   \node[const, right=1.4 of y] (rbighide) {};
+  \node[obs, diamond, below=of y]            (v) {$\purple{\bm{x}_{u}}$};
+
+  % Connect the nodes
+  \edge {sda} {alpha} ;
+  \edge {sdb} {beta} ;
+  \edge {sdg} {gamma}; 
+  \edge {alpha,beta,gamma} {pi} ;
+  \factoredge {pi,n} {multi} {y} ; 
+  \edge {y} {v} ; 
+
+  % Plates
+  \plate {U} {(gamma)(y)(multi)(pi)(n)(v)(ubighide)} {$U$} ;
+  \plate {R} {(beta)(gamma)(y)(rbighide)(U.north east)} {$R$} ;
+\end{tikzpicture}}
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Cmult")
+```
+
+## Modified model
+
+\resizebox{99in}{2.5in}{%
+\begin{tikzpicture}
+  % Define nodes
+  \node[latent]           (beta) {$\orange{\bm{\beta}^-_r}$};
+  \node[const, above=0.4 of beta] (rbighide) {};
+  \node[const, above=of beta] (sdb) {$\red{\sigma_{\beta}}$};
+  \node[latent, left=of beta]  (alpha) {$\orange{\bm{\alpha}^-}$};
+  \node[const, above=of alpha] (sda) {$\red{\sigma_{\alpha}}$};
+  \node[latent, right=2 of beta]            (gamma) {$\green{\bm{\nu}_{u,r}}$};
+  \node[latent, above=of gamma] (sdg) {$\orange{\sigma_{\nu}}$};
+  \node[det, below=.7of gamma]            (pi) {$\green{\bm{\pi}_{u,r}}$};
+  \factor[below=.4 of pi] {multi} {right:$\mathrm{CMult}$} {} {};
+  \node[obs, left=of multi]            (n) {$n_{u,r}$};
+  \node[latent, below=.5 of multi]            (y) {$\blue{\bm{y}_{u,r}}$};
+  \node[const, right=0.8 of y, yshift=-1.6cm] (ubighide) {};
+  \node[const, right=1.4 of y] (rbighide) {};
   \node[det, below=of y]            (W) {$\blue{W_{u}}$};
   \node[obs, diamond, left=.66 of W]            (v) {$\purple{\bm{x}_{u}}$};
 
@@ -1273,7 +1327,8 @@ Talk about why this is hard to make a guide for")
 \end{tikzpicture}}
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("Cmult; Polytopize: ae smooth bijective map from $R^n$ to polytope
+note("Why is Y bad? support of gaussian vs polytope
+Polytopize: ae smooth bijective map from $R^n$ to polytope
 Pseudovoters because of boundary issues that arise from Cmult and polytopize
 All of these make the model itself slightly less-realistic, but make VI work.")
 ```
@@ -1365,36 +1420,30 @@ All of these make the model itself slightly less-realistic, but make VI work.")
 
 \end{tikzpicture}}
 
-Let $m_u(\bm{w}) := g(a(\bm{w}))$, where $a$ is affine projection, $g$ is retraction
+* Start at $m_u(\bm{0}) = \dot{Y}$: independence point
+* Project to correct subspace
+* Apply mapping which preserves angle but shrinks length
+* Smooth almost everywhere
 
-$b(M)$: the intersection of ray $\overrightarrow{\dot{Y} M}$ with boundary of $\mathcal{Y}_u$
-$$
-        g(M) := \left\{
-        \begin{array}{cl}
-            \dot{Y}&\text{if } M = \dot{Y}, \\
-            \dot{Y} + \exp\left(-\frac{\vert b(M)-\dot{Y}\vert}{\vert M-\dot{Y}\vert}\right)\cdot(b(M)-\dot{Y})&\text{ otherwise}.
-        \end{array}\right.
-$$
+## Simulation study
 
-* Note that $m_u(\bm{0}) = \dot{Y}$.
-
-
-$| 4 \vert$
-
-## Testing our EI on simulated data
-
-* Data cleaning on racial breakdown by precinct in NC
-* Used exit polls to calculate realistic $\bm{\alpha}$ and $\bm{\beta}$ for 2016 presidential election
 * $3\times 3$: 
     * Races: White/Black/Other
-    * Candidates: Trump/Clinton/Other (where "other" includes both 3rd party and not voting)
-* Simulated datasets from our model using three choices of $\sigma_\nu$: 0.02, 0.1, 0.3
-* Ran LVI using pyro, RJKT using eiPack in R.
-* Reporting $\bar{Q}$ and $s_Q$ for each race and candidate: the mean and s.d. of $Q(z_i)$ where $z_i$ is a sample from the fitted posterior and $Q$ gives the percent of the given race who voted for the given candidate.
+    * Candidates: Republican/Democrat/Other (where "other" includes both 3rd party and not voting)
+* Realistic parameter settings for NC Pres 2016
+    * Use racial demographics by precinct in NC (available because of VRA)
+    * Use exit polls to calculate realistic $\bm{\alpha}$ and $\bm{\beta}$ for 2016 presidential election
+* Simulate datasets from our model using arbitrary choices of $\sigma_\nu$: 0.02, 0.3
+
+## Simulation study
+
+* Run LVI using pyro, RJKT using eiPack in R.
+* Let $Q_{rc}=\frac{\sum_u y_{urc}}{\sum_u n_{ur}}$, the percentage of race $r$ that voted for candidate $c$
+* Report mean and standard deviation of $Q_{rc}$, based on 1000 samples from the estimated posterior
 
 
-## EI results
-Results for $\sigma_\nu=0.02$
+## Results for $\sigma_\nu=0.02$
+
 
  \begin{table}[htbp]
  \label{results0.3}
@@ -1425,8 +1474,8 @@ improved amortization (optimize Y → optimize W)
 Conclusion: We are as good as RJKT, but we’re just getting started")
 ```
 
-## EI results
-Results for $\sigma_\nu=0.3$
+## Results for $\sigma_\nu=0.3$
+
 
  \begin{table}[htbp]
  \label{results0.3}
@@ -1470,7 +1519,8 @@ Conclusion: We are as good as RJKT, but we’re just getting started")
 
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("Say that this is the stuff we plan to include in final paper")
+note("Say that this is the stuff we plan to include in final paper. 
+Covariate is important -- it's why ER fails so badly")
 ```
 
 
