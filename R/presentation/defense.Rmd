@@ -336,7 +336,7 @@ Replace
 $$\mathrm{log}\;p(\bm{\theta},\bm{x}) := \mathrm{log}\;p(\bm{\gamma})+\sum_{i= 1}^N \Big[\mathrm{log}\;p(\bm{\lambda}_{i}|\bm{\gamma})\; +\mathrm{log}\;p(\bm{x}_{i}|\bm{\lambda}_{i},\bm{\gamma})\Big]$$
 with the unbiased estimator
 $$\mathrm{log}\;p_\mathcal{S}(\bm{\theta}_\mathcal{S},\bm{x}_\mathcal{S}) := \mathrm{log}\;p(\bm{\gamma})+\frac{1}{\pi_{i}}\sum_{i\in \mathcal{S}} \Big[\mathrm{log}\;p(\bm{\lambda}_{i}|\bm{\gamma})\; +\mathrm{log}\;p(\bm{x}_{i}|\bm{\lambda}_{i},\bm{\gamma})\Big]$$
-Then compute Laplace guide of the latter expression, and find the ELBO gradient.
+Then compute Laplace guide for the latter expression, and find the ELBO gradient.
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
 note("If cheap way to predict bigger terms, weights; we haven't implementedl")
@@ -358,12 +358,14 @@ note("ELBO \\& gradient not unbiased as in meanfield, but seem to work well")
 
 ## Amortization
 
-Lower-dimensional subfamily
+Say we can find an analytic function for the (approximate) MAP:  $f(\bm{\gamma}^*,\bm{x}_i)\approx \mathrm{MAP}(\bm{\lambda}_i|\bm{\gamma}^*,\bm{x}_i)$
 
-* Restrict $\Theta$: reduce the number of guide parameters by setting $\bm{\lambda^*}_i$ to $f(\bm{\gamma^*},\bm{x}_i)$
-* (Also restrict $\Psi$: reuse the same boosting parameters for each unit)
+Restrict to a lower-dimensional subfamily of $\mathcal{L}$
 
-The aim is to find an analytic a priori function that sets the latents to (approximately) their conditional MAP values.
+* Restrict $\Theta$: reduce the number of guide parameters by setting $\bm{\lambda}^*_i$ to $f(\bm{\gamma}^*,\bm{x}_i)$
+* Also restrict $\Psi$: reuse the same boosting parameters for each unit
+
+
 
 Laplace guide parameters: $\bm{\gamma}^*,\bm{\psi}_\gamma,\bm{\psi}_\lambda$
 
