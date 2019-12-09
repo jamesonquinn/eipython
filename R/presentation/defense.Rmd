@@ -338,6 +338,11 @@ with the unbiased estimator
 $$\mathrm{log}\;p_\mathcal{S}(\bm{\theta}_\mathcal{S},\bm{x}_\mathcal{S}) := \mathrm{log}\;p(\bm{\gamma})+\frac{1}{\pi_{i}}\sum_{i\in \mathcal{S}} \Big[\mathrm{log}\;p(\bm{\lambda}_{i}|\bm{\gamma})\; +\mathrm{log}\;p(\bm{x}_{i}|\bm{\lambda}_{i},\bm{\gamma})\Big]$$
 Then compute Laplace guide of the latter expression, and find the ELBO gradient.
 
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("If cheap way to predict bigger terms, weights; we haven't implementedl")
+```
+
+
 ## SVI (Stochastic Variational Inference): unbiased?
 
 With Laplace guide, this makes:
@@ -347,8 +352,7 @@ With Laplace guide, this makes:
 * ELBO and ELBO gradient: Not unbiased (unlike meanfield)
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("If cheap way to predict bigger terms, weights; we haven't implemented
-ELBO \\& gradient not unbiased as in meanfield, but seem to work well")
+note("ELBO \\& gradient not unbiased as in meanfield, but seem to work well")
 ```
 
 
