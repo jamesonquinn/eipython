@@ -330,14 +330,19 @@ note("easy to sample from and easy to boost.")
 note("Two methods useful w/ LVM. Conceptually independent, but combine. 1st, standard:")
 ```
 
-Let $\mathcal{S}$ be a random sample of units with $p(i\in \mathcal{S})=\pi_i$.
+At each optimization step, let $\mathcal{S}$ be a random sample of units with $p(i\in \mathcal{S})=\pi_i$.
 
 Replace
 $$\mathrm{log}\;p(\bm{\theta},\bm{x}) := \mathrm{log}\;p(\bm{\gamma})+\sum_{i= 1}^N \Big[\mathrm{log}\;p(\bm{\lambda}_{i}|\bm{\gamma})\; +\mathrm{log}\;p(\bm{x}_{i}|\bm{\lambda}_{i},\bm{\gamma})\Big]$$
 with the unbiased estimator
 $$\mathrm{log}\;p_\mathcal{S}(\bm{\theta}_\mathcal{S},\bm{x}_\mathcal{S}) := \mathrm{log}\;p(\bm{\gamma})+\frac{1}{\pi_{i}}\sum_{i\in \mathcal{S}} \Big[\mathrm{log}\;p(\bm{\lambda}_{i}|\bm{\gamma})\; +\mathrm{log}\;p(\bm{x}_{i}|\bm{\lambda}_{i},\bm{\gamma})\Big]$$
+Then compute Laplace guide of the latter expression, and find the ELBO gradient.
+
+## SVI (Stochastic Variational Inference): unbiased?
+
 With Laplace guide, this makes:
 
+* Log density: unbiased
 * Guide covariance of globals for given $\bm{\theta}^*$: Up to boosting, unbiased for both conditional precision and "marginal precision" (inverse of marginal covariance).
 * ELBO and ELBO gradient: Not unbiased (unlike meanfield)
 
