@@ -1,5 +1,5 @@
 
-setwd(dirname(rstudioapi::getActieDocumentContext()$path))
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
 library(ggplot2)
 library(gridExtra)
@@ -14,7 +14,7 @@ library(GetoptLong)
 library(latex2exp)
 library(xtable)
 
-samp_eis = function(filename="../eiresults/scenario_SIG0.02_0_N2774.csv") {
+samp_eis = function(filename="xxx"){#../eiresults/scenario_SIG0.02_0_N2774.csv") {
     rawNC = fread(filename)
     
     nc_obs = rawNC[var %in% c("n","v"),]
@@ -39,13 +39,13 @@ samp_eis = function(filename="../eiresults/scenario_SIG0.02_0_N2774.csv") {
 }
 
 
-data_dir = "../ei_post_results"
+data_dir = "../ei_post_results_fixedalpha/"
 all.fits = list.files(data_dir, pattern="fit.*.json",full.names=T)
 all.samps = list.files(data_dir, pattern="dsamps.*.csv",full.names=T)
 all.samps
 
-fit.filename = all.fits[1]
-samp.filename = all.samps[1]
+fit.filename = all.fits[5]
+samp.filename = all.samps[3]
 
 fit = fromJSON(file=fit.filename)
 R = 3
@@ -53,9 +53,9 @@ C = 3
 
 samp=fread(samp.filename)
 msamp = as.matrix(samp)
-psamp= msamp[,c(1,4,7,2,5,8,3,6,9)+6]
+VIsamp= msamp[,c(1,4,7,2,5,8,3,6,9)+7]
 sparts = strsplit(samp.filename,"_")[[1]]
-scenario.filename = paste(paste0(data_dir,"/scenario"),sparts[5],sparts[6],sparts[7],sep="_")
+scenario.filename = paste(paste0(data_dir,"/scenario"),sparts[8],sparts[9],sparts[10],sep="_")
 scenario.filename = paste0(scenario.filename,".csv")
 scenario = fread(scenario.filename)
 Y = c()
@@ -66,9 +66,15 @@ for (rr in 0:2) {
 }
 Ymat = matrix(Y,3,3)
 
-sampei = samp_eis(scenario.filename)
-summary(sampei)
-summary(psamp - 1)
+Ksamp = samp_eis(scenario.filename)
+
+fit.filename
+summary(Ksamp)
+summary(VIsamp - 1)
 Ymat
 sparts[5]
 
+
+grad = fit$big_grad[1:7]
+gg_raw_inv = solve(matrix(unlist(fit$big_arrow$gg_raw),7,7))
+gg_raw_inv %*% grad

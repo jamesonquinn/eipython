@@ -1,6 +1,7 @@
 ---
 title: "Dissertation Defense: Numerical Methods for Approximating High-Dimensional Posterior Distributions"
 author: "Jameson Quinn"
+date: "12/9/19"
 output: beamer_presentation
 
 header-includes:
@@ -8,6 +9,7 @@ header-includes:
    - \usetikzlibrary{bayesnet}
    - \usetikzlibrary{arrows}
    - \usetikzlibrary{cd}
+   - \usepackage{multirow}
    - \usepackage{pgfplots}
    - \usepackage{lastpage}
    - \usepackage{mathrsfs}
@@ -36,6 +38,8 @@ header-includes:
 library(knitr)
 library(png)
 library(grid)
+library(ggplot2)
+library(data.table)
 
 outputFormat = opts_knit$get("rmarkdown.pandoc.to")
 color="red"
@@ -50,123 +54,242 @@ if(outputFormat %in% c('latex','beamer')) {
 final=F
 
 
-#note = function(x){cat("")}; final=T #comment out for presenter notes
+note = function(x){cat("")}; final=T #comment out for presenter notes
 ```
 
-## Big picture overview
+## 
 
-$$P(\theta|x)=\frac{P(x|\theta)P(\theta)}{\int_{\theta'\in\Theta} P(x|\theta')P(\theta')d\theta'}$$
-If $\Theta$ is high-D, any estimator of the denominator that amounts to numerical integration will fail; variance exponential in dim.
-
-* Chapter 1: online data assimilation on spatiotemporal system
-* Chapter 2: new method applicable to latent variable models
-* Chapter 3: application of method, extension of existing models
+$$\huge{P(\theta|x)=\frac{P(x|\theta)P(\theta)}{\int_{\theta'\in\Theta} P(x|\theta')P(\theta')d\theta'}}$$
 
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("You will notice a few changes to what I sent you, particularly in the chapter 3 results; I will point them out as we go along
-Talk about Mira
-the major motivating ideas (idea of Laplace family, idea of applying VI to EI) come from me
-I did all the coding in Pyro
-otherwise Mira is equal collaborator and coauthor
-we checked that this is allowed")
+note("Always good to start a stats talk with Bayes' Thm. 
+You've all seen this before.
+     As you know, the trickiest part is the denominator. 
+If integral is over hi-D space, naive numerical methods for estimating will have unacceptably high variance. 
+So you need tricks.")
 ```
 
+## Structure of thesis
+
+* Chapter 1: online data assimilation in spatiotemporal systems
+* Chapter 2: new method for variational inference on latent variable models
+    * Contributions: Laplace guide families; analytic amortization
+* Chapter 3: application to ecological inference (EI)
+    * Contributions: extensible model for EI; full algorithm and implementation of Laplace VI for this model
+
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("SAY VI
+Ch. 2: The VI framework is to assume the posterior is well-approximated... construct a new guide family that's able to...
+Ch 3: More than a simple application. The model is more realistic and more extensible than the most common method, and applying VI here requires several tricks.
+You will notice a few changes to what I sent you, particularly in the chapter 3 results; I will point them out as we go along")
+```
+
+## Collaborator on Ch. 2-3: Mira Bernstein
+
+* On most things, equal collaborator and coauthor
+* All the major motivating ideas, and >95% of the coding, is mine
+* We checked that this is OK
 
 ## Variational Inference
 
-Approximate posterior with a guide distribution $q_{\bm{\phi}}(\bm{\theta})$ and choose $\bm{\phi}$ to mimize KL: 
+Approximate w/ guide distribution $q_{\bm{\phi}}(\bm{\theta})$; choose $\bm{\phi}$ to mimize KL: 
 $$\hat{{\bm{\phi}}}=\mathrm{argmin}_{\bm{\phi}}\left[D_{\mathrm{KL}} \left(\;q_{\bm{\phi}}(\bm{\theta})\;\big|\big|\; p(\bm{\theta}|\bm{x})\;\right)\right].$$
 Equivalent to maximizing ELBO:
 $$\mathrm{ELBO}({\bm{\phi}}):=E_{q_{\bm{\phi}}}
 \left[\mathrm{log} p(\bm{x},\bm{\theta})-\mathrm{log} q_{\bm{\phi}}(\bm{\theta})\right]$$
 
+```{r fig.width=4, fig.height=1.5,echo=FALSE}
 
-```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("Emphasize conceptual part (minimizing KL-divergence)
-Be sure to be clear about difference between model parameters and guide parameters
-Talk about why entropy term is important
-Mention EUBO")
+options(tinytex.verbose = TRUE)
+
+
+combined = data.table()
+varidat = data.table(x=(-300:300)/100)
+varidat[,`Density:`:=1]
+varidat[,y:=3-log(1+x^2/5)*3+log(.2+exp(-16*(x-1.5)^2))]
+
+combined = rbind(combined,varidat,fill=T)
+
+varidat[,`Density:`:=2]
+varidat[,y:=log(.9)-.9*x^2]
+combined = rbind(combined,varidat,fill=T)
+
+varidat[,`Density:`:=4]
+varidat[,y:=log(.6)-.6*(x-.2)^2]
+combined = rbind(combined,varidat,fill=T)
+
+varidat[,`Density:`:=3]
+varidat[,y:=log(16)-14*(x-1.46)^2]
+combined = rbind(combined,varidat,fill=T)
+
+combined[,`Density:`:=factor(`Density:`,levels=1:4,labels=c("Log posterior (unnormalized)","Laplace @ mode 1","Laplace @ mode 2","Best Gaussian (by ELBO)"))]
+
+filtered = combined[y> -7, ]
+
+ggplot(data=filtered, aes(x=x,y=y,color=`Density:`)) + geom_line(size=.3) + theme_void()
+
+
+note("Re center, breathe. minimizing KL-divergence, ELBO ('this quantity')
+Note model parameters here and guide parameters there
+point to terms in ELBO b4 picture 
+hill-climing means AD for gradient of the ELBO, so...")
 ```
 
 
-## Pyro
+## Computational tool: Pyro
 
 Released in 2017 and still under very active development, pyro is a cutting-edge python package for black-box VI.
+
+* Stochastic optimization (hill-climbing)
 * Automatic differentiation via PyTorch ML
-* Stochastic optimization
-* BBVI seems empirically robust
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
 note("Explain automatic differentiation
-All the impressive software engineering I had to do")
+All the significant software engineering I had to do")
 ```
 
 
-## Problem with existing (mainstream) VI method
+## Choosing a guide family
 
-This talk will focus on MVN guide families.
+This talk will focus on Gaussian guide families.
 
-A common assumption is posterior independence of parameters, referred to as "meanfield" guides. Problem:
+The first obvious possibility for the guide family of a $d$-parameter model is just the unrestricted set of $d$-dimensional Gaussians.
+
+* Mean: $d$ guide parameters (1 per model parameter)
+* Covariances: $\mathcal{O}(d^2)$ guide parameters
 
 
 ```{r, fig.align='center', out.width = "150px", echo=FALSE, results='asis'}
-if(final){knitr::include_graphics("meanfield_covar_figure.jpg")}
-note("can’t capture posterior correlations
-systematically underestimates posterior marginals
-with picture!")
+note("")
 ```
 
+## Meanfield guide family
 
-## Introduce Laplace family VI (1)
+A common assumption is posterior independence of parameters, referred to as "meanfield" guides. Thus guide parameters:
 
-Among MVN guide families:
-* Set of all normals, unrestricted covariance, is too big
-* Meanfield subset doesn’t actually contain any good approximations
+* Mean: $d$ guide parameters (1 per model parameter)
+* Variances: $d$ guide parameters (1 per model parameter; diagonal covariance matrix)
+
+Problem:
+
+```{r, fig.align='center', out.width = "150px", echo=FALSE, results='asis'}
+note("can’t capture posterior correlations
+systematically underestimates posterior marginals")
+knitr::include_graphics("meanfield_covar_figure.jpg")
+```
+
+## Who will guide us?
+
+Among Gaussian guide families:
+
+* Set of all normals, with unrestricted covariance, is too big
+* Meanfield subfamily doesn’t actually contain any good approximations
 * We want subfamily that contains at least some good approximations without being too big
 
+## Introducing: Laplace family
 
-## Introduce Laplace family VI (2)
-
-Let's guarantee that the family contains the Laplace approximation around any posterior mode.
-
-Define covariance matrix using observed information of posterior; negative of Hessian of unnormalized log-density:
+Let's guarantee that the family contains the Laplace approximation around any posterior mode. This allows us to parametrize only the mean, and then derive the precision matrix by the taking the observed information of the posterior: 
 
 $\mathcal{I}_p\left(\bm{\theta}^*\right)  := -H\left[\log p(\bm{\theta})\right]\bigg\rvert_{\bm{\theta}^*}$
 
+Thus, the guide parameters for a model $p(\theta)$ would be $\theta^*$, defining the point at which to take a Laplace approximation.
 
-## Boosting
+* Means ($\theta^*$): $d$ guide parameters (1 per model parameter)
+* Covariance: 0 guide parameters! Just compute $\mathcal{I}_p(\theta^*)$.
+
+```{r, fig.align='center', out.width = "150px", echo=FALSE, results='asis'}
+note("Don't ignore correlation. Don't optimize over it. Just get it by calculus.")
+```
+
+## Boosting function
 
 $\mathcal{I}_p$ not guaranteed to be positive definite. So define "boosting" function $f(\mathcal{I}_p)$ s.t.:
+
+* Guaranteed p.d.
 * Smooth almost everywhere.
 * $f(\mathcal{I}_p)\approx\mathcal{I}_p$ if $\mathcal{I}_p$ already p.d.
-A similar problem arises in optimization (quasi-Newton methods); solved via modified Cholesky algorithms (Fang, 2008)
 
-Furthermore, we can parametrize $f$ to create a boosting family $f_{\bm{\psi}}$, for $\psi_i>0$, s.t.:
-* Each dimension of $\bm{\psi}$ corresponds to a model parameter
-* As $\bm{\psi}\rightarrow\vec{\bm{0}}$ from above, $f(\mathcal{I}_p)\rightarrow\mathcal{I}_p$ if $\mathcal{I}_p$ already p.d.
+A similar problem arises in optimization (quasi-Newton methods); solved via modified Cholesky algorithms (Surveyed in Fang, 2008; we use GMW81 by Gill, Murray, & Wright)
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("Explain why boosting family is better than just boosting function
+note("
 Version of thesis sent previously has quasi-boosting which we’re no longer using
-Citation for method that we’re actually using")
+Note, boosting applies to precision, not covariance
+adds along diagonal")
+```
+
+## Boosting family
+
+Boosting functions are designed to ensure that their output is positive definite "enough". But how much is "enough"?
+
+Instead of deciding arbitrarily, we can parametrize $f$ to create a boosting family $f_{\bm{\psi}}$, for $\psi_i\in\mathbb{R}^D_+$, s.t. as $\bm{\psi}\rightarrow\vec{\bm{0}}$, $f(\mathcal{I}_p)\rightarrow\mathcal{I}_p$ if $\mathcal{I}_p$ already p.d.
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Boosting family is better than just boosting function.
+D-dimensional so we can boost dif params dif.")
 ```
 
 
-## Formal definition of Laplace family (1)
+## Formal definition of Laplace family
 
-Let $p(\bm{\theta})$ be a (possibly unnormalized) probability distribution on $\mathbb{R}^d$. Let $\Theta \subseteq \mathbb{R}^d$, $\Psi \subseteq \mathbb{R}^D_+$, and let $f_\Psi$ be a boosting family. 
+Let $p(\bm{\theta})$ be a (twice-differentiable) probability density over $\mathbb{R}^d$. 
 
-The Laplace guide family $\mathcal{L}_{\Theta\times\Psi} (p,f_\Psi)$ is the set of $d$-dimesnional normal distributions $\{q_{\bm{\theta}^*,\bm{\psi}}:\bm{\theta}^*\in\Theta,\;\bm{\psi}\in\Psi\}$, where $q_{\bm{\theta}^*,\bm{\psi}}$ has mean $\bm{\theta}^*$ and precision matrix $f_{\bm{\psi}} \left(\mathcal{I}_p(\bm{\theta}^*)\right)$.
+Let $\Theta \subseteq \mathbb{R}^d$, $\Psi \subseteq \mathbb{R}^d_+$, and let $f_\Psi$ be a boosting family. 
+
+Laplace guide: $q_{\bm{\theta}^*\in\Theta,\bm{\psi}\in\Psi}(\bm{\theta})$, a $d$-dimensional Gaussian with mean $\bm{\theta}^*$ and precision precision matrix $f_{\bm{\psi}} \left(\mathcal{I}_p(\bm{\theta}^*)\right)$.
+
+Laplace guide family $\mathcal{L}_{\Theta\times\Psi} (p,f_\Psi)$: $\{q_{\bm{\theta}^*,\bm{\psi}}:\bm{\theta}^*\in\Theta,\;\bm{\psi}\in\Psi\}$
+
+Thus, $2d$ guide parameters.
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Note that capital greek letters can be subspaces
+theta-star tells mean; psi tells how aggressively to boost")
+```
 
 
-## Toy model results
+## Toy model
 
-Comparison of Laplace family fit with meanfield fit on simple model with a bimodal posterior:
+$$p(T_1,T_2|x=7)$$
+$$x= T_1+T_2+\epsilon$$
+$$T_i\sim StudentT_{\nu}(0,1); i\in\{1,2\}$$
+$$\epsilon\sim \mathcal{N}(0,\sigma^2)$$
+
 ```{r, fig.align='center', out.width = "150px", echo=FALSE, results='asis'}
-knitr::include_graphics("simplegraph.png")
+knitr::include_graphics("beforemeanfield.pdf")
 note("Simple model with bimodal posterior
-Shows several things: Importance of covariance; case where laplace of MAP isn't optimal; case where boosting is necessary, and boosting family is better than boosting function")
+Shows several things: Importance of covariance; case where laplace of MAP isn't optimal; case where boosting is necessary, and boosting family is better than boosting function
+saddle point is ideal in this case, probably not always")
+```
+
+## Toy model
+
+$$p(T_1,T_2|x=7)$$
+$$x= T_1+T_2+\epsilon$$
+$$T_i\sim StudentT_{\nu}(0,1); i\in\{1,2\}$$
+$$\epsilon\sim \mathcal{N}(0,\sigma^2)$$
+
+```{r, fig.align='center', out.width = "150px", echo=FALSE, results='asis'}
+knitr::include_graphics("beforelaplace.pdf")
+note("Simple model with bimodal posterior
+Shows several things: Importance of covariance; case where laplace of MAP isn't optimal; case where boosting is necessary, and boosting family is better than boosting function
+saddle point is ideal in this case, probably not always")
+```
+
+## Toy model
+
+$$p(T_1,T_2|x=7)$$
+$$x= T_1+T_2+\epsilon$$
+$$T_i\sim StudentT_{\nu}(0,1); i\in\{1,2\}$$
+$$\epsilon\sim \mathcal{N}(0,\sigma^2)$$
+
+```{r, fig.align='center', out.width = "150px", echo=FALSE, results='asis'}
+knitr::include_graphics("full.pdf")
+note("Simple model with bimodal posterior
+Shows several things: Importance of covariance; case where laplace of MAP isn't optimal; case where boosting is necessary, and boosting family is better than boosting function
+saddle point is ideal in this case, probably not always")
 ```
 
 
@@ -175,75 +298,118 @@ Shows several things: Importance of covariance; case where laplace of MAP isn't 
 A latent variable model has 3 core elements:
 
 * Global parameters: $\bm{\gamma}\in\Gamma \cong \mathbb{R}^g$,
-* "iid" latent parameter vectors: $\bm{\lambda}_1,\dots,\bm{\lambda}_N\in\Lambda \cong \mathbb{R}^l$
-* Observation vectors: $\bm{x}_1,\dots,\bm{x}_N$, also independent conditional on globals and relevant locals. 
+* Latent parameter vectors: $\bm{\lambda}_1,\dots,\bm{\lambda}_N\in\Lambda \cong \mathbb{R}^l$
+* Observation vectors: $\bm{x}_1,\dots,\bm{x}_N$
 
-In other words, 
 $$p\left(\bm{\gamma}, \bm{\lambda}_1,\dots,\bm{\lambda}_N,\bm{x}_1,\dots,\bm{x}_N\right) = p(\bm{\gamma})\prod_{i=1}^N p(\bm{\lambda}_i|\bm{\gamma})\; p(\bm{x}_i|\bm{\lambda}_i,\bm{\gamma})$$
 
+Laplace guide parameters: $\bm{\gamma}^*,\bm{\lambda}^*_1...\bm{\lambda}^*_N,\bm{\psi}$
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("This is why we need a high-dimensional solution.")
+note("conditional independence
+This is why we need a high-dimensional solution.")
 ```
 
 
-## Block arrowhead matrices
+## Latent variable models: Block Arrowhead Hessians
 
-$$\mathcal{I}_p(\bm{\theta}^*) = \left(\begin{array}{ccccc}
-    G & C_1 & C_2 & \dots & C_N \\
-    C_1^T & U_1 & 0 & \dots & 0 \\
-    C_2^T & 0 & U_2 & \dots & 0 \\
-    \vdots & 0 & 0 & \ddots & 0 \\
-    C_N^T & 0 & 0 & \dots & U_N
-    \end{array}\right)$$
+$$\mathcal{I}_p(\bm{\theta}^*) = \left(\begin{array}{cccccc}
+    & \blue{\bm{\gamma}} & \blue{\bm{\lambda}_1} & \blue{\bm{\lambda}_2} & \blue{\dots} & \blue{\bm{\lambda}_N} \\
+   \blue{\bm{\gamma}} & G & C_1 & C_2 & \dots & C_N \\
+   \blue{\bm{\lambda}_1} & C_1^T & U_1 & 0 & \dots & 0 \\
+   \blue{\bm{\lambda}_1} & C_2^T & 0 & U_2 & \dots & 0 \\
+   \blue{\vdots} & \vdots & 0 & 0 & \ddots & 0 \\
+   \blue{\bm{\lambda}_N} & C_N^T & 0 & 0 & \dots & U_N
+   \end{array}\right)$$
 
-Useful fact: if this is viewed as a precision matrix, then the "marginal precision" $([\mathcal{I}_p(\bm{\theta}^*)^{-1}]_{\Gamma,\Gamma})^{-1}=G-\sum_i C_iU_i^{-1}C_i^T$
+* Easy to boost.
+* Easy to sample from. Note that marginal covariance for $\bm{\gamma}$ is $[\mathcal{I}_p(\bm{\theta}^*)^{-1}]_{\Gamma,\Gamma}=(G-\sum_i C_iU_i^{-1}C_i^T)^{-1}$
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
 note("easy to sample from and easy to boost.")
 ```
 
 
-## Additional methods for LV models 1: SVI
+## SVI (Stochastic Variational Inference)
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("Two methods that are useful with LV models. Conceptually independent, but go well together. First is:")
+note("Two methods useful w/ LVM. Conceptually independent, but combine. 1st, standard:")
 ```
 
-SVI (Stochastic Variational Inference)
+At each optimization step, let $\mathcal{S}$ be a random sample of units with $p(i\in \mathcal{S})=\pi_i$.
 
-Basic idea: since unnormalized log density is a sum of unit-level terms, use only a randomly-sampled subset of those terms. For a given sampling scheme (possibly weighted), there are obvious estimators for:
-
-* Posterior log density; unbiased
-* Hessian thereof. Up to boosting, unbiased for both conditional precision $G$ and marginal precision $([\mathcal{I}_p(\bm{\theta}^*)^{-1}]_{\Gamma,\Gamma})^{-1}=G-\sum_i C_iU_i^{-1}C_i^T$
-* ELBO and ELBO gradient wrt guide parameters, using the above. Not unbiased, even without boosting; but seem to work well.
-
-```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("Mention weights, say we haven’t yet implemented them anywhere
-think about exactly what you want to say about its qusi-unbiasedness (have hidden slides with slide with details)")
-```
-
-
-## Additional methods for LV models 2: amortization
-
-restricting to subspace of the guide where latents are approximate MAPs relative to globals, 
-
+Replace
+$$\mathrm{log}\;p(\bm{\theta},\bm{x}) := \mathrm{log}\;p(\bm{\gamma})+\sum_{i= 1}^N \Big[\mathrm{log}\;p(\bm{\lambda}_{i}|\bm{\gamma})\; +\mathrm{log}\;p(\bm{x}_{i}|\bm{\lambda}_{i},\bm{\gamma})\Big]$$
+with the unbiased estimator
+$$\mathrm{log}\;p_\mathcal{S}(\bm{\theta}_\mathcal{S},\bm{x}_\mathcal{S}) := \mathrm{log}\;p(\bm{\gamma})+\frac{1}{\pi_{i}}\sum_{i\in \mathcal{S}} \Big[\mathrm{log}\;p(\bm{\lambda}_{i}|\bm{\gamma})\; +\mathrm{log}\;p(\bm{x}_{i}|\bm{\lambda}_{i},\bm{\gamma})\Big]$$
+Then compute Laplace guide for the latter expression, and find the ELBO gradient.
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("guide parameters are now just gamma, psi_gamma, psi_lambda
-(possibly mention Newton’s method, but Mira thinks not)")
+note("If cheap way to predict bigger terms, weights; we haven't implementedl")
 ```
 
 
-## Ch 1 Results
+## SVI (Stochastic Variational Inference): unbiased?
 
-Improved version from thesis
-Very brief explanation only, but mention transforming parameters
+With Laplace guide, this makes:
+
+* Log density: unbiased
+* Guide covariance of globals for given $\bm{\theta}^*$: Up to boosting, unbiased for both conditional precision and "marginal precision" (inverse of marginal covariance).
+* ELBO and ELBO gradient: Not unbiased (unlike meanfield)
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("ELBO \\& gradient not unbiased as in meanfield, but seem to work well")
+```
 
 
-## Ch 2: Ecological inference. Introduction
+## Amortization
 
-\resizebox{99in}{1.5in}{%
+Suppose we can find an analytic function for the (approximate) conditional MAP:  $f(\bm{\gamma},\bm{x}_i)\approx \mathrm{argmax}_{\bm{\lambda}_i}p(\bm{\lambda}_i|\bm{\gamma},\bm{x}_i)$
+
+Then we can reduce the number of guide parameters by restricting to a lower-dimensional subfamily of $\mathcal{L}$:
+
+* Restrict $\Theta$: set $\bm{\lambda}^*_i$ to $f(\bm{\gamma}^*,\bm{x}_i)$
+* Restrict $\Psi$: reuse the same boosting parameters for each unit
+
+Laplace guide parameters: $\bm{\gamma}^*,\bm{\psi}_\gamma,\bm{\psi}_\lambda$
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Note that it's MAP not MLE. 
+MAP is not perfect but it's close.
+computationally cheap refinement is available")
+```
+
+
+## Multisite model
+
+$$T_i/\sigma\sim StudentT_\nu; \quad i\in\{1,...,N\}$$
+$$\tau_i=\mu+T_i$$
+$$x_i\sim\mathcal{N}(\tau_i,s_i^2)$$
+$$d := \log(\nu-\nu_{\min})\sim \mathcal{N}(1,1.5^2)$$
+$$\varsigma := \log(\sigma-\sigma_{\min})\sim \mathcal{N}(0,2^2)$$
+$$\mu\sim\mathcal{N}(0,20)\nonumber$$
+
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Built for ECHS
+Things like this could also be useful for meta-analysis")
+```
+
+## Results
+
+\includegraphics[width=3.65in]{ECHSfits.pdf}
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Changes: df; boosting (once for each diagonal block)")
+```
+
+## Ch. 3: Ecological inference (EI)
+
+EI: inferring individual behavior from aggregated data. 
+
+Motivating example: voting behavior by racial or other groups
+
+\resizebox{99in}{1.25in}{%
 \begin{tikzpicture}[thick,scale=0.9, every node/.style={transform shape},
 squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle (6.5,4);
 \draw[ultra thick](0,0) rectangle (6.5,4);}
@@ -264,7 +430,7 @@ Other & \red{?} & \red{?} & \red{?} & 100   \\
 \hline
 v_u & 400 & 200 & 200 & 800\end{array}$};
 
-\node (w) at (4.5,-1) [text width=8.25cm]{Observed data for one hypothetical precinct};
+%\node (w) at (4.5,-1) [text width=8.25cm]{Observed data for one hypothetical precinct};
 \end{tikzpicture}}
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
@@ -272,10 +438,13 @@ note("Mainly comes up in voting rights cases, so I’ll talk about it in this se
      Z could represent not voting.")
 ```
 
+## Ecological inference (EI)
 
-## EI: example matrices
+EI: inferring individual behavior from aggregated data. 
 
-\resizebox{99in}{1.5in}{%
+Motivating example: voting behavior by racial or other groups
+
+\resizebox{99in}{1.25in}{%
 \begin{tikzpicture}[thick,scale=0.9, every node/.style={transform shape},
 squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle (6.5,4);
 \draw[ultra thick](0,0) rectangle (6.5,4);}
@@ -298,7 +467,7 @@ Other & 0 & 0 & \red{100} & 100   \\
  v_u & 400 & 200 & 200 & 800\end{array}$};
 
 
-\node (w) at (4.5,-1) [text width=8.25cm]{Possible underlying data A: assuming largest groups vote for most-popular candidates};
+%\node (w) at (4.5,-1) [text width=8.25cm]{Possible underlying data A: assuming largest groups vote for most-popular candidates};
 
 
 
@@ -320,120 +489,125 @@ Other & \red{50} & \red{25} & \red{25} & 100   \\
 \hline
 v_u & 400 & 200 & 200 & 800\end{array}$};
 
-\node (w) at (13,-1) [text width=8.25cm]{Possible underlying data B: assuming candidate's percent support is independent of race};
+%\node (w) at (13,-1) [text width=8.25cm]{Possible underlying data B: assuming candidate's percent support is independent of race};
 
 \end{tikzpicture}}
 
-## Relevance: Thornburg v. Gingles
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("polarized or not")
+```
 
-Mention Gingles SCOTUS case briefly 
-show Gingles graph
+## *Thornburg v. Gingles*, 1986
 
-## History of attempted solutions: ER
+When you can show racially polarized voting, a minority community is entitled to a majority-minority district. Result:
 
 ```{r fig.height=5,echo=FALSE}
-img <- readPNG("brexit_ER.png")
+img <- readPNG("mira's ei slides.png")
  grid.raster(img)
 ```
 
-Brexit voting data. (Example from "The Stats Guy" blog by Adam Jacobs.) Valid under certain (strong) assumptions.
+## First attempt: Ecological regression (ER)
 
-## History of attempted solutions: ERrrrr...
+![](brexit_ER.png){height=2in}
 
+Brexit voting data. (Example by Adam Jacobs.)
 
-```{r fig.height=5,echo=FALSE}
-img <- readPNG("brexit_ER_oops.png")
- grid.raster(img)
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Want to know how Brexit support differed by education. So...")
 ```
 
-Brexit supported by 79% of people without a degree... and -16% of those with one??? Ecological fallacy, Simpson's paradox, etc.
+## First attempt: Ecological regression (ERrrrr...)
 
-## King's EI: 2x2 case (1)
+![](brexit_ER_oops.png){height=2in}
 
-Key insight: 
+Brexit support: -16% of those with a degree???
 
 
-## King's EI: 2x2 case (2)
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Strong model assumption, which is incorrect: no precinct-level variation")
+```
 
-## Rosen, Jiang, King, & Tanner: RxC case (1)
-
-Explain model
 
 ## Comparison of models
 
-\resizebox{99in}{3in}{%
+\resizebox{99in}{3in}{% ER only
 \begin{tikzpicture}
   % Define nodes
   
   %Row headers
-  \node[const]                          (level) {Level};
-  \node[const, below=1.2 of level]          (prior) {\red{Prior}};
-  \node[const, below=3.2 of level]          (global) {\orange{Global}};
-  \node[const, below=5.2 of level]          (latent) {\green{Latent}};
-  \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
-  \node[const, below=9.2 of level]          (observed) {\purple{observed}};
-  \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level]          (issues) {Issues};
+  \node[const]                          (level) {};
+  \node[const, below=1.8 of level, align=center]          (global) {\orange{Global voting propensities}\\\orange{(for each race)}};
+  \node[const, below=9.8 of level, align=center]          (observed) {\purple{Precinct vote totals}\\\purple{by candidate (observed)}};
+  \node[const, below=10.9 of level]          (issues) {Advantages};
+  \node[const, below=12.2 of level, align=center]          (issues) {Issues\\ \\ \\};
   
   
   
   %ER
-  \node[const, right=2.5 of level]          (ER) {ER};
+  \node[const, align=center, right=3.5 of level]          (ERyear) {(1953)};
+  \node[const, align=center, above=.1 of ERyear]          (ER) {$\textcolor[rgb]{1,1,1}{y}$ER$\textcolor[rgb]{1,1,1}{y}$};
   
-  \node[latent, below=3 of ER] (ERglobal) {$\orange{\gamma}$};
-  \node[obs, below=9 of ER]  (ERx) {$\purple{x}$};
+  \node[latent, below=2 of ER] (ERglobal) {$\orange{\gamma}$};
+  \node[obs, below=10 of ER]  (ERx) {$\purple{x}$};
+  \factor[below=5.25 of ER] {ERdot} {} {} {};
+  \node[obs, left=.5 of ERdot] (ERn) {$\purple{n_r}$};
   
   % Connect the nodes
   \edge {ERglobal} {ERx} ;
+  \edge[-] {ERdot} {ERn} ;
   
-  \node[const, align=center, below=10.2 of ER]      (ERpro) {It's a thing.};
-  \node[const, align=center, below=11.5 of ER]      (ERcon) {Impossible\\estimates.};
+  \node[const, align=center, below=11.2 of ER]      (ERpro) {Simple.};
+  \node[const, align=center, below=12.5 of ER]      (ERcon) {Impossible\\estimates.};
   
 \end{tikzpicture}}
 
+
 ## Comparison of models
 
-\resizebox{99in}{3in}{%
+\resizebox{99in}{3in}{% King advantages
 \begin{tikzpicture}
   % Define nodes
   
   %Row headers
-  \node[const]                          (level) {Level};
-  \node[const, below=1.2 of level]          (prior) {\red{Prior}};
-  \node[const, below=3.2 of level]          (global) {\orange{Global}};
-  \node[const, below=5.2 of level]          (latent) {\green{Latent}};
-  \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
-  \node[const, below=9.2 of level]          (observed) {\purple{observed}};
-  \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level]          (issues) {Issues};
+  \node[const]                          (level) {};
+  \node[const, below=.8 of level]          (prior) {\red{Prior}};
+  \node[const, below=1.8 of level, align=center]          (global) {\orange{Global voting propensities}\\\orange{(for each race)}};
+  \node[const, below=3.8 of level, align=center]          (latent) {\green{Precinct-level variation}\\\green{(for each race)}};
+  \node[const, below=7.8 of level, align=center]          (unobserved) {\blue{Precinct vote totals}\\\blue{by race \& candidate}\\\blue{(unobserved)}};
+  \node[const, below=9.8 of level, align=center]          (observed) {\purple{Precinct vote totals}\\\purple{by candidate (observed)}};
+  \node[const, below=10.9 of level]          (issues) {Advantages};
+  \node[const, below=12.2 of level, align=center]          (issues) {Issues\\ \\ \\};
   
   
   
   %ER
-  \node[const, right=2.5 of level]          (ER) {ER};
+  \node[const, align=center, right=3.5 of level]          (ERyear) {(1953)};
+  \node[const, align=center, above=.1 of ERyear]          (ER) {$\textcolor[rgb]{1,1,1}{y}$ER$\textcolor[rgb]{1,1,1}{y}$};
   
-  \node[latent, below=3 of ER] (ERglobal) {$\orange{\gamma}$};
-  \node[obs, below=9 of ER]  (ERx) {$\purple{x}$};
+  \node[latent, below=2 of ER] (ERglobal) {$\orange{\gamma}$};
+  \node[obs, below=10 of ER]  (ERx) {$\purple{x}$};
+  \factor[below=5.25 of ER] {ERdot} {} {} {};
+  \node[obs, left=.5 of ERdot] (ERn) {$\purple{n_r}$};
   
   % Connect the nodes
   \edge {ERglobal} {ERx} ;
+  \edge[-] {ERdot} {ERn} ;
   
-  \node[const, align=center, below=10.2 of ER]      (ERpro) {It's a thing.};
-  \node[const, align=center, below=11.5 of ER]      (ERcon) {Impossible\\estimates.};
+  \node[const, align=center, below=11.2 of ER]      (ERpro) {Simple.};
+  \node[const, align=center, below=12.5 of ER]      (ERcon) {Impossible\\estimates.};
   
   
   % King
-  \node[const, right=2.5 of ER]           (King) {King (97)};
+  \node[const, align=center, right=7 of level]          (Kingyear) {(1997)};
+  \node[const, align=center, above=.1 of Kingyear]           (King) {King's EI};
   
   \node[const, below=1.2 of King]           (Kingprior) {$\red{\Pi}$};
-  \node[latent, below=3 of King] (Kingglobal) {$\orange{\gamma}$};
-  \node[latent, below=5 of King] (Kinglatent) {$\green{\lambda}$};
-  \node[latent, diamond, below=7 of King] (Kingy) {$\blue{y}$};
-  \node[obs, diamond, below=9 of King]  (Kingx) {$\purple{x}$};
-  \factor[below=6.25 of King] {Kingdot} {} {} {};
-  \node[obs, right=.5 of Kingdot] (Kingn) {$n_r$};
-  \factor[below=4.25 of King] {KingdotN} {} {} {};
-  \node[obs, right=.5 of KingdotN] (KingN) {$n?$};
+  \node[latent, below=2 of King] (Kingglobal) {$\orange{\gamma}$};
+  \node[latent, below=4 of King] (Kinglatent) {$\green{\lambda}$};
+  \node[latent, diamond, below=8 of King] (Kingy) {$\blue{y}$};
+  \node[obs, diamond, below=10 of King]  (Kingx) {$\purple{x}$};
+  \factor[below=5.25 of King] {Kingdot} {} {} {};
+  \node[obs, left=.5 of Kingdot] (Kingn) {$\purple{n_r}$};
   
   
   % Connect the nodes
@@ -442,54 +616,58 @@ Explain model
   \factoredge {Kinglatent,Kingn} {Kingdot} {Kingy} ; 
   \edge {Kingy} {Kingx} ;
   \edge[<->] {Kingy} {Kinglatent} ;
-  \edge[dashed,-] {KingdotN} {KingN} ;
   
-  \node[const, align=center, below=10.2 of King]      (Kingpro) {Respects constraints.};
+  
+  \node[const, align=center, below=11.2 of King]      (Kingpro) {Uses constraints;\\Precinct-level variation};
 \end{tikzpicture}}
+
 
 ## Comparison of models
 
-\resizebox{99in}{3in}{%
+\resizebox{99in}{3in}{% King disadvantages
 \begin{tikzpicture}
   % Define nodes
   
   %Row headers
-  \node[const]                          (level) {Level};
-  \node[const, below=1.2 of level]          (prior) {\red{Prior}};
-  \node[const, below=3.2 of level]          (global) {\orange{Global}};
-  \node[const, below=5.2 of level]          (latent) {\green{Latent}};
-  \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
-  \node[const, below=9.2 of level]          (observed) {\purple{observed}};
-  \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level]          (issues) {Issues};
+  \node[const]                          (level) {};
+  \node[const, below=.8 of level]          (prior) {\red{Prior}};
+  \node[const, below=1.8 of level, align=center]          (global) {\orange{Global voting propensities}\\\orange{(for each race)}};
+  \node[const, below=3.8 of level, align=center]          (latent) {\green{Precinct-level variation}\\\green{(for each race)}};
+  \node[const, below=7.8 of level, align=center]          (unobserved) {\blue{Precinct vote totals}\\\blue{by race \& candidate}\\\blue{(unobserved)}};
+  \node[const, below=9.8 of level, align=center]          (observed) {\purple{Precinct vote totals}\\\purple{by candidate (observed)}};
+  \node[const, below=10.9 of level]          (issues) {Advantages};
+  \node[const, below=12.2 of level, align=center]          (issues) {Issues\\ \\ \\};
   
   
   
   %ER
-  \node[const, right=2.5 of level]          (ER) {ER};
+  \node[const, align=center, right=3.5 of level]          (ERyear) {(1953)};
+  \node[const, align=center, above=.1 of ERyear]          (ER) {$\textcolor[rgb]{1,1,1}{y}$ER$\textcolor[rgb]{1,1,1}{y}$};
   
-  \node[latent, below=3 of ER] (ERglobal) {$\orange{\gamma}$};
-  \node[obs, below=9 of ER]  (ERx) {$\purple{x}$};
+  \node[latent, below=2 of ER] (ERglobal) {$\orange{\gamma}$};
+  \node[obs, below=10 of ER]  (ERx) {$\purple{x}$};
+  \factor[below=5.25 of ER] {ERdot} {} {} {};
+  \node[obs, left=.5 of ERdot] (ERn) {$\purple{n_r}$};
   
   % Connect the nodes
   \edge {ERglobal} {ERx} ;
+  \edge[-] {ERdot} {ERn} ;
   
-  \node[const, align=center, below=10.2 of ER]      (ERpro) {It's a thing.};
-  \node[const, align=center, below=11.5 of ER]      (ERcon) {Impossible\\estimates.};
+  \node[const, align=center, below=11.2 of ER]      (ERpro) {Simple.};
+  \node[const, align=center, below=12.5 of ER]      (ERcon) {Impossible\\estimates.};
   
   
   % King
-  \node[const, right=2.5 of ER]           (King) {King (97)};
+  \node[const, align=center, right=7 of level]          (Kingyear) {(1997)};
+  \node[const, align=center, above=.1 of Kingyear]           (King) {King's EI};
   
   \node[const, below=1.2 of King]           (Kingprior) {$\red{\Pi}$};
-  \node[latent, below=3 of King] (Kingglobal) {$\orange{\gamma}$};
-  \node[latent, below=5 of King] (Kinglatent) {$\green{\lambda}$};
-  \node[latent, diamond, below=7 of King] (Kingy) {$\blue{y}$};
-  \node[obs, diamond, below=9 of King]  (Kingx) {$\purple{x}$};
-  \factor[below=6.25 of King] {Kingdot} {} {} {};
-  \node[obs, right=.5 of Kingdot] (Kingn) {$n_r$};
-  \factor[below=4.25 of King] {KingdotN} {} {} {};
-  \node[obs, right=.5 of KingdotN] (KingN) {$n?$};
+  \node[latent, below=2 of King] (Kingglobal) {$\orange{\gamma}$};
+  \node[latent, below=4 of King] (Kinglatent) {$\green{\lambda}$};
+  \node[latent, diamond, below=8 of King] (Kingy) {$\blue{y}$};
+  \node[obs, diamond, below=10 of King]  (Kingx) {$\purple{x}$};
+  \factor[below=5.25 of King] {Kingdot} {} {} {};
+  \node[obs, left=.5 of Kingdot] (Kingn) {$\purple{n_r}$};
   
   
   % Connect the nodes
@@ -498,58 +676,178 @@ Explain model
   \factoredge {Kinglatent,Kingn} {Kingdot} {Kingy} ; 
   \edge {Kingy} {Kingx} ;
   \edge[<->] {Kingy} {Kinglatent} ;
-  \edge[dashed,-] {KingdotN} {KingN} ;
   
   
-  \node[const, align=center, below=10.2 of King]      (Kingpro) {Respects constraints.};
-  \node[const, align=center, below=11.5 of King]      (Kingcon) {Only $2\times 2$;\\No voter-level\\randomness.};
+  \node[const, align=center, below=11.2 of King]      (Kingpro) {Uses constraints;\\Precinct-level variation};
+  \node[const, align=center, below=12.5 of King]      (Kingcon) {Only $2\times 2$;\\No voter-level\\randomness.};
   
   
 \end{tikzpicture}}
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Polytope 
+
+\resizebox{99in}{1.5in}{%
+\begin{tikzpicture}[
+squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle (6.5,4);
+\draw[ultra thick](0,0) rectangle (6.5,4);}
+]
+\foreach \x in {.75,0.5,.25,0}\pic at (\x,\x){squared notebook};
+\node[rotate=90] (h) at (.5,2) {Race};
+\node (w) at (4,3.5) {Candidate};
+
+%separator
+\draw[style=-] (8,0) -- +(0,5) node[below left=.25cm,anchor=base,midway,rotate=-45] {};
+
+\node (w) at (3.5,2) {$\begin{array}{r|ll|l}
+& X & Y & \bm{n}_u\\
+\hline
+\textit{White} & \red{50} & 50 & 100 \\
+\textit{Black} & 70 & 70 & 140   \\
+\hline
+\bm{v}_u & 120 & 120 & 240\end{array}$};
+
+\draw[blue,fill=blue] (11.75,2.25) circle (.5ex);
+\node[] at (11.75,1.85)   (c) {$\dot{\bm{Y}}$};
+
+\node[] at (12, -1.1)   (c) {$\mathcal{Y}_u$};
+
+%polytope
+\draw[style=-] (13,0.5) -- +(1,0) node[below = .3cm,anchor=base,midway] {$\textcolor{black}{y_{p12}>0}$};
+\draw[style=-] (10,3.5) -- +(0,1) node[left = .2cm,anchor=base,midway,rotate=90] {$\red{y_{p11}}>0$};
+\draw[style=-] (10,4) -- +(3.5,-3.5) node[left = .2cm,anchor=base,midway,rotate=90] {};
+
+
+\end{tikzpicture}}
+
+\resizebox{99in}{1.5in}{%
+\begin{tikzpicture}[
+squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle (6.5,4);
+\draw[ultra thick](0,0) rectangle (6.5,4);}
+]
+\foreach \x in {.75,0.5,.25,0}\pic at (\x,\x){squared notebook};
+\node[rotate=90] (h) at (.5,2) {Race};
+\node (w) at (4,3.5) {Candidate};
+
+%separator
+\draw[style=-] (8,0) -- +(0,5) node[below left=.25cm,anchor=base,midway,rotate=-45] {};
+
+\node (w) at (3.5,2) {$\begin{array}{r|lll|l}
+& X & Y & Z & \bm{n}_u\\
+\hline
+\textit{White} & \red{50} & \red{50} & 50 & 150 \\
+\textit{Black} & 70 & 70 & 70 & 210   \\
+\hline
+\bm{v}_u & 120 & 120 & 120 & 360\end{array}$};
+
+\draw[blue,fill=blue] (11.667,1.667) circle (.5ex);
+\node[] at (11.667,1.267)   (c) {$\dot{\bm{Y}}$};
+
+%\tkzDefPoint(7.667,1.667){M}
+%\tkzLabelPoint[right,below](M){Independence}
+
+\node[] at (12, -1.1)   (c) {$\mathcal{Y}_u$};
+
+%polytope
+\draw[style=-] (11,0) -- +(-1,1) node[below left=.25cm,anchor=base,midway,rotate=-45] {$y_{p23}>0$};
+\draw[style=-] (11,0) -- +(3,0) node[below=.3cm,anchor=base,midway] {$\red{y_{p12}}>0$};
+\draw[style=-] (14,0) -- +(0,1) node[right = .3cm,anchor=base,midway,rotate=90] {$\textcolor{black}{y_{p21}>0}$};
+\draw[style=-] (14,1) -- +(-3,3) node[above right=.15cm,anchor=base,midway,rotate=-45] {$y_{p13}>0$};
+\draw[style=-] (11,4) -- +(-1,0) node[above=.2cm,anchor=base,midway] {$\textcolor{black}{y_{p22}>0}$};
+\draw[style=-] (10,1) -- +(0,3) node[left = .2cm,anchor=base,midway,rotate=90] {$\red{y_{p11}}>0$};
+
+
+\end{tikzpicture}}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## Comparison of models
 
-\resizebox{99in}{3in}{%
+\resizebox{99in}{3in}{% RJKT advantages
 \begin{tikzpicture}
   % Define nodes
   
   %Row headers
-  \node[const]                          (level) {Level};
-  \node[const, below=1.2 of level]          (prior) {\red{Prior}};
-  \node[const, below=3.2 of level]          (global) {\orange{Global}};
-  \node[const, below=5.2 of level]          (latent) {\green{Latent}};
-  \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
-  \node[const, below=9.2 of level]          (observed) {\purple{observed}};
-  \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level]          (issues) {Issues};
+  \node[const]                          (level) {};
+  \node[const, below=.8 of level]          (prior) {\red{Prior}};
+  \node[const, below=1.8 of level, align=center]          (global) {\orange{Global voting propensities}\\\orange{(for each race)}};
+  \node[const, below=3.8 of level, align=center]          (latent) {\green{Precinct-level variation}\\\green{(for each race)}};
+  \node[const, below=7.8 of level, align=center]          (unobserved) {\blue{Precinct vote totals}\\\blue{by race \& candidate}\\\blue{(unobserved)}};
+  \node[const, below=9.8 of level, align=center]          (observed) {\purple{Precinct vote totals}\\\purple{by candidate (observed)}};
+  \node[const, below=10.9 of level]          (issues) {Advantages};
+  \node[const, below=12.2 of level, align=center]          (issues) {Issues\\ \\ \\};
   
   
   
   %ER
-  \node[const, right=2.5 of level]          (ER) {ER};
+  \node[const, align=center, right=3.5 of level]          (ERyear) {(1953)};
+  \node[const, align=center, above=.1 of ERyear]          (ER) {$\textcolor[rgb]{1,1,1}{y}$ER$\textcolor[rgb]{1,1,1}{y}$};
   
-  \node[latent, below=3 of ER] (ERglobal) {$\orange{\gamma}$};
-  \node[obs, below=9 of ER]  (ERx) {$\purple{x}$};
+  \node[latent, below=2 of ER] (ERglobal) {$\orange{\gamma}$};
+  \node[obs, below=10 of ER]  (ERx) {$\purple{x}$};
+  \factor[below=5.25 of ER] {ERdot} {} {} {};
+  \node[obs, left=.5 of ERdot] (ERn) {$\purple{n_r}$};
   
   % Connect the nodes
   \edge {ERglobal} {ERx} ;
+  \edge[-] {ERdot} {ERn} ;
   
-  \node[const, align=center, below=10.2 of ER]      (ERpro) {It's a thing.};
-  \node[const, align=center, below=11.5 of ER]      (ERcon) {Impossible\\estimates.};
+  \node[const, align=center, below=11.2 of ER]      (ERpro) {Simple.};
+  \node[const, align=center, below=12.5 of ER]      (ERcon) {Impossible\\estimates.};
   
   
   % King
-  \node[const, right=2.5 of ER]           (King) {King (97)};
+  \node[const, align=center, right=7 of level]          (Kingyear) {(1997)};
+  \node[const, align=center, above=.1 of Kingyear]           (King) {King's EI};
   
   \node[const, below=1.2 of King]           (Kingprior) {$\red{\Pi}$};
-  \node[latent, below=3 of King] (Kingglobal) {$\orange{\gamma}$};
-  \node[latent, below=5 of King] (Kinglatent) {$\green{\lambda}$};
-  \node[latent, diamond, below=7 of King] (Kingy) {$\blue{y}$};
-  \node[obs, diamond, below=9 of King]  (Kingx) {$\purple{x}$};
-  \factor[below=6.25 of King] {Kingdot} {} {} {};
-  \node[obs, right=.5 of Kingdot] (Kingn) {$n_r$};
-  \factor[below=4.25 of King] {KingdotN} {} {} {};
-  \node[obs, right=.5 of KingdotN] (KingN) {$n?$};
+  \node[latent, below=2 of King] (Kingglobal) {$\orange{\gamma}$};
+  \node[latent, below=4 of King] (Kinglatent) {$\green{\lambda}$};
+  \node[latent, diamond, below=8 of King] (Kingy) {$\blue{y}$};
+  \node[obs, diamond, below=10 of King]  (Kingx) {$\purple{x}$};
+  \factor[below=5.25 of King] {Kingdot} {} {} {};
+  \node[obs, left=.5 of Kingdot] (Kingn) {$\purple{n_r}$};
   
   
   % Connect the nodes
@@ -558,27 +856,25 @@ Explain model
   \factoredge {Kinglatent,Kingn} {Kingdot} {Kingy} ; 
   \edge {Kingy} {Kingx} ;
   \edge[<->] {Kingy} {Kinglatent} ;
-  \edge[dashed,-] {KingdotN} {KingN} ;
   
   
-  \node[const, align=center, below=10.2 of King]      (Kingpro) {Respects constraints.};
-  \node[const, align=center, below=11.5 of King]      (Kingcon) {Only $2\times 2$;\\No voter-level\\randomness.};
+  \node[const, align=center, below=11.2 of King]      (Kingpro) {Uses constraints;\\Precinct-level variation};
+  \node[const, align=center, below=12.5 of King]      (Kingcon) {Only $2\times 2$;\\No voter-level\\randomness.};
   
   
   
   
   %RJKT
-  \node[const, right=2.5 of King]           (RJKT) {RJKT};
+  \node[const, align=center, right=10.5 of level]          (RJKTyear) {(2001)};
+  \node[const, align=center, above=.1 of RJKTyear]           (RJKT) {RJKT};
   
   \node[const, below=1.2 of RJKT]           (RJKTprior) {$\red{\Pi}$};
-  \node[latent, below=3 of RJKT] (RJKTglobal) {$\orange{\gamma}$};
-  \node[latent, below=4.3 of RJKT] (RJKTlatent) {$\green{\beta}$};
-  \node[latent, diamond, below=5.7 of RJKT] (RJKTtheta) {$\green{\theta}$};
-  \node[obs, below=9 of RJKT]  (RJKTx) {$\purple{x}$};
+  \node[latent, below=2 of RJKT] (RJKTglobal) {$\orange{\gamma}$};
+  \node[latent, below=4 of RJKT] (RJKTlatent) {$\green{\beta}$};
+  \node[latent, diamond, below=6 of RJKT] (RJKTtheta) {$\green{\theta}$};
+  \node[obs, below=10 of RJKT]  (RJKTx) {$\purple{x}$};
   \factor[below=5.25 of RJKT] {RJKTdot} {} {} {};
-  \node[obs, right=.5 of RJKTdot] (RJKTn) {$n_r$};
-  \factor[below=8.25 of RJKT] {RJKTdotN} {} {} {};
-  \node[obs, right=.5 of RJKTdotN] (RJKTN) {$n$};
+  \node[obs, left=.5 of RJKTdot] (RJKTn) {$\purple{n_r}$};
   
   % Connect the nodes
   \edge {RJKTprior} {RJKTglobal} ;
@@ -586,55 +882,58 @@ Explain model
   \factoredge {RJKTlatent,RJKTn} {RJKTdot} {RJKTtheta} ; 
   \edge {RJKTtheta} {RJKTx} ;
   \edge[<->] {RJKTtheta} {RJKTlatent} ;
-  \edge[-] {RJKTdotN} {RJKTN} ;
   
   
-  \node[const, align=center, below=10.2 of RJKT]      (RJKTpro) {$R\times C$; includes\\voter multinomial.};
+  \node[const, align=center, below=11.2 of RJKT]      (RJKTpro) {$R\times C$; includes\\voter multinomial.};
 \end{tikzpicture}}
+
 
 ## Comparison of models
 
-\resizebox{99in}{3in}{%
+\resizebox{99in}{3in}{% RJKT disadvantages
 \begin{tikzpicture}
   % Define nodes
   
   %Row headers
-  \node[const]                          (level) {Level};
-  \node[const, below=1.2 of level]          (prior) {\red{Prior}};
-  \node[const, below=3.2 of level]          (global) {\orange{Global}};
-  \node[const, below=5.2 of level]          (latent) {\green{Latent}};
-  \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
-  \node[const, below=9.2 of level]          (observed) {\purple{observed}};
-  \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level]          (issues) {Issues};
+  \node[const]                          (level) {};
+  \node[const, below=.8 of level]          (prior) {\red{Prior}};
+  \node[const, below=1.8 of level, align=center]          (global) {\orange{Global voting propensities}\\\orange{(for each race)}};
+  \node[const, below=3.8 of level, align=center]          (latent) {\green{Precinct-level variation}\\\green{(for each race)}};
+  \node[const, below=7.8 of level, align=center]          (unobserved) {\blue{Precinct vote totals}\\\blue{by race \& candidate}\\\blue{(unobserved)}};
+  \node[const, below=9.8 of level, align=center]          (observed) {\purple{Precinct vote totals}\\\purple{by candidate (observed)}};
+  \node[const, below=10.9 of level]          (issues) {Advantages};
+  \node[const, below=12.2 of level, align=center]          (issues) {Issues\\ \\ \\};
   
   
   
   %ER
-  \node[const, right=2.5 of level]          (ER) {ER};
+  \node[const, align=center, right=3.5 of level]          (ERyear) {(1953)};
+  \node[const, align=center, above=.1 of ERyear]          (ER) {$\textcolor[rgb]{1,1,1}{y}$ER$\textcolor[rgb]{1,1,1}{y}$};
   
-  \node[latent, below=3 of ER] (ERglobal) {$\orange{\gamma}$};
-  \node[obs, below=9 of ER]  (ERx) {$\purple{x}$};
+  \node[latent, below=2 of ER] (ERglobal) {$\orange{\gamma}$};
+  \node[obs, below=10 of ER]  (ERx) {$\purple{x}$};
+  \factor[below=5.25 of ER] {ERdot} {} {} {};
+  \node[obs, left=.5 of ERdot] (ERn) {$\purple{n_r}$};
   
   % Connect the nodes
   \edge {ERglobal} {ERx} ;
+  \edge[-] {ERdot} {ERn} ;
   
-  \node[const, align=center, below=10.2 of ER]      (ERpro) {It's a thing.};
-  \node[const, align=center, below=11.5 of ER]      (ERcon) {Impossible\\estimates.};
+  \node[const, align=center, below=11.2 of ER]      (ERpro) {Simple.};
+  \node[const, align=center, below=12.5 of ER]      (ERcon) {Impossible\\estimates.};
   
   
   % King
-  \node[const, right=2.5 of ER]           (King) {King (97)};
+  \node[const, align=center, right=7 of level]          (Kingyear) {(1997)};
+  \node[const, align=center, above=.1 of Kingyear]           (King) {King's EI};
   
   \node[const, below=1.2 of King]           (Kingprior) {$\red{\Pi}$};
-  \node[latent, below=3 of King] (Kingglobal) {$\orange{\gamma}$};
-  \node[latent, below=5 of King] (Kinglatent) {$\green{\lambda}$};
-  \node[latent, diamond, below=7 of King] (Kingy) {$\blue{y}$};
-  \node[obs, diamond, below=9 of King]  (Kingx) {$\purple{x}$};
-  \factor[below=6.25 of King] {Kingdot} {} {} {};
-  \node[obs, right=.5 of Kingdot] (Kingn) {$n_r$};
-  \factor[below=4.25 of King] {KingdotN} {} {} {};
-  \node[obs, right=.5 of KingdotN] (KingN) {$n?$};
+  \node[latent, below=2 of King] (Kingglobal) {$\orange{\gamma}$};
+  \node[latent, below=4 of King] (Kinglatent) {$\green{\lambda}$};
+  \node[latent, diamond, below=8 of King] (Kingy) {$\blue{y}$};
+  \node[obs, diamond, below=10 of King]  (Kingx) {$\purple{x}$};
+  \factor[below=5.25 of King] {Kingdot} {} {} {};
+  \node[obs, left=.5 of Kingdot] (Kingn) {$\purple{n_r}$};
   
   
   % Connect the nodes
@@ -643,27 +942,25 @@ Explain model
   \factoredge {Kinglatent,Kingn} {Kingdot} {Kingy} ; 
   \edge {Kingy} {Kingx} ;
   \edge[<->] {Kingy} {Kinglatent} ;
-  \edge[dashed,-] {KingdotN} {KingN} ;
   
   
-  \node[const, align=center, below=10.2 of King]      (Kingpro) {Respects constraints.};
-  \node[const, align=center, below=11.5 of King]      (Kingcon) {Only $2\times 2$;\\No voter-level\\randomness.};
+  \node[const, align=center, below=11.2 of King]      (Kingpro) {Uses constraints;\\Precinct-level variation};
+  \node[const, align=center, below=12.5 of King]      (Kingcon) {Only $2\times 2$;\\No voter-level\\randomness.};
   
   
   
   
   %RJKT
-  \node[const, right=2.5 of King]           (RJKT) {RJKT};
+  \node[const, align=center, right=10.5 of level]          (RJKTyear) {(2001)};
+  \node[const, align=center, above=.1 of RJKTyear]           (RJKT) {RJKT};
   
   \node[const, below=1.2 of RJKT]           (RJKTprior) {$\red{\Pi}$};
-  \node[latent, below=3 of RJKT] (RJKTglobal) {$\orange{\gamma}$};
-  \node[latent, below=4.3 of RJKT] (RJKTlatent) {$\green{\beta}$};
-  \node[latent, diamond, below=5.7 of RJKT] (RJKTtheta) {$\green{\theta}$};
-  \node[obs, below=9 of RJKT]  (RJKTx) {$\purple{x}$};
+  \node[latent, below=2 of RJKT] (RJKTglobal) {$\orange{\gamma}$};
+  \node[latent, below=4 of RJKT] (RJKTlatent) {$\green{\beta}$};
+  \node[latent, diamond, below=6 of RJKT] (RJKTtheta) {$\green{\theta}$};
+  \node[obs, below=10 of RJKT]  (RJKTx) {$\purple{x}$};
   \factor[below=5.25 of RJKT] {RJKTdot} {} {} {};
-  \node[obs, right=.5 of RJKTdot] (RJKTn) {$n_r$};
-  \factor[below=8.25 of RJKT] {RJKTdotN} {} {} {};
-  \node[obs, right=.5 of RJKTdotN] (RJKTN) {$n$};
+  \node[obs, left=.5 of RJKTdot] (RJKTn) {$\purple{n_r}$};
   
   % Connect the nodes
   \edge {RJKTprior} {RJKTglobal} ;
@@ -671,57 +968,60 @@ Explain model
   \factoredge {RJKTlatent,RJKTn} {RJKTdot} {RJKTtheta} ; 
   \edge {RJKTtheta} {RJKTx} ;
   \edge[<->] {RJKTtheta} {RJKTlatent} ;
-  \edge[-] {RJKTdotN} {RJKTN} ;
   
   
-  \node[const, align=center, below=10.2 of RJKT]      (RJKTpro) {$R\times C$; includes\\voter multinomial.};
-  \node[const, align=center, below=11.5 of RJKT]      (RJKTcon) {No $y$; cheats a bit\\on constraints.};
+  \node[const, align=center, below=11.2 of RJKT]      (RJKTpro) {$R\times C$; includes\\voter multinomial.};
+  \node[const, align=center, below=12.5 of RJKT]      (RJKTcon) {Cheats a bit on\\constraints: no $y$.};
   
 \end{tikzpicture}}
 
+
 ## Comparison of models
 
-\resizebox{99in}{3in}{%
+\resizebox{99in}{3in}{% Us advantages
 \begin{tikzpicture}
   % Define nodes
   
   %Row headers
-  \node[const]                          (level) {Level};
-  \node[const, below=1.2 of level]          (prior) {\red{Prior}};
-  \node[const, below=3.2 of level]          (global) {\orange{Global}};
-  \node[const, below=5.2 of level]          (latent) {\green{Latent}};
-  \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
-  \node[const, below=9.2 of level]          (observed) {\purple{observed}};
-  \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level]          (issues) {Issues};
+  \node[const]                          (level) {};
+  \node[const, below=.8 of level]          (prior) {\red{Prior}};
+  \node[const, below=1.8 of level, align=center]          (global) {\orange{Global voting propensities}\\\orange{(for each race)}};
+  \node[const, below=3.8 of level, align=center]          (latent) {\green{Precinct-level variation}\\\green{(for each race)}};
+  \node[const, below=7.8 of level, align=center]          (unobserved) {\blue{Precinct vote totals}\\\blue{by race \& candidate}\\\blue{(unobserved)}};
+  \node[const, below=9.8 of level, align=center]          (observed) {\purple{Precinct vote totals}\\\purple{by candidate (observed)}};
+  \node[const, below=10.9 of level]          (issues) {Advantages};
+  \node[const, below=12.2 of level, align=center]          (issues) {Issues\\ \\ \\};
   
   
   
   %ER
-  \node[const, right=2.5 of level]          (ER) {ER};
+  \node[const, align=center, right=3.5 of level]          (ERyear) {(1953)};
+  \node[const, align=center, above=.1 of ERyear]          (ER) {$\textcolor[rgb]{1,1,1}{y}$ER$\textcolor[rgb]{1,1,1}{y}$};
   
-  \node[latent, below=3 of ER] (ERglobal) {$\orange{\gamma}$};
-  \node[obs, below=9 of ER]  (ERx) {$\purple{x}$};
+  \node[latent, below=2 of ER] (ERglobal) {$\orange{\gamma}$};
+  \node[obs, below=10 of ER]  (ERx) {$\purple{x}$};
+  \factor[below=5.25 of ER] {ERdot} {} {} {};
+  \node[obs, left=.5 of ERdot] (ERn) {$\purple{n_r}$};
   
   % Connect the nodes
   \edge {ERglobal} {ERx} ;
+  \edge[-] {ERdot} {ERn} ;
   
-  \node[const, align=center, below=10.2 of ER]      (ERpro) {It's a thing.};
-  \node[const, align=center, below=11.5 of ER]      (ERcon) {Impossible\\estimates.};
+  \node[const, align=center, below=11.2 of ER]      (ERpro) {Simple.};
+  \node[const, align=center, below=12.5 of ER]      (ERcon) {Impossible\\estimates.};
   
   
   % King
-  \node[const, right=2.5 of ER]           (King) {King (97)};
+  \node[const, align=center, right=7 of level]          (Kingyear) {(1997)};
+  \node[const, align=center, above=.1 of Kingyear]           (King) {King's EI};
   
   \node[const, below=1.2 of King]           (Kingprior) {$\red{\Pi}$};
-  \node[latent, below=3 of King] (Kingglobal) {$\orange{\gamma}$};
-  \node[latent, below=5 of King] (Kinglatent) {$\green{\lambda}$};
-  \node[latent, diamond, below=7 of King] (Kingy) {$\blue{y}$};
-  \node[obs, diamond, below=9 of King]  (Kingx) {$\purple{x}$};
-  \factor[below=6.25 of King] {Kingdot} {} {} {};
-  \node[obs, right=.5 of Kingdot] (Kingn) {$n_r$};
-  \factor[below=4.25 of King] {KingdotN} {} {} {};
-  \node[obs, right=.5 of KingdotN] (KingN) {$n?$};
+  \node[latent, below=2 of King] (Kingglobal) {$\orange{\gamma}$};
+  \node[latent, below=4 of King] (Kinglatent) {$\green{\lambda}$};
+  \node[latent, diamond, below=8 of King] (Kingy) {$\blue{y}$};
+  \node[obs, diamond, below=10 of King]  (Kingx) {$\purple{x}$};
+  \factor[below=5.25 of King] {Kingdot} {} {} {};
+  \node[obs, left=.5 of Kingdot] (Kingn) {$\purple{n_r}$};
   
   
   % Connect the nodes
@@ -730,27 +1030,25 @@ Explain model
   \factoredge {Kinglatent,Kingn} {Kingdot} {Kingy} ; 
   \edge {Kingy} {Kingx} ;
   \edge[<->] {Kingy} {Kinglatent} ;
-  \edge[dashed,-] {KingdotN} {KingN} ;
   
   
-  \node[const, align=center, below=10.2 of King]      (Kingpro) {Respects constraints.};
-  \node[const, align=center, below=11.5 of King]      (Kingcon) {Only $2\times 2$;\\No voter-level\\randomness.};
+  \node[const, align=center, below=11.2 of King]      (Kingpro) {Uses constraints;\\Precinct-level variation};
+  \node[const, align=center, below=12.5 of King]      (Kingcon) {Only $2\times 2$;\\No voter-level\\randomness.};
   
   
   
   
   %RJKT
-  \node[const, right=2.5 of King]           (RJKT) {RJKT};
+  \node[const, align=center, right=10.5 of level]          (RJKTyear) {(2001)};
+  \node[const, align=center, above=.1 of RJKTyear]           (RJKT) {RJKT};
   
   \node[const, below=1.2 of RJKT]           (RJKTprior) {$\red{\Pi}$};
-  \node[latent, below=3 of RJKT] (RJKTglobal) {$\orange{\gamma}$};
-  \node[latent, below=4.3 of RJKT] (RJKTlatent) {$\green{\beta}$};
-  \node[latent, diamond, below=5.7 of RJKT] (RJKTtheta) {$\green{\theta}$};
-  \node[obs, below=9 of RJKT]  (RJKTx) {$\purple{x}$};
+  \node[latent, below=2 of RJKT] (RJKTglobal) {$\orange{\gamma}$};
+  \node[latent, below=4 of RJKT] (RJKTlatent) {$\green{\beta}$};
+  \node[latent, diamond, below=6 of RJKT] (RJKTtheta) {$\green{\theta}$};
+  \node[obs, below=10 of RJKT]  (RJKTx) {$\purple{x}$};
   \factor[below=5.25 of RJKT] {RJKTdot} {} {} {};
-  \node[obs, right=.5 of RJKTdot] (RJKTn) {$n_r$};
-  \factor[below=8.25 of RJKT] {RJKTdotN} {} {} {};
-  \node[obs, right=.5 of RJKTdotN] (RJKTN) {$n$};
+  \node[obs, left=.5 of RJKTdot] (RJKTn) {$\purple{n_r}$};
   
   % Connect the nodes
   \edge {RJKTprior} {RJKTglobal} ;
@@ -758,83 +1056,80 @@ Explain model
   \factoredge {RJKTlatent,RJKTn} {RJKTdot} {RJKTtheta} ; 
   \edge {RJKTtheta} {RJKTx} ;
   \edge[<->] {RJKTtheta} {RJKTlatent} ;
-  \edge[-] {RJKTdotN} {RJKTN} ;
   
   
-  \node[const, align=center, below=10.2 of RJKT]      (RJKTpro) {$R\times C$; includes\\voter multinomial.};
-  \node[const, align=center, below=11.5 of RJKT]      (RJKTcon) {No $y$; cheats a bit\\on constraints.};
+  \node[const, align=center, below=11.2 of RJKT]      (RJKTpro) {$R\times C$; includes\\voter multinomial.};
+  \node[const, align=center, below=12.5 of RJKT]      (RJKTcon) {Cheats a bit on\\constraints: no $y$.};
   
   
   %Us
-  \node[const, right=2.5 of RJKT]           (us) {Us};
+  \node[const, align=center, right=14 of level]          (usyear) {(2019)};
+  \node[const, align=center, above=.1 of usyear]           (us) {Us};
   
   \node[const, below=1.2 of us]           (usprior) {$\red{\Pi}$};
-  \node[latent, below=3 of us] (usglobal) {$\orange{\gamma}$};
-  \node[latent, below=4.3 of us] (uslatent) {$\green{\nu}$};
-  \node[latent, diamond, below=5.7 of us] (usnu) {$\green{\pi}$};
-  \node[latent, below=7 of us] (usy) {$\blue{y}$};
-  \node[obs, diamond, below=9 of us]  (usx) {$\purple{x}$};
-  \factor[below=6.55 of us] {usdot} {} {} {};
-  \node[obs, right=.5 of usdot] (usn) {$n_r$};
+  \node[latent, below=2 of us] (usglobal) {$\orange{\gamma}$};
+  \node[latent, below=4 of us] (uslatent) {$\green{\nu}$};
+  \node[latent, below=8 of us] (usy) {$\blue{y}$};
+  \node[obs, diamond, below=10 of us]  (usx) {$\purple{x}$};
+  \factor[below=5.25 of us] {usdot} {} {} {};
+  \node[obs, left=.5 of usdot] (usn) {$\purple{n_r}$};
   
   % Connect the nodes
   \edge {usprior} {usglobal} ;
   \edge {usglobal} {uslatent} ;
-  \edge[<->] {usnu} {uslatent} ;
-  \factoredge {usnu,usn} {usdot} {usy} ; 
+  \factoredge {uslatent,usn} {usdot} {usy} ; 
   \edge {usy} {usx} ;
   
-  \node[const, align=center, below=10.2 of us]      (uspro) {Respects constraints;\\$R\times C$; "multinomial".};
-  %\node[const, align=center, below=11.5 of us]      (uscon) {Few — let me\\describe it first};
-
-  % Plates
-  %\plate {U} {(gamma)(y)(multi)(pi)(n)(v)(ubighide)} {$U$} ;
-  %\plate {R} {(beta)(gamma)(y)(rbighide)(U.north east)} {$R$} ;
+  \node[const, align=center, below=11.2 of us]      (uspro) {Respects constraints;\\$R\times C$; "multinomial".};
 \end{tikzpicture}}
+
 
 ## Comparison of models
 
-\resizebox{99in}{3in}{%
+\resizebox{99in}{3in}{% Us more advantages
 \begin{tikzpicture}
   % Define nodes
   
   %Row headers
-  \node[const]                          (level) {Level};
-  \node[const, below=1.2 of level]          (prior) {\red{Prior}};
-  \node[const, below=3.2 of level]          (global) {\orange{Global}};
-  \node[const, below=5.2 of level]          (latent) {\green{Latent}};
-  \node[const, below=7.2 of level]          (unobserved) {\blue{unobserved}};
-  \node[const, below=9.2 of level]          (observed) {\purple{observed}};
-  \node[const, below=10.2 of level]          (issues) {Advantages};
-  \node[const, below=11.5 of level]          (issues) {Issues};
+  \node[const]                          (level) {};
+  \node[const, below=.8 of level]          (prior) {\red{Prior}};
+  \node[const, below=1.8 of level, align=center]          (global) {\orange{Global voting propensities}\\\orange{(for each race)}};
+  \node[const, below=3.8 of level, align=center]          (latent) {\green{Precinct-level variation}\\\green{(for each race)}};
+  \node[const, below=7.8 of level, align=center]          (unobserved) {\blue{Precinct vote totals}\\\blue{by race \& candidate}\\\blue{(unobserved)}};
+  \node[const, below=9.8 of level, align=center]          (observed) {\purple{Precinct vote totals}\\\purple{by candidate (observed)}};
+  \node[const, below=10.9 of level]          (issues) {Advantages};
+  \node[const, below=12.2 of level, align=center]          (issues) {Issues\\ \\ \\};
   
   
   
   %ER
-  \node[const, right=2.5 of level]          (ER) {ER};
+  \node[const, align=center, right=3.5 of level]          (ERyear) {(1953)};
+  \node[const, align=center, above=.1 of ERyear]          (ER) {$\textcolor[rgb]{1,1,1}{y}$ER$\textcolor[rgb]{1,1,1}{y}$};
   
-  \node[latent, below=3 of ER] (ERglobal) {$\orange{\gamma}$};
-  \node[obs, below=9 of ER]  (ERx) {$\purple{x}$};
+  \node[latent, below=2 of ER] (ERglobal) {$\orange{\gamma}$};
+  \node[obs, below=10 of ER]  (ERx) {$\purple{x}$};
+  \factor[below=5.25 of ER] {ERdot} {} {} {};
+  \node[obs, left=.5 of ERdot] (ERn) {$\purple{n_r}$};
   
   % Connect the nodes
   \edge {ERglobal} {ERx} ;
+  \edge[-] {ERdot} {ERn} ;
   
-  \node[const, align=center, below=10.2 of ER]      (ERpro) {It's a thing.};
-  \node[const, align=center, below=11.5 of ER]      (ERcon) {Impossible\\estimates.};
+  \node[const, align=center, below=11.2 of ER]      (ERpro) {Simple.};
+  \node[const, align=center, below=12.5 of ER]      (ERcon) {Impossible\\estimates.};
   
   
   % King
-  \node[const, right=2.5 of ER]           (King) {King (97)};
+  \node[const, align=center, right=7 of level]          (Kingyear) {(1997)};
+  \node[const, align=center, above=.1 of Kingyear]           (King) {King's EI};
   
   \node[const, below=1.2 of King]           (Kingprior) {$\red{\Pi}$};
-  \node[latent, below=3 of King] (Kingglobal) {$\orange{\gamma}$};
-  \node[latent, below=5 of King] (Kinglatent) {$\green{\lambda}$};
-  \node[latent, diamond, below=7 of King] (Kingy) {$\blue{y}$};
-  \node[obs, diamond, below=9 of King]  (Kingx) {$\purple{x}$};
-  \factor[below=6.25 of King] {Kingdot} {} {} {};
-  \node[obs, right=.5 of Kingdot] (Kingn) {$n_r$};
-  \factor[below=4.25 of King] {KingdotN} {} {} {};
-  \node[obs, right=.5 of KingdotN] (KingN) {$n?$};
+  \node[latent, below=2 of King] (Kingglobal) {$\orange{\gamma}$};
+  \node[latent, below=4 of King] (Kinglatent) {$\green{\lambda}$};
+  \node[latent, diamond, below=8 of King] (Kingy) {$\blue{y}$};
+  \node[obs, diamond, below=10 of King]  (Kingx) {$\purple{x}$};
+  \factor[below=5.25 of King] {Kingdot} {} {} {};
+  \node[obs, left=.5 of Kingdot] (Kingn) {$\purple{n_r}$};
   
   
   % Connect the nodes
@@ -843,27 +1138,25 @@ Explain model
   \factoredge {Kinglatent,Kingn} {Kingdot} {Kingy} ; 
   \edge {Kingy} {Kingx} ;
   \edge[<->] {Kingy} {Kinglatent} ;
-  \edge[dashed,-] {KingdotN} {KingN} ;
   
   
-  \node[const, align=center, below=10.2 of King]      (Kingpro) {Respects constraints.};
-  \node[const, align=center, below=11.5 of King]      (Kingcon) {Only $2\times 2$;\\No voter-level\\randomness.};
+  \node[const, align=center, below=11.2 of King]      (Kingpro) {Uses constraints;\\Precinct-level variation};
+  \node[const, align=center, below=12.5 of King]      (Kingcon) {Only $2\times 2$;\\No voter-level\\randomness.};
   
   
   
   
   %RJKT
-  \node[const, right=2.5 of King]           (RJKT) {RJKT};
+  \node[const, align=center, right=10.5 of level]          (RJKTyear) {(2001)};
+  \node[const, align=center, above=.1 of RJKTyear]           (RJKT) {RJKT};
   
   \node[const, below=1.2 of RJKT]           (RJKTprior) {$\red{\Pi}$};
-  \node[latent, below=3 of RJKT] (RJKTglobal) {$\orange{\gamma}$};
-  \node[latent, below=4.3 of RJKT] (RJKTlatent) {$\green{\beta}$};
-  \node[latent, diamond, below=5.7 of RJKT] (RJKTtheta) {$\green{\theta}$};
-  \node[obs, below=9 of RJKT]  (RJKTx) {$\purple{x}$};
+  \node[latent, below=2 of RJKT] (RJKTglobal) {$\orange{\gamma}$};
+  \node[latent, below=4 of RJKT] (RJKTlatent) {$\green{\beta}$};
+  \node[latent, diamond, below=6 of RJKT] (RJKTtheta) {$\green{\theta}$};
+  \node[obs, below=10 of RJKT]  (RJKTx) {$\purple{x}$};
   \factor[below=5.25 of RJKT] {RJKTdot} {} {} {};
-  \node[obs, right=.5 of RJKTdot] (RJKTn) {$n_r$};
-  \factor[below=8.25 of RJKT] {RJKTdotN} {} {} {};
-  \node[obs, right=.5 of RJKTdotN] (RJKTN) {$n$};
+  \node[obs, left=.5 of RJKTdot] (RJKTn) {$\purple{n_r}$};
   
   % Connect the nodes
   \edge {RJKTprior} {RJKTglobal} ;
@@ -871,39 +1164,31 @@ Explain model
   \factoredge {RJKTlatent,RJKTn} {RJKTdot} {RJKTtheta} ; 
   \edge {RJKTtheta} {RJKTx} ;
   \edge[<->] {RJKTtheta} {RJKTlatent} ;
-  \edge[-] {RJKTdotN} {RJKTN} ;
   
   
-  \node[const, align=center, below=10.2 of RJKT]      (RJKTpro) {$R\times C$; includes\\voter multinomial.};
-  \node[const, align=center, below=11.5 of RJKT]      (RJKTcon) {No $y$; cheats a bit\\on constraints.};
+  \node[const, align=center, below=11.2 of RJKT]      (RJKTpro) {$R\times C$; includes\\voter multinomial.};
+  \node[const, align=center, below=12.5 of RJKT]      (RJKTcon) {Cheats a bit on\\constraints: no $y$.};
   
   
   %Us
-  \node[const, right=2.5 of RJKT]           (us) {Us};
+  \node[const, align=center, right=14 of level]          (usyear) {(2019)};
+  \node[const, align=center, above=.1 of usyear]           (us) {Us};
   
   \node[const, below=1.2 of us]           (usprior) {$\red{\Pi}$};
-  \node[latent, below=3 of us] (usglobal) {$\orange{\gamma}$};
-  \node[latent, below=4.3 of us] (uslatent) {$\green{\nu}$};
-  \node[latent, diamond, below=5.7 of us] (usnu) {$\green{\pi}$};
-  \node[latent, below=7 of us] (usy) {$\blue{y}$};
-  \node[obs, diamond, below=9 of us]  (usx) {$\purple{x}$};
-  \factor[below=6.55 of us] {usdot} {} {} {};
-  \node[obs, right=.5 of usdot] (usn) {$n_r$};
+  \node[latent, below=2 of us] (usglobal) {$\orange{\gamma}$};
+  \node[latent, below=4 of us] (uslatent) {$\green{\nu}$};
+  \node[latent, below=8 of us] (usy) {$\blue{y}$};
+  \node[obs, diamond, below=10 of us]  (usx) {$\purple{x}$};
+  \factor[below=5.25 of us] {usdot} {} {} {};
+  \node[obs, left=.5 of usdot] (usn) {$\purple{n_r}$};
   
   % Connect the nodes
   \edge {usprior} {usglobal} ;
   \edge {usglobal} {uslatent} ;
-  \edge[<->] {usnu} {uslatent} ;
-  \factoredge {usnu,usn} {usdot} {usy} ; 
+  \factoredge {uslatent,usn} {usdot} {usy} ; 
   \edge {usy} {usx} ;
   
-  \node[const, align=center, below=10.2 of us]      (uspro) {Respects constraints;\\$R\times C$; "multinomial".\\
-  Extensible! VI!};
-  %\node[const, align=center, below=11.5 of us]      (uscon) {Few — let me\\describe it first};
-
-  % Plates
-  %\plate {U} {(gamma)(y)(multi)(pi)(n)(v)(ubighide)} {$U$} ;
-  %\plate {R} {(beta)(gamma)(y)(rbighide)(U.north east)} {$R$} ;
+  \node[const, align=center, below=11.2 of us]      (uspro) {Respects constraints;\\$R\times C$; "multinomial".\\Extensible!};
 \end{tikzpicture}}
 
 
@@ -944,7 +1229,7 @@ Explain model
   \factor[below=.4 of pi] {multi} {right:$\mathrm{Multi}$} {} {};
   \node[obs, left=of multi]            (n) {$n_{u,r}$};
   \node[latent, below=.5 of multi]            (y) {$\blue{\bm{y}_{u,r}}$};
-  \node[obs, diamond, below=of y]            (v) {$\purple{\bm{v}_{u}}$};
+  \node[obs, diamond, below=of y]            (v) {$\purple{\bm{x}_{u}}$};
   \node[const, right=0.6 of y, yshift=-1.6cm] (ubighide) {};
   \node[const, right=1.2 of y] (rbighide) {};
 
@@ -970,6 +1255,42 @@ Talk about why this is hard to make a guide for")
 
 ## Modified model
 
+\resizebox{99in}{2.5in}{%
+\begin{tikzpicture}
+  % Define nodes
+  \node[latent]           (beta) {$\orange{\bm{\beta}^-_r}$};
+  \node[const, above=0.4 of beta] (rbighide) {};
+  \node[const, above=of beta] (sdb) {$\red{\sigma_{\beta}}$};
+  \node[latent, left=of beta]  (alpha) {$\orange{\bm{\alpha}^-}$};
+  \node[const, above=of alpha] (sda) {$\red{\sigma_{\alpha}}$};
+  \node[latent, right=2 of beta]            (gamma) {$\green{\bm{\nu}_{u,r}}$};
+  \node[latent, above=of gamma] (sdg) {$\orange{\sigma_{\nu}}$};
+  \node[det, below=.7of gamma]            (pi) {$\green{\bm{\pi}_{u,r}}$};
+  \factor[below=.4 of pi] {multi} {right:$\mathrm{CMult}$} {} {};
+  \node[obs, left=of multi]            (n) {$n_{u,r}$};
+  \node[latent, below=.5 of multi]            (y) {$\blue{\bm{y}_{u,r}}$};
+  \node[const, right=0.8 of y, yshift=-1.6cm] (ubighide) {};
+  \node[const, right=1.4 of y] (rbighide) {};
+  \node[obs, diamond, below=of y]            (v) {$\purple{\bm{x}_{u}}$};
+
+  % Connect the nodes
+  \edge {sda} {alpha} ;
+  \edge {sdb} {beta} ;
+  \edge {sdg} {gamma}; 
+  \edge {alpha,beta,gamma} {pi} ;
+  \factoredge {pi,n} {multi} {y} ; 
+  \edge {y} {v} ; 
+
+  % Plates
+  \plate {U} {(gamma)(y)(multi)(pi)(n)(v)(ubighide)} {$U$} ;
+  \plate {R} {(beta)(gamma)(y)(rbighide)(U.north east)} {$R$} ;
+\end{tikzpicture}}
+
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Cmult")
+```
+
+## Modified model
 
 \resizebox{99in}{2.5in}{%
 \begin{tikzpicture}
@@ -988,7 +1309,7 @@ Talk about why this is hard to make a guide for")
   \node[const, right=0.8 of y, yshift=-1.6cm] (ubighide) {};
   \node[const, right=1.4 of y] (rbighide) {};
   \node[det, below=of y]            (W) {$\blue{W_{u}}$};
-  \node[obs, diamond, left=.66 of W]            (v) {$\purple{\bm{v}_{u}}$};
+  \node[obs, diamond, left=.66 of W]            (v) {$\purple{\bm{x}_{u}}$};
 
   % Connect the nodes
   \edge {sda} {alpha} ;
@@ -996,9 +1317,9 @@ Talk about why this is hard to make a guide for")
   \edge {sdg} {gamma}; 
   \edge {alpha,beta,gamma} {pi} ;
   \factoredge {pi,n} {multi} {y} ; 
-  \edge[] {y} {W} ; 
-  \edge[] {v} {W} ; 
-  \edge[] {y} {v} ; 
+  \edge[<->] {y} {W} ; 
+  \edge[dashed,<->] {W} {v} ; 
+  \edge[dashed] {y} {v} ; 
 
   % Plates
   \plate {U} {(gamma)(y)(multi)(pi)(n)(W)(v)(ubighide)} {$U$} ;
@@ -1006,56 +1327,16 @@ Talk about why this is hard to make a guide for")
 \end{tikzpicture}}
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("Cmult
-Polytopize: ae smooth map from $R^n$ to polytope
-Pseudovoters because of boundary issues that arise from Cmult and polytopize; don’t go into details
+note("Why is Y bad? support of gaussian vs polytope
+Polytopize: ae smooth bijective map from $R^n$ to polytope
+Pseudovoters because of boundary issues that arise from Cmult and polytopize
 All of these make the model itself slightly less-realistic, but make VI work.")
 ```
 
 
-## Polytopize (1)
+## Polytopize
 
-\begin{tikzpicture}[
-squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle (6.5,4);
-\draw[ultra thick](0,0) rectangle (6.5,4);}
-]
-\foreach \x in {.75,0.5,.25,0}\pic at (\x,\x){squared notebook};
-\node[rotate=90] (h) at (.5,2) {Race};
-\node (w) at (4,3.5) {Candidate};
-
-%separator
-\draw[style=-] (8,0) -- +(0,5) node[below left=.25cm,anchor=base,midway,rotate=-45] {};
-
-\node (w) at (3.5,2) {$\begin{array}{r|lll|l}
-& X & Y & Z & \bm{n}_u\\
-\hline
-\textit{White} & \red{50} & \red{50} & 50 & 150 \\
-\textit{Black} & 70 & 70 & 70 & 210   \\
-\hline
-\bm{v}_u & 120 & 120 & 120 & 360\end{array}$};
-
-\draw[red,fill=red] (11.667,1.667) circle (.5ex);
-\node[] at (11.667,1.267)   (c) {$\dot{\bm{Y}}$};
-
-%\tkzDefPoint(7.667,1.667){M}
-%\tkzLabelPoint[right,below](M){Independence}
-
-\node[] at (12, -1.1)   (c) {$\mathcal{Y}_u$};
-
-%polytope
-\draw[style=-] (11,0) -- +(-1,1) node[below left=.25cm,anchor=base,midway,rotate=-45] {$y_{p11}+y_{p12}>\textcolor{black}{30}$};
-\draw[style=-] (11,0) -- +(3,0) node[below=.3cm,anchor=base,midway] {$\textcolor{black}{y_{p12}}>0$};
-\draw[style=-] (14,0) -- +(0,1) node[right = .3cm,anchor=base,midway,rotate=90] {$\textcolor{black}{y_{p11}<120}$};
-\draw[style=-] (14,1) -- +(-3,3) node[above right=.15cm,anchor=base,midway,rotate=-45] {$y_{p11}+y_{p12}<\textcolor{black}{150}$};
-\draw[style=-] (11,4) -- +(-1,0) node[above=.2cm,anchor=base,midway] {$\textcolor{black}{y_{p12}<120}$};
-\draw[style=-] (10,1) -- +(0,3) node[left = .2cm,anchor=base,midway,rotate=90] {$\textcolor{black}{y_{p11}}>0$};
-
-
-\end{tikzpicture}
-
-
-## Polytopize (2)
-
+\resizebox{4in}{99in}{%
 \begin{tikzpicture}
 
 %axes
@@ -1137,114 +1418,53 @@ squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle
 \draw[red,fill=red] (2,2) circle (.3ex);
 \node[above left=0pt of {(2,2)}]  {$\red{\vec{0}}$};
 
-\end{tikzpicture}
-
-
-
-## Guide, with amortization
-
-\resizebox{99in}{2.5in}{%
-\begin{tikzpicture}
-
-  % Define nodes
-  \node[const]                                          (hats) {$\orange{\bm{\gamma}^*}$};
-  \node[det, below=1 of hats,  align=center, xshift=3.5cm]            (yhat) {$\green{\bm{\lambda}}^{\blue{*}}_{\blue{u}}$};
-  \node[latent, diamond, below=2 of hats, xshift=.7cm]            (sighat) {$\orange{\sigma_{\nu}^*}$};
-  
-  \node[latent, diamond, aspect=2.5, below=3 of hats]            (Iparams) {$\mathcal{I}^{-1}(\bm{\gamma}^*)$};
-  \factor[left=of Iparams] {paramdist} {left:$\mathcal{N}$} {} {};
-  \node[latent, below=of paramdist]            (params) {$\orange{\bm{\gamma}}$};
-  
-
-  
-  \node[latent, diamond, aspect=3,  below=3 of hats,  align=center, xshift=3.5cm]  (Ifull) {$\mathcal{I}^{-1}(\bm{\gamma}^*,\bm{\lambda}^*_{u})$};
-  \factor[right=of Ifull] {fulldist} {right:$\mathcal{N}$} {} {};
-  \factor[below=1.25 of fulldist] {condfulldist} {right:$\mathcal{N}|\bm{\gamma}$} {} {};
-  \node[latent, below=of condfulldist]            (W) {$\green{\bm{\lambda}}_{\blue{u}}$};
-  %\node[const, below=0.2 of W,xshift=-0.2cm]            (uhide) {};
-  \node[const, below=0 of W,xshift=.8cm]            (uhide2) {};
-
-  % Connect the nodes
-  \edge[] {hats,sighat,yhat} {Iparams} ;        %  |/
-  \edge[] {yhat} {sighat} ;                %   ⟋
-  \edge[-] {hats} {paramdist} ;           % /
-  \edge {hats} {yhat} ;             %   ⟍
-  \edge {hats,yhat,sighat} {Ifull} ;       %   \|
-  \edge[-] {Iparams} {paramdist} ;        % - 
-  \edge {paramdist} {params} ;            % \
-  \edge[-] {Ifull} {fulldist}  ; 
-  \edge[-] {fulldist} {condfulldist}  ; 
-  \edge[-] {params} {condfulldist}; 
-  \edge[-] {yhat} {fulldist} ; 
-  \edge {condfulldist} {W} ; 
-
-  % Plates
-  \plate {U} {(Ifull)(fulldist)(W)(uhide2)(yhat)} {$U$} ;
 \end{tikzpicture}}
 
-picture from paper, but remade to look more sane!!!!
-Maybe a list of things to note (changes form model)
+* Start at $m_u(\bm{0}) = \dot{Y}$: independence point
+* Project to correct subspace
+* Apply mapping which preserves angle but shrinks length
+* Smooth almost everywhere
 
-<!-- ## Guide, with amortization -->
+## Simulation study
 
-<!-- \resizebox{99in}{2.5in}{% -->
-<!-- \begin{tikzpicture} -->
+* $3\times 3$: 
+    * Races: White/Black/Other
+    * Candidates: Republican/Democrat/Other (where "other" includes both 3rd party and not voting)
+* Realistic parameter settings for NC Pres 2016
+    * Use racial demographics by precinct in NC (available because of VRA)
+    * Use exit polls to calculate realistic $\bm{\alpha}$ and $\bm{\beta}$ for 2016 presidential election
+* Simulate datasets from our model using arbitrary choices of $\sigma_\nu$: 0.02, 0.3
 
-<!--   % Define nodes -->
-<!--   \node[const]                                          (hats) {$\bm{\gamma}^*$}; -->
-<!--   \node[det, right=2.5 of hats, yshift=-1.2cm]            (yhat) {$\bm{W}^*_{u}$}; -->
-<!--   \node[det, right=1.5 of hats, yshift=-2cm]            (nuhat) {$\bm{\nu}^*_{u}$}; -->
-<!--   \node[latent,fill=gray!25, diamond, right=.3 of hats, yshift=-2.6cm]            (sighat) {$\sigma_{\nu}^*$}; -->
+## Simulation study
 
-<!--   \node[latent, diamond, aspect=2.5, below=3.4 of hats]            (Iparams) {$\mathcal{I}^{-1}(\bm{\gamma}^*)$}; -->
-<!--   \factor[left=of Iparams, xshift = -1cm] {paramdist} {left:$\mathcal{N}$} {} {}; -->
-<!--   \node[latent, below=.8 of Iparams]            (params) {$\bm{\gamma}$}; -->
-
-
-
-<!--   \node[latent, diamond, aspect=2.5, right=.33 of Iparams]  (Ifull) {$\mathcal{I}^{-1}(\bm{\gamma}^*,\bm{W}^*_{u})$}; -->
-<!--   \factor[right=.8 of Ifull] {fulldist} {right:$\mathcal{N}$} {} {}; -->
-<!--   \factor[below=1.5 of fulldist] {condfulldist} {right:$\mathcal{N}|\bm{\gamma}$} {} {}; -->
-<!--   \node[latent, below=2 of Ifull]            (W) {$(W_u,\bm{\nu}_{u})$}; -->
-<!--   \node[const, below=0.2 of W,xshift=-0.2cm]            (uhide) {}; -->
-<!--   \node[const, below=0.2 of W,xshift=3.6cm]            (uhide2) {}; -->
-
-<!--   % Connect the nodes -->
-<!--   \edge[] {hats,nuhat,sighat} {Iparams} ;        %  |/ -->
-<!--   \draw [->] (yhat) to [out=270, in=30] (Iparams) ; -->
-<!--   \edge[] {yhat} {nuhat} ;                %   ⟋ -->
-<!--   \edge[] {nuhat} {sighat} ;                %   ⟋ -->
-<!--   \edge[-] {hats} {paramdist} ;           % / -->
-<!--   \edge {hats} {nuhat,yhat} ;             %   ⟍ -->
-<!--   \edge {hats,yhat,nuhat,sighat} {Ifull} ;       %   \| -->
-<!--   \edge[-] {Iparams} {paramdist} ;        % -  -->
-<!--   \edge {paramdist} {params} ;            % \ -->
-<!--   \edge[-] {Ifull} {fulldist}  ;  -->
-<!--   \edge[-] {fulldist} {condfulldist}  ;  -->
-<!--   \edge[-] {params} {condfulldist};  -->
-<!--   \edge[-] {yhat,nuhat} {fulldist} ;  -->
-<!--   \edge {condfulldist} {W} ;  -->
-
-<!--   % Plates -->
-<!--   \plate {U} {(Ifull)(fulldist)(W)(uhide)(uhide2)(yhat)(nuhat)} {$U$} ; -->
-<!-- \end{tikzpicture}} -->
-
-<!-- picture from paper, but remade to look more sane!!!! -->
-<!-- Maybe a list of things to note (changes form model) -->
+* Run LVI using pyro, RJKT using eiPack in R.
+* Let $Q_{rc}=\frac{\sum_u y_{urc}}{\sum_u n_{ur}}$, the percentage of race $r$ that voted for candidate $c$
+* Report mean and standard deviation of $Q_{rc}$, based on 1000 samples from the estimated posterior
 
 
-## Testing our EI on simulated data
-
-Describe how we got the simulated NC data
-actual demographics
-realistic alpha and beta
-we get to experiment sigma_nu
+## Results for $\sigma_\nu=0.02$
 
 
-## EI results (1)
-
-Show updated tables from paper
-
+ \begin{table}[htbp]
+ \label{results0.3}
+ \begin{tabular}{cc|cc|cc|cc}
+       \multicolumn{2}{c}{}   & \multicolumn{2}{c}{Other/none} & \multicolumn{2}{c}{Clinton (D)} & \multicolumn{2}{c}{Trump (R)} \\
+                   &$\mathcal{A}$       &  $\overline{Q}$         &   $s_Q$       &  $\overline{Q}$         &   $s_Q$     &  $\overline{Q}$         &   $s_Q$          \\
+ \hline
+\multirow{3}{*}{White} & Truth & 32.4\% &  & 22.6\% &  & 45.0\% &  \\ 
+   & RJKT & 32.3\% & 0.059\% & 22.5\% & 0.069\% & 45.0\% & 0.057\% \\ 
+   & LVI & 32.3\% & 0.028\% & 22.7\% & 0.028\% & 45.0\% & 0.030\% \\ 
+   \hline 
+  \multirow{3}{*}{Black} & Truth & 38.1\% &  & 56.6\% &  & 5.28\% &  \\ 
+   & RJKT & 38.4\% & 0.32\% & 56.2\% & 0.19\% & 4.87\% & 0.19\% \\ 
+   & LVI & 37.9\% & 0.067\% & 56.3\% & 0.058\% & 5.79\% & 0.046\% \\ 
+   \hline 
+  \multirow{3}{*}{Other} & Truth & 43.4\% &  & 32.7\% &  & 24.0\% &  \\ 
+   & RJKT & 41.5\% & 0.65\% & 32.9\% & 0.41\% & 24.2\% & 0.72\% \\ 
+   & LVI & 44.4\% & 0.25\% & 32.4\% & 0.21\% & 23.3\% & 0.25\% \\ 
+   \hline 
+ \end{tabular}
+ \end{table}
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
 note("Point out that this is different (better!) than what you originally sent, because:
@@ -1254,14 +1474,44 @@ improved amortization (optimize Y → optimize W)
 Conclusion: We are as good as RJKT, but we’re just getting started")
 ```
 
+## Results for $\sigma_\nu=0.3$
 
 
+ \begin{table}[htbp]
+ \label{results0.3}
+ \begin{tabular}{cc|cc|cc|cc}
+       \multicolumn{2}{c}{}   & \multicolumn{2}{c}{Other/none} & \multicolumn{2}{c}{Clinton (D)} & \multicolumn{2}{c}{Trump (R)} \\
+                   &$\mathcal{A}$       &  $\overline{Q}$         &   $s_Q$       &  $\overline{Q}$         &   $s_Q$     &  $\overline{Q}$         &   $s_Q$          \\
+ \hline
+\multirow{3}{*}{White} & Truth & 32.3\% &  & 22.7\% &  & 45.0\% &  \\ 
+                       & RJKT & 32.3\% & 0.080\% & 22.8\% & 0.11\% & 44.8\% & 0.14\% \\ 
+                       & LVI & 33.2\% & 0.067\% & 23.5\% & 0.049\% & 43.0\% & 0.070\% \\ 
+   \hline
+  \multirow{3}{*}{Black} & Truth & 38.9\% &  & 55.6\% &  & 5.48\% &  \\ 
+   & RJKT & 40.4\% & 0.39\% & 53.7\% & 0.38\% & 5.33\% & 0.20\% \\ 
+   & LVI & 36.3\% & 0.17\% & 54.6\% & 0.15\% & 9.21\% & 0.16\% \\ 
+   \hline
+  \multirow{3}{*}{Other} & Truth & 43.0\% &  & 32.7\% &  & 24.3\% &  \\ 
+   & RJKT & 38.3\% & 1.1\% & 35.4\% & 0.52\% & 24.9\% & 1.1\% \\ 
+   & LVI & 45.0\% & 0.46\% & 33.6\% & 0.40\% & 21.7\% & 0.47\% \\ 
+   \hline
+ \end{tabular}
+ \end{table}
 
-## EI results (2)
+```{r, out.width = "60px", echo=FALSE, results='asis'}
+note("Point out that this is different (better!) than what you originally sent, because:
+does not underestimate variance (fixed bug)
+corrected alphas and betas (so that overall percentages of people of each race voting for each candidate approximate the true 2016 data, as intended)
+did NOT improve amortization (optimize Y -> optimize W)
+Conclusion: We are as good as RJKT, but we’re just getting started")
+```
+
+
 
 ## Discussion/future work (Ch. 3)
 
-* Including the covariate 
+* Including racial makeup of precinct as a covariate
+* Hierarchical model (counties)
 * Multiple elections
 * Actual NC data
 * Compare hierachical model without EI, Standard RJKT, and our model
@@ -1269,7 +1519,8 @@ Conclusion: We are as good as RJKT, but we’re just getting started")
 
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("Say that this is the stuff we plan to include in final paper")
+note("Say that this is the stuff we plan to include in final paper. 
+Covariate is important -- it's why ER fails so badly")
 ```
 
 
@@ -1277,14 +1528,14 @@ note("Say that this is the stuff we plan to include in final paper")
 ## Discussion/future work (Ch. 2)
 
 * More on subsampling:
-
-    * general theory of how to assign weights to minimize variance of estimator in subsampling (use Ch 3 as example)
-    * maybe some theory to help choose sample size for SVI
-* Replace normal with T in guide
+    * General theory of how to assign weights to minimize variance of estimator in subsampling
+    * Some theory to help choose sample size for SVI
+* Investigate replacing normal with T in guide
 
 
 ```{r, out.width = "60px", echo=FALSE, results='asis'}
-note("Say that this will not be in current paper, which is basically done")
+note("(use Ch 3 as example)
+Say that this will not be in current paper, which is basically done")
 ```
 
 
@@ -1292,92 +1543,39 @@ note("Say that this will not be in current paper, which is basically done")
 
 ## Thanks
 
-
+Thank you!
 
 
 ## Directory of extra slides
 
+* Prior work
+* EI amortization
+* *Thornburg v. Gingles*
+* Model (for discussing extensions)
+
 ## Non-meanfield prior work
 
-Just the list from the paper
-Give example of actual theorem you can prove when you have conjugate model structure
+* Copula VI (Han et al 2015): create arbitrary transformations, to allow "quasi-correlation matrices" for non-Gaussian families. The values for such matrices are unrestricted, though.
+* Time-series (Zhang et al 2017): model-specific tricks.
+* Hierarchical VI (Ranganath et al 2015): put a prior on the guide then marginalize it out. Relies on conjugacy.
+* Variational Boosting (Miller et al 2016): Correlation structure: low-rank plus diagonal.
+* Normalizing flows (Rezende et al 2015): Kinda like adding a step of MCMC after sampling from guide.
+* "Laplace Variational Inference" (Wang \& Blei, 2012): Use Laplace approximation to approve update step in a conjugate meanfield VI.
+* Imaging (Zhang et al 2017): Use Laplace approximation around posterior mode for certain fixed-size subsets of parameters. No boosting.
 
-## Details on toy model
-
-Just the model
-
-## More on block-arrowhead matrices
-
-Formulas for boosting
-Formulas for sampling
-
-(basically just the stuff in the appendix)
-
-## What we expect from subsampling
-
-HARD
-
-## Details of ECHS
-
-The actual model
-Result tables
-
-## More details on RJKT
-
-## Possible extensions to our EI model
-
-## Boundary issues with polytope; pseudovoters
-
-HARD
-
-## How our EI amortization works (1)
+## How our EI amortization works
 
 Which variables are we amortizing: Y, nu, sigma_nu
+
 Steps:
-Find approximate mode of p(Y|alpha, beta, nu) constrained to lie on polytope (this is linear algebra plus stirling’s approximation)
-One-dimensional Newton’s method to find approximate mode of W. (Not the same thing, because there’s Jacobian, mode of W is further away from boundary)
-Find approximate mode of p(nu, sigma_nu| gamma, W) 
-Newton’s method (for free!!)
 
-## How our EI amortization works (2)
-
-Details on how we get nu and sigma_nu
-
-## More EI results
+* Find approximate mode of $p(\bm{Y}|\bm{\alpha}, \bm{\beta};\bm{\nu}=0)$ constrained to lie on polytope (this is linear algebra plus Stirling’s approximation)
+* Not yet done: One-dimensional Newton’s method to find approximate mode of W. (Not the same thing, because there’s Jacobian, mode of W is further away from boundary)
+* Find approximate mode of $p(\bm{\nu}_u, \sigma_{\nu}| \bm{\gamma}, \bm{W}_u)$ (ad hoc algorithm, but see next step)
+* Newton’s method (for free!!)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-## END DEFENSE, START OLD PRESENTATION
-
-## Teaser
-
-```{r fig.width=8, fig.height=5,echo=FALSE}
-library(png)
-library(grid)
-img <- readPNG("mira's ei slides.png")
- grid.raster(img)
-```
-
-## Thornburg v Gingles, 1986
+## *Thornburg v Gingles*, 1986
 
 A majority-minority district must be created if:
 
@@ -1387,477 +1585,21 @@ A majority-minority district must be created if:
 
 3. The "majority \red{\textbf{votes sufficiently as a bloc}} to enable it ... usually to defeat the minority's preferred candidate."
 
-## Ecological data
 
 
-## Independence?
-
-\begin{tikzpicture}[
-squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle (6.5,4);
-\draw[ultra thick](0,0) rectangle (6.5,4);}
-]
-\foreach \x in {2,1.75,1.5,1.25,1,.75,0.5,.25,0}\pic at (\x,\x){squared notebook};
-\draw[-latex] (7,0) -- +(1.5,1.5) node[below right,midway,rotate=45] {\purple{precinct}};
-\node[rotate=90] (h) at (.5,2) {Race};
-\node (w) at (3.5,3.5) {\purple{Candidate}};
-
-
-
-\node (w) at (3.5,2) {$\begin{array}{l|lll|l}
-& R & D & No & \\
-\hline
-White & \red{200} & \red{100} & \red{100} & 400 \\
-Black & \red{100} & \red{50} & \red{50} & 200   \\
-Hispanic & \red{50} & \red{25} & \red{25} & 100   \\
-Other & \red{50} & \red{25} & \red{25} & 100   \\
-\hline
- & 400 & 200 & 200 & 800\end{array}$};
-
-\end{tikzpicture}
-
-## Structure
-
-* Pose the ecological problem (done)
-* Quick review of prior approaches
-* A basic, extensible model for EI
-* Why and how to reparameterize
-* Review of variational inference
-* Applying variational inference to EI
-* Guide (aka variational distribution) based on observed information
-
-## Ecological regression (for $2\times 2$ cases)
-
-
-```{r fig.height=5,echo=FALSE}
-img <- readPNG("brexit_ER.png")
- grid.raster(img)
-```
-
-Brexit voting data. (Example from "The Stats Guy" blog by Adam Jacobs.) Valid under certain (strong) assumptions.
-
-## Ecological regression: uh oh
-
-
-```{r fig.height=5,echo=FALSE}
-img <- readPNG("brexit_ER_oops.png")
- grid.raster(img)
-```
-
-Brexit supported by 79% of people without a degree... and -16% of those with one??? Ecological fallacy, Simpson's paradox, etc.
-
-## Infer latents, not parameters
-
-Insight from King, Rosen, Tanner 1999: instead of focusing on population parameters, which are not directly constrained by the data, focus on latent parameters, which are.
-
-Refined by Rosen, King, Jiang, Tanner (2001):
-
-* Fully Bayesian model 
-
-* extends to $R\neq 2 \neq C$
-
-* fast, moment-based estimator
-
-* now widely used.
-
-## Issues with RKJT 2001:
-
-The RKJT model can, in principle, be extended to handle additional factors such as:
-
-* inter-row or inter-column correlations
-* covariates
-* multiple elections
-* exit polling data
-* etc. 
-
-However: 
-
-* the moment-based estimator breaks down, 
-* MCMC on such a high-dimensional latent space can be challenging.
-
-## Flexible model (1)
-
-## Flexible model (3)
+## Flexible model
 
 ![](holidaytree_bare.jpg){ width=30% } ![](holidaytree_decorated.png){ width=30% }
 
 
 
 
-$$\vec{y}_{p,r}=y_{p,r,c}\Vert_{c=1}^C\sim \operatorname{CMult}\left(n_{p,r},\frac{exp(\alpha_c+\beta_{r,c}\red{+\lambda_{r,c,p}})\Vert_{c=1}^C}{\sum_{c=1}^Cexp(\alpha_c+\beta_{r,c}\red{+\lambda_{r,c,p}})}\right)$$
+$$\vec{y}_{p,r}=y_{p,r,c}\vert_{c=1}^C\sim \operatorname{CMult}\left(n_{p,r},\frac{exp(\alpha_c+\beta_{r,c}\red{+\nu_{r,c,p}})\vert_{c=1}^C}{\sum_{c=1}^Cexp(\alpha_c+\beta_{r,c}\red{+\nu_{r,c,p}})}\right)$$
 
-$$\alpha_c\sim\mathcal{N}(0,\sigma_\alpha)~~~~~~~\sigma_\alpha\sim\operatorname{Expo}(5)$$
+$$\alpha_c\sim\mathcal{N}(0,2)$$
 
-$$\beta_{r,c}\sim\mathcal{N}(0,\sigma_\beta)~~~~~~~\sigma_\beta\sim\operatorname{Expo}(5)$$
+$$\beta_{r,c}\sim\mathcal{N}(0,2)$$
 
-$$\red{\lambda_{r,c,p}\sim\mathcal{N}(0,\sigma_\beta)}~~~~~~~\sigma_\lambda\sim\operatorname{Expo}(5)$$
-$\lambda$ handles overdispersion. Note: Bayesian Occam's Razor.
-
-## Standard Bayesian approach (simplified)
-
-$\begin{array}{cl}
-\operatorname{priors}~\pi & \\
-\downarrow & \\
-\operatorname{parameters}~\theta & \\
-\downarrow & \\
-\operatorname{latent~variables}~y & \\
-\downarrow & \\
-\operatorname{data}~z & 
-\end{array}$
-
-## Standard Bayesian approach (cont'd)
-
-$\begin{array}{cl}
-\operatorname{priors}~\pi & \\
-\downarrow & \operatorname{(parameterizes~distribution)}\\
-\operatorname{parameters}~\theta & \operatorname{(unobservable~quantities~of~interest;~low-D)}\\
-\downarrow & \operatorname{(parameterizes~distribution)}\\
-\operatorname{latent~variables}~y & \operatorname{(unobservable~nuisance~parameters;~high-D)}\\
-\downarrow & \operatorname{(parameterizes~distribution)}\\
-\operatorname{data}~z & 
-\end{array}$
-
-## Ecological Inference
-
-$\begin{array}{cl}
-\operatorname{priors}~\pi & \\
-\downarrow & \operatorname{(parameterizes~distribution)}\\
-\operatorname{parameters}~\theta & \operatorname{(unobservable~\red{nuisance~parameters};~low-D\red{?})}\\
-\downarrow & \operatorname{(parameterizes~distribution)}\\
-\operatorname{latent~variables}~y & \operatorname{(unobserv\red{ed~quantities~of~interest};~high-D)}\\
-\downarrow & \operatorname{\red{(deterministic~function)}}\\
-\operatorname{data}~z & 
-\end{array}$
-
-A likelihood from a deterministic function is an indicator function! 
-
-## Ecological case
-
-Since the likelihood is just an indicator function, the posterior is just the prior, restricted to the set of values where the likelihood is 1 and renormalized. For each precinct, this set turns out to be a polytope $\mathcal{Y}_{z_p}$ in an $(R-1)(C-1)$ dimensional subspace of the full $\mathbb{R}^{RC}$.
-
-\begin{tikzpicture}[
-squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle (4,4);
-\draw[ultra thick](0,0) rectangle (4,4);}
-]
-\foreach \x in {.75,0.5,.25,0}\pic at (\x,\x){squared notebook};
-\node[rotate=90] (h) at (.2,2) {Race};
-\node (w) at (2,3.5) {Candidate};
-
-
-
-\node (w) at (2.2,2) {$\begin{array}{lll|l}
-R & D & No & \\
-\hline
-\textcolor{red}{y_{p11}} & \textcolor{blue}{y_{p12}} & y_{p13} & \textcolor{olive}{500} \\
-y_{p21} & y_{p22} & y_{p23} & \textcolor{purple}{700}   \\
-\hline
-\textcolor{red}{400} & \textcolor{blue}{400} & 400 & 1200\end{array}$};
-
-
-
-
-
-
-
-
-
-
-
-\node[] at (8, -1.1)   (c) {$\mathcal{Y}_{z_p}\subset\mathbb{R}^{(R-1)(C-1)}\longleftrightarrow\mathbb{R}^{RC} $};
-
-%polytope
-\draw[style=-] (7,0) -- +(-1,1) node[below left=.25cm,anchor=base,midway,rotate=-45] {$y_{p11}+y_{p12}>\textcolor{purple}{100}$};
-\draw[style=-] (7,0) -- +(3,0) node[below=.3cm,anchor=base,midway] {$\textcolor{blue}{y_{p12}}>0$};
-\draw[style=-] (10,0) -- +(0,1) node[right = .3cm,anchor=base,midway,rotate=90] {$\textcolor{red}{y_{p11}<400}$};
-\draw[style=-] (10,1) -- +(-3,3) node[above right=.15cm,anchor=base,midway,rotate=-45] {$y_{p11}+y_{p12}<\textcolor{olive}{500}$};
-\draw[style=-] (7,4) -- +(-1,0) node[above=.2cm,anchor=base,midway] {$\textcolor{blue}{y_{p12}<400}$};
-\draw[style=-] (6,1) -- +(0,3) node[left = .2cm,anchor=base,midway,rotate=90] {$\textcolor{red}{y_{p11}}>0$};
-
-
-\end{tikzpicture}
-
-## Independence point
-
-\begin{tikzpicture}[
-squared notebook/.pic={\clip[postaction={shade,left color=white}](0,0) rectangle (4,4);
-\draw[ultra thick](0,0) rectangle (4,4);}
-]
-\foreach \x in {.75,0.5,.25,0}\pic at (\x,\x){squared notebook};
-\node[rotate=90] (h) at (.2,2) {Race};
-\node (w) at (2,3.5) {Candidate};
-
-
-
-\node (w) at (2.2,2) {$\begin{array}{lll|l}
-R & D & No & \\
-\hline
-\red{167} & \red{167} & 167 & 500 \\
-233 & 233 & 233 & 700   \\
-\hline
-400 & 400 & 400 & 1200\end{array}$};
-
-
-
-\draw[red,fill=red] (7.667,1.667) circle (.5ex);
-
-\node[] at (7.667,1.267)   (c) {Independence};
-
-%\tkzDefPoint(7.667,1.667){M}
-%\tkzLabelPoint[right,below](M){Independence}
-
-
-
-
-
-
-\node[] at (8, -1.1)   (c) {$\mathcal{Y}_{z_p}\subset\mathbb{R}^{(R-1)(C-1)}\longleftrightarrow\mathbb{R}^{RC}$};
-
-%polytope
-\draw[style=-] (7,0) -- +(-1,1) node[below left=.25cm,anchor=base,midway,rotate=-45] {$y_{p11}+y_{p12}>\textcolor{black}{100}$};
-\draw[style=-] (7,0) -- +(3,0) node[below=.3cm,anchor=base,midway] {$\textcolor{black}{y_{p12}}>0$};
-\draw[style=-] (10,0) -- +(0,1) node[right = .3cm,anchor=base,midway,rotate=90] {$\textcolor{black}{y_{p11}<400}$};
-\draw[style=-] (10,1) -- +(-3,3) node[above right=.15cm,anchor=base,midway,rotate=-45] {$y_{p11}+y_{p12}<\textcolor{black}{500}$};
-\draw[style=-] (7,4) -- +(-1,0) node[above=.2cm,anchor=base,midway] {$\textcolor{black}{y_{p12}<400}$};
-\draw[style=-] (6,1) -- +(0,3) node[left = .2cm,anchor=base,midway,rotate=90] {$\textcolor{black}{y_{p11}}>0$};
-
-
-\end{tikzpicture}
-
-
-
-
-
-
-
-
-
-
-
-## Diffeomorphic function $g(y'):\mathbb{R}^{(R-1)(C-1)}\rightarrow\mathcal{Y}_{z_p}$
-
-\begin{tikzpicture}
-
-%axes
-\draw[-latex] (2,2) -- +(2,0) node[below right,midway,rotate=45] {};
-\draw[-latex] (2,2) -- +(-2,0) node[below right,midway,rotate=45] {};
-\draw[-latex] (2,2) -- +(0,2) node[below right,midway,rotate=45] {};
-\draw[-latex] (2,2) -- +(0,-2) node[below right,midway,rotate=45] {};
-
-%vectors in y'
-\draw[-latex] (2,2) -- +(.3,.4) node[below right,midway,rotate=45] {};
-\draw[-latex] (2.3,2.4) -- +(.3,.4) node[below right,midway,rotate=45] {};
-\draw[-latex] (2.6,2.8) -- +(.3,.4) node[below right,midway,rotate=45] {};
-\draw[-latex] (2.9,3.2) -- +(.3,.4) node[below right,midway,rotate=45] {};
-
-
-\draw[-latex] (2,2) -- +(-.4,-.3) node[below right,midway,rotate=45] {};
-\draw[-latex] (1.6,1.7) -- +(-.4,-.3) node[below right,midway,rotate=45] {};
-\draw[-latex] (1.2,1.4) -- +(-.4,-.3) node[below right,midway,rotate=45] {};
-\draw[-latex] (0.8,1.1) -- +(-.4,-.3) node[below right,midway,rotate=45] {};
-
-\draw[-latex] (2,2) -- +(.5,0) node[below right,midway,rotate=45] {};
-\draw[-latex] (2.5,2) -- +(.5,0) node[below right,midway,rotate=45] {};
-\draw[-latex] (3,2) -- +(.5,0) node[below right,midway,rotate=45] {};
-\draw[-latex] (3.5,2) -- +(.5,0) node[below right,midway,rotate=45] {};
-
-%function connector
-\node[] at (5, -.7)   (a) {$g(y')$};
-\node[] at (5, -1.1)   (b) {$\longrightarrow$};
-
-%labels for spaces
-\node[] at (2, -1.1)   (c) {$\mathbb{R}^{(R-1)(C-1)}$};
-\node[] at (8, -1.1)   (c) {$\mathcal{Y}_{z_p}\subset\mathbb{R}^{(R-1)(C-1)}\longleftrightarrow\mathbb{R}^{RC}$};
-
-
-%polytope
-\draw[style=-] (7,0) -- +(-1,1) node[below left=.25cm,anchor=base,midway,rotate=-45] {$y_{p11}+y_{p12}>100$};
-\draw[style=-] (7,0) -- +(3,0) node[below=.3cm,anchor=base,midway] {$y_{p12}>0$};
-\draw[style=-] (10,0) -- +(0,1) node[right = .3cm,anchor=base,midway,rotate=90] {$y_{p11}<400$};
-\draw[style=-] (10,1) -- +(-3,3) node[above right=.15cm,anchor=base,midway,rotate=-45] {$y_{p11}+y_{p12}<500$};
-\draw[style=-] (7,4) -- +(-1,0) node[above=.2cm,anchor=base,midway] {$y_{p12}<400$};
-\draw[style=-] (6,1) -- +(0,3) node[left = .2cm,anchor=base,midway,rotate=90] {$y_{p11}>0$};
-
-
-%vectors in polytope
-\draw[-latex] (7.5,1.5) -- +(.3,.4) node[below right,midway,rotate=45] {};
-\draw[-latex] (7.8,1.9) -- +(.2,.266) node[below right,midway,rotate=45] {};
-\draw[-latex] (8.0,2.166) -- +(.133,.177) node[below right,midway,rotate=45] {};
-\draw[-latex] (8.133,2.344) -- +(.0889,.1185) node[below right,midway,rotate=45] {};
-
-
-
-\draw[-latex] (7.5,1.5) -- +(-.4,-.3) node[below right,midway,rotate=45] {};
-\draw[-latex] (7.1,1.2) -- +(-.2667,-.2) node[below right,midway,rotate=45] {};
-\draw[-latex] (6.833,1.0) -- +(-.1778,-.133) node[below right,midway,rotate=45] {};
-\draw[-latex] (6.655,.866) -- +(-.1185,-.0889) node[below right,midway,rotate=45] {};
-
-\draw[-latex] (7.5,1.5) -- +(.5,0) node[below right,midway,rotate=45] {};
-\draw[-latex] (8,1.5) -- +(.375,0) node[below right,midway,rotate=45] {};
-\draw[-latex] (8.375,1.5) -- +(.281,0) node[below right,midway,rotate=45] {};
-\draw[-latex] (8.656,1.5) -- +(.211,0) node[below right,midway,rotate=45] {};
-
-%dots at 0,0 and independence
-
-\draw[red,fill=red] (7.5,1.5) circle (.5ex);
-\draw[red,fill=red] (2,2) circle (.5ex);
-
-\end{tikzpicture}
-
-$$\frac{d \Vert g(y')-g(0)\Vert }{d\Vert y'\Vert}=y_{p11}y_{p12}(400-y_{p11})(400-y_{p12})(500-y_{p11}-y_{p12})\cdots$$
-
-
-## Stochastic variational inference (Hoffman et al., 2013)
-
-Goal: approximate \blue{unnormalized} posterior density $p(\theta,y|z)\propto p(z|\theta,y)p_\pi(\theta,y)$ with sampleable parametric distribution $q_\phi(\theta,y)$. (Called a \textbf{guide} in the pyro SVI package for python)
-
-Maximize negative K-L divergence from guide to \blue{normalized} posterior $p(z|\theta,y)p_\pi(\theta,y)/p(z)$:
-
-$$E_{q_\phi}\left(\log\frac{p(z|\purple{\theta},y)p_{\purple{\pi}}(\theta,y)}
-{q_\phi(\theta,y)p(z)}\right)<0$$
-
-$$E_{q_\phi}\left(\log[p(z|y)p(\theta,y)]-\log
-[q_\phi(\theta,y)]-\purple{\log(p(z))}\right)<0$$
-
-$$E_{q_\phi}\left(\log[p(z|y)p(\theta,y)]-\log
-[q_\phi(\theta,y)]\right)<\log(p(z))$$
-
-LHS is the \textbf{ELBO}; goal is to find $\phi$ which maximizes it.
-
-## ELBO terms
-
-$E_{q_\phi}\left(\log[p(z|y)p(\theta,y)]\right)$ is \textbf{energy} term. Maximized if $q$ is a $\delta$ (dirac mass) at MLE for $(\theta,y|z)$. Unboundedly negative if $q$ has probability mass where $p$ doesn't.
-
-$E_{q_\phi}\left(-\log[q_\phi(\theta,y)]\right)$ is \textbf{entropy} term. Maximized by making q diffuse. For example, if $q$ is $\mathcal{N}(\bm{\mu},\Sigma)$, then this is inversely proportional to $\mathrm{det}(\Sigma)$. In principle unboundedly negative, but in practice, it's easier to control than energy term.
-
-Together, they're maximized if $q_\phi$ "imitates" $p$.
-
-```{r fig.width=5, fig.height=2.5,echo=FALSE}
-library(ggplot2)
-library(data.table)
-
-options(tinytex.verbose = TRUE)
-
-combined = data.table()
-varidat = data.table(x=(-300:300)/100)
-varidat[,series:="1. Log posterior (unnormalized)"]
-varidat[,y:=2-log(1+x^2/5)*3+cos(8*atan(x-1.5))/2/(6*(x-1.5)^2+.8)]
-
-combined = rbind(combined,varidat,fill=T)
-
-varidat[,series:="2. Best Gaussian approximation"]
-varidat[,y:=-x^2]
-combined = rbind(combined,varidat,fill=T)
-
-varidat[,series:="3. Underdispersed"]
-varidat[,y:=log(2)-2*x^2]
-combined = rbind(combined,varidat,fill=T)
-
-varidat[,series:="4. Overdispersed"]
-varidat[,y:=-log(2)-.5*x^2]
-combined = rbind(combined,varidat,fill=T)
-
-varidat[,series:="5. Misplaced (local maximum)"]
-varidat[,y:=log(16)-16*(x-1.46)^2]
-combined = rbind(combined,varidat,fill=T)
-
-filtered = combined[y> -10, ]
-
-qplot(x,y,color=series,data=filtered) + theme_void()
-```
-
-## EI case
-
-Reparameterize with $y=g(y')$, and approximate $p(\theta,g(y'))]$ using $q_{\phi,z}(\theta,y')$. ELBO over $y'$ then becomes:
-
-$$E_{q_{\phi,z}}\left(\log[p(\theta,g(y'))\operatorname{det}(J(g(y')))]-\vphantom{\Big|}\log
-[q_{\phi,z}(\theta,y')]\right)$$
-
-A common form of variational inference uses a "mean field" guide which factorizes across all parameters and latents; frequently, one that's Normal in each dimension. This ignores the dependence induced by conditioning on the data; which is particularly strong in the case of EI.
-
-## Laplace family
-
-```{r, out.width = "60px", echo=FALSE, results='asis'}
-if(T){knitr::include_graphics("stay_puft_2.jpg")}
-note("staypuft")
-```
-*"Choose the form of your posterior"*
-
-Take $q(\theta,y')$ to be a multivariate Normal, and assume that once the ELBO is maximized, its mode $(\hat{\theta},\hat{y})$ coincides with a mode of the posterior. What should its covariance matrix be?
-
-There's an obvious way to approximate a twice-differentiable, unnormalized distribution with a Normal: a Laplace approximation. 
-
-That is, use the observed information matrix:
-
-$$\mathcal{I}(\hat{\bm{y}}',\hat{\theta})=D^2\left(\log[p(\hat{\theta},g(\hat{y}'))\operatorname{det}(J(g(y')))]\right)$$
-as the precision matrix of $q$. 
-
-## Graphical posterior
-
-
-\begin{tikzpicture}
-
-  % Define nodes
-  \node[const]           (hats) {$\hat{\bm{\theta}}$};
-  \node[const, right=2.5 of hats]            (What) {$\hat{W}_{u}$};
-  
-  \factor[below=of hats,yshift=-.3cm] {paramdist} {right:$\mathcal{N}$} {} {};
-  \node[latent, diamond, aspect=2.5, left=.8 of paramdist]            (Iparams) {$\mathcal{I}^{-1}(\hat{\bm{\theta}})$};
-  \node[latent, below=of paramdist]            (params) {$\bm{\theta}$};
-  
-  
-  
-  \node[const, below=1.5 of What,xshift=-3cm] (stuff) {};
-  
-  \factor[below=2.11 of What] {fulldist} {above left:$\mathcal{N}$} {} {};
-  \node[latent, diamond, aspect=2.5, right=.8 of fulldist]            (Ifull) {$\mathcal{I}^{-1}(\hat{\bm{\theta}},\hat{W}_{u})$};
-  \node[latent, below=of fulldist]            (W) {$W_u$};
-  \node[const, right=0.3 of W]            (detour) {};
-  \node[det, below=0.6 of W]            (gamma) {$\bm{\gamma}_{u,r}$};
-  \node[const, below=0.2 of gamma,xshift=-0.8cm]            (uhide) {};
-
-  % Connect the nodes
-  \edge[] {hats} {Iparams} ;
-  \edge[-] {hats} {paramdist} ; 
-  \edge[-] {Iparams} {paramdist} ; 
-  \edge {paramdist} {params} ; 
-  \edge {hats,What} {Ifull} ;
-  \edge[-] {params} {fulldist}; 
-  \edge[-] {Ifull} {fulldist}  ; 
-  \edge[-] {What} {fulldist} ; 
-  \edge {fulldist} {W} ; 
-  \edge[] {W,params} {gamma} ;
-
-  % Plates
-  \plate {U} {(gamma)} {$R$} ;
-  \plate {U} {(Ifull)(fulldist)(W)(gamma)(uhide)(What)} {$U$} ;
-\end{tikzpicture}
-
-## Computability
-
-* Using pyro, a variational inference package for python.
-* $\mathcal{I}(\hat{\bm{y}}',\hat{\theta})$ can be calculated using automated differentiation.
-* $\mathcal{I}(\hat{\bm{y}}',\hat{\theta})$ is high-dimensional, but due to the structure of the model, sparse (block arrowhead format), so working with it is reasonably efficient. In practice, this means doing sampling "top down" (hyperparameters->parameters->hyperlatents->latents), one precinct at a time at the lower levels.
-
-## Thanks
-
-Thanks to Mira Bernstein, Luke Miratrix, Gary King
-
-## Lower-D posterior (1)
-
-Recall our model:
-
-$\vec{y}_{p,r}=y_{p,r,c}\Vert_{c=1}^C\sim \operatorname{CMult}\left(n_{p,r},\frac{exp(\alpha_c+\beta_{r,c}\red{+\lambda_{r,c,p}})\Vert_{c=1}^C}{\sum_{c=1}^Cexp(\alpha_c+\beta_{r,c}\red{+\lambda_{r,c,p}})}\right)$
-
-$\alpha_c\sim\mathcal{N}(0,\sigma_\alpha)~~~~~~~\sigma_\alpha\sim\operatorname{Expo}(5)$
-
-$\beta_{r,c}\sim\mathcal{N}(0,\sigma_\beta)~~~~~~~\sigma_\beta\sim\operatorname{Expo}(5)$
-
-$\red{\lambda_{r,c,p}\sim\mathcal{N}(0,\sigma_\beta)}~~~~~~~\sigma_\lambda\sim\operatorname{Expo}(5)$
-
-Not only does the dimension of $y$ grow linearly with the number of precincts $P$; because of the latent $\lambda$ parameters, the dimension of $\theta$ does too. This is an issue both in estimating the ELBO and in maximizing it.
-
-## Lower-D posterior (2)
-
-Solution: replace $\lambda_{p,r,c}\Vert_{c=1}^C$ with its MAP value conditional on all the variables connected to it (not conditionally independent): $y_{p,r,c}\Vert_{c=1}^C$, $\alpha_c\Vert_{c=1}^C$, $\beta_{r,c}\Vert_{c=1}^C$, and $\sigma_\lambda$. Because of the form of the model, this is available analytically, and we can trust that the Laplace approximation will still be reasonably good away from the MAP.
-
-This is related to, but somewhat more aggressive than, the idea of "amortized variational inference" developed by Rezende and Mohammed (2015).
+$$\red{\nu_{r,c,p}\sim\mathcal{N}(0,\sigma_\beta)}~~~~~~~\sigma_\lambda\sim\operatorname{LogNormal}(-1.5,.5)$$
+$\nu$ handles overdispersion. Note: Bayesian Occam's Razor.
 
