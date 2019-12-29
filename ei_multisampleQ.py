@@ -1216,7 +1216,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
 if QUICKIE_SAVE:
     data = pandas.read_csv('input_data/NC_precincts_2016_with_sample.csv')
 else:
-    data = pandas.read_csv('input_data\ALL_precincts_2016_reg_with_sample_60.csv')
+    data = pandas.read_csv('input_data/ALL_precincts_2016_reg_with_sample_60.csv')
 
   #,county,precinct,white_reg,black_reg,other_reg,test
 wreg = torch.tensor(data.white_reg)
