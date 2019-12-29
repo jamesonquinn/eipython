@@ -77,7 +77,7 @@ SDS_TO_SHRINK_BY = 2/3 #neutral = 1.
 REATTACH_GRAD_PORTION = 1. #neutral = 1.
 SIGMA_NU_DETACHED_FRACTION = 1. #Neutral = 0. but very defensible up to 1. Moreover, seems to work!
 
-NSTEPS = 2#000
+NSTEPS = 2000
 SUBSET_SIZE = 30
 #BIG_PRIME = 73 #Wow, that's big!
 
@@ -1425,8 +1425,10 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
         lambdas = lambdas.squeeze()
 
         guidesampdenses += llp
+
+        #print("wmeans using",sizes(lambdas,lmean,llp))
         ws = lambdas[:,:wdim].view(n,R-1,C-1)
-        wmeans = lmean[:,:wdim].view(n,R-1,C-1)
+        wmeans = lmean[:,:,:wdim].view(n,R-1,C-1)
         #import pdb; pdb.set_trace()
         ys,ldajs = polytopizeU(R, C, ws, data.indeps[u:u+1].expand(n,R*C), return_ldaj=True, return_plural=True)
         meanys = polytopizeU(R, C, wmeans, data.indeps[u:u+1].expand(n,R*C), return_ldaj=False, return_plural=True)

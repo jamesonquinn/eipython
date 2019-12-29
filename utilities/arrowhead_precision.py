@@ -159,7 +159,7 @@ class ArrowheadPrecision:
             llinvs = self.llinvs,
             gls = self.gls,
             weights = self.weights,
-            boostedness = self.vrlls
+            boostedness = self.llboostedness
         )
         return result
 
