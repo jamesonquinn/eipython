@@ -53,7 +53,7 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "7.0.0"
+EI_VERSION = "7.0.1"
 FILEBASE = "ei_post_results_fixedalpha/"
 
 init_narrow = 10  # Numerically stabilize initialization.
@@ -884,7 +884,10 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
     # Loop (multiple particles)
     ##################################################################
     gamma_chol = torch.cholesky(big_arrow.marginal_gg_cov())
-    lambda_chols = [torch.cholesky(big_arrow.llinvs[p]) for p in range(P)]
+    try:
+        lambda_chols = [torch.cholesky(big_arrow.llinvs[p]) for p in range(P)]
+    except: #not worth troubleshooting, almost certainly just numerical collapse
+        lambda_chols = False
     for isamp in range(nsamps):
         log_jacobian_adjustment_elbo_local = torch.zeros(1)
         if nsamps==1:
@@ -989,9 +992,14 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
             adjusted_means.append(adjusted_mean)
 
             try:
-                pstuff = pyro.sample(f"{iter}pstuff_{p}",
-                                dist.OMTMultivariateNormal(adjusted_mean, lambda_chols[p]),
-                                infer={'is_auxiliary': True})
+                if lambda_chols:
+                    pstuff = pyro.sample(f"{iter}pstuff_{p}",
+                                    dist.OMTMultivariateNormal(adjusted_mean, lambda_chols[p]),
+                                    infer={'is_auxiliary': True})
+                else:
+                    pstuff = pyro.sample(f"{iter}pstuff_{p}",
+                                    dist.MultivariateNormal(adjusted_mean, big_arrow.llinvs[p]),
+                                    infer={'is_auxiliary': True})
 
             except:
                 ddp("error sampling pstuff",p,conditional_cov.size())
