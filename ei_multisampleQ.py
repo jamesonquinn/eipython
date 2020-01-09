@@ -53,8 +53,9 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "6.0.2"
-FILEBASE = "ei_post_results_MSEbiasterm/"
+EI_VERSION = "7.0.1"
+FILEBASE = "ei_post_results_fixedalpha/"
+
 init_narrow = 10  # Numerically stabilize initialization.
 
 
@@ -84,6 +85,7 @@ FAKE_VOTERS_PER_RACE = 1.
 FAKE_VOTERS_PER_REAL_PARTY = .5 #remainder go into nonvoting party
 
 BASE_PSI = .01
+FIT_PSIS = False
 
 QUICKIE_SAVE = (NSTEPS < 20) #save subset; faster
 CUTOFF_WINDOW = 140
@@ -850,13 +852,19 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
     # Psis
     ##################################################################
     #declare global-level psi params
-    globalpsi = get_param(inits,'globalpsi',torch.ones(gamma_dims)*BASE_PSI,
-                constraint=constraints.positive,
-                as_constant=PIN_PSI)
-    #declare precinct-level psi params
-    precinctpsi = get_param(inits,'precinctpsi',BASE_PSI * torch.ones(dims_per_unit),
-                constraint=constraints.positive,
-                as_constant=PIN_PSI)
+    if FIT_PSIS:
+        globalpsi = get_param(inits,'globalpsi',torch.ones(gamma_dims)*BASE_PSI,
+                    constraint=constraints.positive,
+                    as_constant=PIN_PSI)
+        #declare precinct-level psi params
+        precinctpsi = get_param(inits,'precinctpsi',BASE_PSI * torch.ones(dims_per_unit),
+                    constraint=constraints.positive,
+                    as_constant=PIN_PSI)
+    else:
+        globalpsi = torch.ones(gamma_dims)*BASE_PSI
+        #declare precinct-level psi params
+        precinctpsi = BASE_PSI * torch.ones(dims_per_unit)
+
 
     #dp"setpsis",sizes(globalpsi,precinctpsi))
     big_arrow.setpsis(globalpsi,precinctpsi)
@@ -876,7 +884,10 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
     # Loop (multiple particles)
     ##################################################################
     gamma_chol = torch.cholesky(big_arrow.marginal_gg_cov())
-    lambda_chols = [torch.cholesky(big_arrow.llinvs[p]) for p in range(P)]
+    try:
+        lambda_chols = [torch.cholesky(big_arrow.llinvs[p]) for p in range(P)]
+    except: #not worth troubleshooting, almost certainly just numerical collapse
+        lambda_chols = False
     for isamp in range(nsamps):
         log_jacobian_adjustment_elbo_local = torch.zeros(1)
         if nsamps==1:
@@ -981,9 +992,14 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
             adjusted_means.append(adjusted_mean)
 
             try:
-                pstuff = pyro.sample(f"{iter}pstuff_{p}",
-                                dist.OMTMultivariateNormal(adjusted_mean, lambda_chols[p]),
-                                infer={'is_auxiliary': True})
+                if lambda_chols:
+                    pstuff = pyro.sample(f"{iter}pstuff_{p}",
+                                    dist.OMTMultivariateNormal(adjusted_mean, lambda_chols[p]),
+                                    infer={'is_auxiliary': True})
+                else:
+                    pstuff = pyro.sample(f"{iter}pstuff_{p}",
+                                    dist.MultivariateNormal(adjusted_mean, big_arrow.llinvs[p]),
+                                    infer={'is_auxiliary': True})
 
             except:
                 ddp("error sampling pstuff",p,conditional_cov.size())
@@ -1208,7 +1224,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
 if QUICKIE_SAVE:
     data = pandas.read_csv('input_data/NC_precincts_2016_with_sample.csv')
 else:
-    data = pandas.read_csv('input_data\ALL_precincts_2016_reg_with_sample_60.csv')
+    data = pandas.read_csv('input_data/ALL_precincts_2016_reg_with_sample_60.csv')
 
   #,county,precinct,white_reg,black_reg,other_reg,test
 wreg = torch.tensor(data.white_reg)
@@ -1360,6 +1376,7 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
 
     if previousSamps is None:
         YSums = torch.zeros(n,R,C)
+        meanYSums = torch.zeros(n,R,C)
         ldajsums = torch.zeros(n)
         guidesampdenses = torch.zeros(n)
         moddenses = torch.zeros(n)
@@ -1390,7 +1407,7 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
 
 
     else:
-        gammas,YSums, stuff, Qvarcounters = previousSamps
+        gammas,YSums, meanYSums,stuff, Qvarcounters = previousSamps
         guidesampdenses,ldajsums,moddenses,modnps = [stuff[:,i] for i in range(4)]
         dp("sampleYs0",sizes(gammas,YSums, stuff,guidesampdenses,ldajsums,moddenses,modnps))
         #import pdb; pdb.set_trace()
@@ -1416,9 +1433,13 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
         lambdas = lambdas.squeeze()
 
         guidesampdenses += llp
+
+        #print("wmeans using",sizes(lambdas,lmean,llp))
         ws = lambdas[:,:wdim].view(n,R-1,C-1)
+        wmeans = lmean[:,:,:wdim].view(n,R-1,C-1)
         #import pdb; pdb.set_trace()
         ys,ldajs = polytopizeU(R, C, ws, data.indeps[u:u+1].expand(n,R*C), return_ldaj=True, return_plural=True)
+        meanys = polytopizeU(R, C, wmeans, data.indeps[u:u+1].expand(n,R*C), return_ldaj=False, return_plural=True)
         if icky_sigma:
             sigma_nu = fit["fstar_data"]["sdprc"].unsqueeze(0)
             dp("sdprc",sizes(sigma_nu))
@@ -1433,6 +1454,7 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
         dp("sampleYs", sizes(lambdas,lmean,lstar,ll,gammas,base_logits,ldajs))
         ldajsums = ldajsums + ldajs.squeeze()
         YSums = YSums + ys
+        meanYSums = meanYSums + meanys
 
         nrbyc = data.ns[u].view(1,R,1) #used as weights for running variance calculation
         qs = ys / nrbyc
@@ -1445,7 +1467,7 @@ def sampleYs(fit,data,n,previousSamps = None,weightToUndo=1.,indices=None, icky_
 
     denses = torch.stack([guidesampdenses,ldajsums,moddenses,modnps],1)
     dp("denses",sizes(denses))
-    return [t.clone().detach().requires_grad_(False) for t in (gammas,YSums, denses,Qvarcounters)]
+    return [t.clone().detach().requires_grad_(False) for t in (gammas,YSums, meanYSums,denses,Qvarcounters)]
 
 def saveYsamps(samps, data, subsample_n, nparticles,nsteps,dversion="",filebase=FILEBASE + "funnyname_",i=None,N=None, use_grad=False):
 

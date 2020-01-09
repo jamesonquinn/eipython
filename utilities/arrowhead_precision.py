@@ -103,7 +103,9 @@ class ArrowheadPrecision:
         self.U = len(self.weights)
         self.vecweights = torch.stack([torch.tensor(w) for w in self.weights]).view(self.U,1,1)
         self.vecraw_lls = torch.stack(self.raw_lls)
-        chol_lls,self.lls = boost_to_chol(self.vecraw_lls/self.vecweights,self.psil, include_sym=True)
+        vrlls = self.vecraw_lls/self.vecweights
+        chol_lls,self.lls = boost_to_chol(vrlls,self.psil, include_sym=True)
+        self.llboostedness = torch.sum(self.lls - vrlls)
         self.chol_lls = self.vecweights*chol_lls
         #print("example:")
         #print(self.raw_lls[0][:4,:4])
@@ -156,7 +158,8 @@ class ArrowheadPrecision:
             chol_lls = self.chol_lls,
             llinvs = self.llinvs,
             gls = self.gls,
-            weights = self.weights
+            weights = self.weights,
+            boostedness = self.llboostedness
         )
         return result
 
