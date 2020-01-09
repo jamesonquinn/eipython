@@ -1,0 +1,378 @@
+
+us, post_results "../ei_post_results/fit_0_parts15_steps190_SIG0.3_3_N692_S100_.json"
+> summary(psamp - 1)
+       V8               V11              V14
+ Min.   :1248026   Min.   :558123   Min.   :193987
+ 1st Qu.:1251350   1st Qu.:560791   1st Qu.:196612
+ Median :1252423   Median :561570   Median :197541
+ Mean   :1252415   Mean   :561606   Mean   :197489
+ 3rd Qu.:1253664   3rd Qu.:562426   3rd Qu.:198435
+ Max.   :1256742   Max.   :565498   Max.   :200692
+       V9              V12              V15
+ Min.   :587098   Min.   :399652   Min.   :110755
+ 1st Qu.:589901   1st Qu.:401878   1st Qu.:112674
+ Median :590866   Median :402617   Median :113394
+ Mean   :590840   Mean   :402636   Mean   :113413
+ 3rd Qu.:591878   3rd Qu.:403411   3rd Qu.:114095
+ Max.   :595067   Max.   :406174   Max.   :116952
+      V10               V13              V16
+ Min.   :2964847   Min.   :579024   Min.   :281499
+ 1st Qu.:2968951   1st Qu.:582463   1st Qu.:284422
+ Median :2970164   Median :583529   Median :285407
+ Mean   :2970277   Mean   :583528   Mean   :285371
+ 3rd Qu.:2971663   3rd Qu.:584612   3rd Qu.:286341
+ Max.   :2976414   Max.   :587951   Max.   :289339
+
+RJKT:
+ V1                V2               V3
+Min.   :1067026   Min.   :713363   Min.   :196603
+1st Qu.:1074080   1st Qu.:719668   1st Qu.:200971
+Median :1076167   Median :721974   Median :203562
+Mean   :1076320   Mean   :722600   Mean   :204118
+3rd Qu.:1078585   3rd Qu.:725403   3rd Qu.:207166
+Max.   :1085616   Max.   :732849   Max.   :214493
+V4               V5               V6
+Min.   :400327   Min.   :577407   Min.   :101328
+1st Qu.:406229   1st Qu.:582346   1st Qu.:104592
+Median :407575   Median :584554   Median :106487
+Mean   :407408   Mean   :584442   Mean   :107024
+3rd Qu.:408779   3rd Qu.:586322   3rd Qu.:109027
+Max.   :414790   Max.   :592155   Max.   :115556
+V7                V8               V9
+Min.   :3312291   Min.   :224315   Min.   :267314
+1st Qu.:3318521   1st Qu.:230104   1st Qu.:274280
+Median :3320759   Median :232573   Median :276580
+Mean   :3321486   Mean   :232409   Mean   :276813
+3rd Qu.:3323772   3rd Qu.:234740   3rd Qu.:279675
+Max.   :3335878   Max.   :242156   Max.   :285997
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1] "../ei_post_results_fixedalpha/fit_0_parts15_steps190_SIG0.3_1_N692_S100_.json"
+> summary(Ksamp) them:9K us:2.3K
+       V1                V2               V3
+ Min.   :1549289   Min.   :599086   Min.   :208917
+ 1st Qu.:1564142   1st Qu.:603869   1st Qu.:215906
+ Median :1568874   Median :608750   Median :219506
+ Mean   :1568181   Mean   :611670   Mean   :219777
+ 3rd Qu.:1573420   3rd Qu.:618676   3rd Qu.:223897
+ Max.   :1580453   Max.   :633001   Max.   :229601
+       V4                V5               V6
+ Min.   :1098436   Min.   :830993   Min.   :189179
+ 1st Qu.:1107308   1st Qu.:852027   1st Qu.:193346
+ Median :1112409   Median :858463   Median :195381
+ Mean   :1113849   Mean   :855182   Mean   :195480
+ 3rd Qu.:1117055   3rd Qu.:861103   3rd Qu.:197406
+ Max.   :1136517   Max.   :865757   Max.   :202567
+       V7                V8              V9
+ Min.   :2111257   Min.   :64101   Min.   :158002
+ 1st Qu.:2118659   1st Qu.:70780   1st Qu.:168285
+ Median :2122286   Median :72994   Median :173562
+ Mean   :2123183   Mean   :72599   Mean   :172696
+ 3rd Qu.:2126697   3rd Qu.:74834   3rd Qu.:177413
+ Max.   :2139283   Max.   :78703   Max.   :186256
+> summary(VIsamp - 1)
+       V8               V11              V14
+ Min.   :1643824   Min.   :545562   Min.   :206727
+ 1st Qu.:1647180   1st Qu.:548644   1st Qu.:209469
+ Median :1648169   Median :549449   Median :210322
+ Mean   :1648271   Mean   :549443   Mean   :210352
+ 3rd Qu.:1649494   3rd Qu.:550289   3rd Qu.:211209
+ Max.   :1653385   Max.   :552886   Max.   :214177
+       V9               V12              V15
+ Min.   :1362334   Min.   :604695   Min.   :194668
+ 1st Qu.:1365815   1st Qu.:607113   1st Qu.:197340
+ Median :1366593   Median :607942   Median :198130
+ Mean   :1366635   Mean   :607946   Mean   :198118
+ 3rd Qu.:1367457   3rd Qu.:608806   3rd Qu.:198917
+ Max.   :1370830   Max.   :610765   Max.   :201763
+      V10               V13              V16
+ Min.   :1793732   Min.   :386603   Min.   :183936
+ 1st Qu.:1797493   1st Qu.:389433   1st Qu.:186925
+ Median :1798575   Median :390295   Median :187733
+ Mean   :1798626   Mean   :390380   Mean   :187803
+ 3rd Qu.:1799826   3rd Qu.:391350   3rd Qu.:188656
+ Max.   :1803351   Max.   :394839   Max.   :191990
+
+
+
+
+ > fit.filename
+ [1] "../ei_post_results_fixedalpha/fit_0_parts15_steps190_SIG0.1_1_N692_S100_.json"
+ > summary(Ksamp) #v1:9K  us: 850
+        V1                V2               V3
+  Min.   :1560152   Min.   :580528   Min.   :227679
+  1st Qu.:1564306   1st Qu.:587284   1st Qu.:238629
+  Median :1569109   Median :594232   Median :241602
+  Mean   :1568849   Mean   :594890   Mean   :241311
+  3rd Qu.:1572538   3rd Qu.:600285   3rd Qu.:244496
+  Max.   :1578592   Max.   :614015   Max.   :251505
+        V4                V5               V6
+  Min.   :1073780   Min.   :859026   Min.   :193856
+  1st Qu.:1079804   1st Qu.:865804   1st Qu.:196511
+  Median :1084121   Median :870239   Median :198320
+  Mean   :1085463   Mean   :869588   Mean   :198469
+  3rd Qu.:1091839   3rd Qu.:873104   3rd Qu.:200414
+  Max.   :1098724   Max.   :878231   Max.   :205804
+        V7                V8              V9
+  Min.   :2142426   Min.   :64965   Min.   :133904
+  1st Qu.:2148624   1st Qu.:72162   1st Qu.:145245
+  Median :2150730   Median :74857   Median :148296
+  Mean   :2150901   Mean   :74973   Mean   :148174
+  3rd Qu.:2153103   3rd Qu.:77856   3rd Qu.:151852
+  Max.   :2159773   Max.   :84759   Max.   :163223
+ > summary(VIsamp - 1)
+        V8               V11              V14
+  Min.   :1575867   Min.   :613293   Min.   :218768
+  1st Qu.:1577319   1st Qu.:614657   1st Qu.:220132
+  Median :1577749   Median :614994   Median :220575
+  Mean   :1577737   Mean   :614981   Mean   :220584
+  3rd Qu.:1578184   3rd Qu.:615346   3rd Qu.:221039
+  Max.   :1579946   Max.   :616582   Max.   :222577
+        V9               V12              V15
+  Min.   :1098525   Min.   :844756   Min.   :213916
+  1st Qu.:1099898   1st Qu.:845731   1st Qu.:215219
+  Median :1100291   Median :845993   Median :215602
+  Mean   :1100325   Mean   :845965   Mean   :215588
+  3rd Qu.:1100710   3rd Qu.:846224   3rd Qu.:215969
+  Max.   :1102382   Max.   :847380   Max.   :217319
+       V10               V13             V16
+  Min.   :2133289   Min.   :85938   Min.   :157899
+  1st Qu.:2135043   1st Qu.:86561   1st Qu.:159589
+  Median :2135449   Median :86810   Median :160078
+  Mean   :2135471   Mean   :86824   Mean   :160102
+  3rd Qu.:2135937   3rd Qu.:87093   3rd Qu.:160599
+  Max.   :2137488   Max.   :88121   Max.   :162452
+ >
+
+
+
+
+[1] "../ei_post_results_fixedalpha/fit_0_parts15_steps540_SIG0.02_0_N694_S100_.json"
+> summary(Ksamp) #them: 3K us: 900
+       V1                V2               V3
+ Min.   :1560542   Min.   :586923   Min.   :210179
+ 1st Qu.:1565097   1st Qu.:592423   1st Qu.:221383
+ Median :1567236   Median :603824   Median :227379
+ Mean   :1566987   Mean   :601104   Mean   :229295
+ 3rd Qu.:1568943   3rd Qu.:608594   3rd Qu.:238383
+ Max.   :1572452   Max.   :617989   Max.   :246640
+       V4                V5               V6
+ Min.   :1070603   Min.   :854300   Min.   :197703
+ 1st Qu.:1075646   1st Qu.:861237   1st Qu.:203430
+ Median :1077196   Median :865847   Median :206555
+ Mean   :1077426   Mean   :866427   Mean   :207295
+ 3rd Qu.:1079285   3rd Qu.:872073   3rd Qu.:209852
+ Max.   :1083677   Max.   :877246   Max.   :218308
+       V7                V8              V9
+ Min.   :2151386   Min.   :65465   Min.   :139467
+ 1st Qu.:2158218   1st Qu.:69660   1st Qu.:145539
+ Median :2160616   Median :71342   Median :153214
+ Mean   :2160800   Mean   :71920   Mean   :151364
+ 3rd Qu.:2163327   3rd Qu.:74945   3rd Qu.:155905
+ Max.   :2168776   Max.   :77957   Max.   :162422
+> summary(VIsamp - 1)
+       V8               V11              V14
+ Min.   :1561971   Min.   :588824   Min.   :249973
+ 1st Qu.:1563625   1st Qu.:589872   1st Qu.:251003
+ Median :1564048   Median :590225   Median :251483
+ Mean   :1564077   Mean   :590227   Mean   :251475
+ 3rd Qu.:1564559   3rd Qu.:590575   3rd Qu.:251957
+ Max.   :1565940   Max.   :591842   Max.   :253464
+       V9               V12              V15
+ Min.   :1094474   Min.   :866171   Min.   :193456
+ 1st Qu.:1096158   1st Qu.:867362   1st Qu.:194722
+ Median :1096610   Median :867648   Median :195160
+ Mean   :1096610   Mean   :867627   Mean   :195145
+ 3rd Qu.:1097089   3rd Qu.:867894   3rd Qu.:195567
+ Max.   :1098800   Max.   :868796   Max.   :197129
+      V10               V13             V16
+ Min.   :2150456   Min.   :88976   Min.   :147665
+ 1st Qu.:2152355   1st Qu.:89669   1st Qu.:149149
+ Median :2152855   Median :89904   Median :149631
+ Mean   :2152846   Mean   :89916   Mean   :149652
+ 3rd Qu.:2153302   3rd Qu.:90163   3rd Qu.:150173
+ Max.   :2154843   Max.   :90947   Max.   :151978
+
+> Ymat
+        [,1]   [,2]   [,3]
+[1,] 1557508 589629 258645
+[2,] 1088134 876484 194767
+[3,] 2167893  81660 142864
+
+
+
+
+
+
+
+
+
+
+
+
+
+..............after multiplying by llinv:
+
+[1] "../ei_post_results_fixedalpha/fit_0_parts15_steps280_SIG0.3_0_N692_S100_.json"
+> summary(Ksamp)
+       V1                V2               V3
+ Min.   :1526395   Min.   :611819   Min.   :223095
+ 1st Qu.:1542941   1st Qu.:620616   1st Qu.:232162
+ Median :1548769   Median :623070   Median :233680
+ Mean   :1547899   Mean   :625044   Mean   :233494
+ 3rd Qu.:1552472   3rd Qu.:629973   3rd Qu.:235249
+ Max.   :1568397   Max.   :644209   Max.   :237974
+       V4                V5               V6
+ Min.   :1077844   Min.   :810038   Min.   :217246
+ 1st Qu.:1083957   1st Qu.:818473   1st Qu.:221205
+ Median :1090799   Median :828676   Median :222576
+ Mean   :1091514   Mean   :826049   Mean   :222558
+ 3rd Qu.:1098512   3rd Qu.:833144   3rd Qu.:223938
+ Max.   :1109894   Max.   :837246   Max.   :228284
+       V7                V8              V9
+ Min.   :2152037   Min.   :78928   Min.   :123223
+ 1st Qu.:2162909   1st Qu.:85737   1st Qu.:130403
+ Median :2165658   Median :89052   Median :131751
+ Mean   :2165800   Mean   :88359   Mean   :131902
+ 3rd Qu.:2169122   3rd Qu.:90751   3rd Qu.:133451
+ Max.   :2175881   Max.   :95316   Max.   :144098
+> summary(VIsamp - 1)
+       V8               V11              V14
+ Min.   :1644067   Min.   :550557   Min.   :207345
+ 1st Qu.:1647895   1st Qu.:553553   1st Qu.:210521
+ Median :1648947   Median :554310   Median :211658
+ Mean   :1648886   Mean   :554341   Mean   :211577
+ 3rd Qu.:1649857   3rd Qu.:555175   3rd Qu.:212564
+ Max.   :1653177   Max.   :558810   Max.   :215516
+       V9               V12              V15
+ Min.   :1350356   Min.   :594629   Min.   :192211
+ 1st Qu.:1353331   1st Qu.:597861   1st Qu.:194586
+ Median :1354263   Median :598762   Median :195462
+ Mean   :1354178   Mean   :598711   Mean   :195424
+ 3rd Qu.:1355071   3rd Qu.:599543   3rd Qu.:196193
+ Max.   :1357467   Max.   :601618   Max.   :198654
+      V10               V13              V16
+ Min.   :1806523   Min.   :390700   Min.   :185953
+ 1st Qu.:1809391   1st Qu.:393863   1st Qu.:188360
+ Median :1810480   Median :394746   Median :189194
+ Mean   :1810469   Mean   :394718   Mean   :189271
+ 3rd Qu.:1811584   3rd Qu.:395533   3rd Qu.:190204
+ Max.   :1815170   Max.   :397720   Max.   :193301
+> Ymat
+        [,1]   [,2]   [,3]
+[1,] 1556767 601746 256294
+[2,] 1092311 861175 194830
+[3,] 2164457  84852 145152
+
+
+
+[1] "../ei_post_results_fixedalpha/fit_0_parts15_steps410_SIG0.1_0_N692_S100_.json"
+> summary(Ksamp)
+       V1                V2               V3
+ Min.   :1544523   Min.   :594821   Min.   :222826
+ 1st Qu.:1552069   1st Qu.:599587   1st Qu.:231768
+ Median :1557827   Median :600895   Median :237784
+ Mean   :1556815   Mean   :602037   Mean   :237331
+ 3rd Qu.:1561416   3rd Qu.:602780   3rd Qu.:243626
+ Max.   :1567427   Max.   :613775   Max.   :253306
+       V4                V5               V6
+ Min.   :1072994   Min.   :853532   Min.   :188781
+ 1st Qu.:1080928   1st Qu.:860223   1st Qu.:200534
+ Median :1083765   Median :862522   Median :202512
+ Mean   :1083725   Mean   :861873   Mean   :203271
+ 3rd Qu.:1086615   3rd Qu.:864023   3rd Qu.:207657
+ Max.   :1093543   Max.   :868514   Max.   :212293
+       V7                V8              V9
+ Min.   :2153161   Min.   :69034   Min.   :138854
+ 1st Qu.:2162451   1st Qu.:74803   1st Qu.:144761
+ Median :2164891   Median :75733   Median :146891
+ Mean   :2164673   Mean   :75541   Mean   :147352
+ 3rd Qu.:2166905   3rd Qu.:76692   3rd Qu.:149439
+ Max.   :2173473   Max.   :79198   Max.   :157579
+> summary(VIsamp - 1)
+       V8               V11              V14
+ Min.   :1562881   Min.   :607855   Min.   :228773
+ 1st Qu.:1564105   1st Qu.:609125   1st Qu.:230066
+ Median :1564536   Median :609536   Median :230482
+ Mean   :1564560   Mean   :609524   Mean   :230464
+ 3rd Qu.:1565034   3rd Qu.:609916   3rd Qu.:230919
+ Max.   :1566640   Max.   :610955   Max.   :232183
+       V9               V12              V15
+ Min.   :1096902   Min.   :855175   Min.   :199157
+ 1st Qu.:1098671   1st Qu.:856201   1st Qu.:201035
+ Median :1099146   Median :856550   Median :201462
+ Mean   :1099135   Mean   :856529   Mean   :201474
+ 3rd Qu.:1099618   3rd Qu.:856837   3rd Qu.:201962
+ Max.   :1101414   Max.   :857733   Max.   :203285
+      V10               V13             V16
+ Min.   :2147297   Min.   :80664   Min.   :161386
+ 1st Qu.:2149315   1st Qu.:81479   1st Qu.:163770
+ Median :2149858   Median :81708   Median :164317
+ Mean   :2149837   Mean   :81717   Mean   :164335
+ 3rd Qu.:2150370   3rd Qu.:81948   3rd Qu.:164853
+ Max.   :2152351   Max.   :82762   Max.   :166825
+
+
+
+
+[1] "../ei_post_results_fixedalpha/fit_0_parts15_steps520_SIG0.02_0_N692_S100_.json"
+> summary(Ksamp)
+       V1                V2               V3
+ Min.   :1560530   Min.   :596355   Min.   :214853
+ 1st Qu.:1567840   1st Qu.:601034   1st Qu.:220281
+ Median :1571581   Median :604889   Median :223291
+ Mean   :1570731   Mean   :603934   Mean   :222745
+ 3rd Qu.:1573518   3rd Qu.:606948   3rd Qu.:224908
+ Max.   :1580097   Max.   :612548   Max.   :228643
+       V4                V5               V6
+ Min.   :1067723   Min.   :856353   Min.   :209432
+ 1st Qu.:1072398   1st Qu.:861173   1st Qu.:212572
+ Median :1073930   Median :862984   Median :214106
+ Mean   :1074039   Mean   :862852   Mean   :214207
+ 3rd Qu.:1075560   3rd Qu.:864587   3rd Qu.:215350
+ Max.   :1080186   Max.   :868571   Max.   :220365
+       V7                V8              V9
+ Min.   :2151182   Min.   :67446   Min.   :142846
+ 1st Qu.:2156752   1st Qu.:71307   1st Qu.:148376
+ Median :2159421   Median :72907   Median :150638
+ Mean   :2160443   Mean   :72665   Mean   :151002
+ 3rd Qu.:2164198   3rd Qu.:74159   3rd Qu.:153716
+ Max.   :2171227   Max.   :78231   Max.   :158702
+> summary(VIsamp - 1)
+       V8               V11              V14
+ Min.   :1550289   Min.   :581514   Min.   :268382
+ 1st Qu.:1551778   1st Qu.:582592   1st Qu.:269999
+ Median :1552316   Median :582989   Median :270550
+ Mean   :1552289   Mean   :582967   Mean   :270524
+ 3rd Qu.:1552775   3rd Qu.:583340   3rd Qu.:271029
+ Max.   :1554257   Max.   :584989   Max.   :272455
+       V9               V12              V15
+ Min.   :1093643   Min.   :875015   Min.   :185733
+ 1st Qu.:1094981   1st Qu.:875877   1st Qu.:187343
+ Median :1095442   Median :876187   Median :187749
+ Mean   :1095460   Mean   :876188   Mean   :187734
+ 3rd Qu.:1095919   3rd Qu.:876530   3rd Qu.:188126
+ Max.   :1097194   Max.   :877341   Max.   :189322
+      V10               V13             V16
+ Min.   :2163470   Min.   :87510   Min.   :135151
+ 1st Qu.:2165239   1st Qu.:88356   1st Qu.:137438
+ Median :2165800   Median :88625   Median :137945
+ Mean   :2165783   Mean   :88616   Mean   :138015
+ 3rd Qu.:2166327   3rd Qu.:88872   3rd Qu.:138555
+ Max.   :2168132   Max.   :89725   Max.   :140199  

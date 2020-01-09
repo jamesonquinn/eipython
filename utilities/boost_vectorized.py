@@ -34,9 +34,12 @@ def zeros_and_one(U,k):
 #    U is an integer
 #    M is a U-by-n-by-n tensor (the program figures out n by itself)
 #    psi is an n tensor
-def _boost(U,M, psi):
+def _boost(U,M, psi, alwaysBoost=False):
    n=M.size()[1]
-   psi1 = psi+torch.ones(n)
+   if alwaysBoost:
+       psi1 = psi+torch.ones(n)
+   else:
+       psi1 = torch.ones(n)
 
    M_abs = torch.abs(M)
    d_abs = get_diag(M_abs)
