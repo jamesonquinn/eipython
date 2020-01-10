@@ -131,6 +131,8 @@ class ArrowheadPrecision:
         #print(mgg[:4,:4])
         #dp("btc 2", mgg.unsqueeze(0).size(), self.psig.size())
         self._mgg_chol, self._mgg = boost_to_chol(mgg.unsqueeze(0),self.psig, include_sym=True)
+
+        self.gglogdet = [torch.logdet(self.gg), torch.logdet(self._mgg)]
         #self.gg_cov = torch.cholesky_inverse(self._mgg_chol)
         self.gg_cov = torch.inverse(self._mgg[0])
         #dp("mgg sizes",sizes(self.gg,self._mgg,self.gg_cov))
@@ -159,7 +161,8 @@ class ArrowheadPrecision:
             llinvs = self.llinvs,
             gls = self.gls,
             weights = self.weights,
-            boostedness = self.llboostedness
+            boostedness = self.llboostedness,
+            gglogdet = self.gglogdet
         )
         return result
 
