@@ -1,0 +1,512 @@
+combined = rbind(combined,varidat,fill=T)
+varidat[,series:="Best Gaussian"]
+varidat[,y:=-x^2]
+combined = rbind(combined,varidat,fill=T)
+varidat[,series:="Underdispersed"]
+varidat[,y:=log(2)-2*x^2]
+combined = rbind(combined,varidat,fill=T)
+varidat[,series:="Overdispersed"]
+varidat[,y:=-log(2)-.5*x^2]
+combined = rbind(combined,varidat,fill=T)
+varidat[,series:="Misplaced (local maximum)"]
+varidat[,y:=log(16)-16*(x-1.46)^2]
+combined = rbind(combined,varidat,fill=T)
+filtered = combined[y> -10, ]
+qplot(x,y,color=series,data=filtered)
+qplot(x,y,color=series,data=filtered) + theme_void()
+library(xtable)
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library(ggplot2)
+library(gridExtra)
+library(ggpubr)
+library(reshape2)
+library(data.table)
+library(rstan)
+library(rjson)
+library(mvtnorm)
+library(GetoptLong)
+library(latex2exp)
+library(xtable)
+rstan_options(auto_write = TRUE)
+all.fits = list.files("eiresults/", pattern="*.json")
+all.fits
+all.fits = list.files("./eiresults/", pattern="*.json")
+all.fits
+pwd
+pwd()
+getwd()
+all.fits = list.files("../eiresults/", pattern="*.json")
+getwd()
+all.fits
+fit = all.fits[1]
+fit
+all.fits = list.files("../eiresults/", pattern="*.json")
+fit.filename = all.fits[1]
+fit = fromJSON(file=fit.filename)
+all.fits = list.files("../eiresults/", pattern="*.json", full.names=T)
+fit.filename = all.fits[1]
+fit = fromJSON(file=fit.filename)
+names(fit)
+names(fit$big_arrow)
+names(fit&aa_gamma_star_data)
+names(fit$aa_gamma_star_data)
+fit$aa_gamma_star_data
+c(fit$aa_gamma_star_data$erc)
+flatten(fit$aa_gamma_star_data$erc)
+unlist(fit$aa_gamma_star_data$erc)
+names(fit)
+fit$all_means
+flatten(fit$aa_gamma_star_data$erc)
+unlist(fit$aa_gamma_star_data$erc)
+head(fit$all_means,30)
+GAMMA_SIZE = R*(C-1)
+R = 3
+C = 3
+GAMMA_SIZE = R*(C-1)
+matrix(unlist(fit$aa_gamma_star_data$erc),2,2)
+T(matrix(unlist(fit$aa_gamma_star_data$erc),2,2))
+t(matrix(unlist(fit$aa_gamma_star_data$erc),2,2))
+install.packages("eiPack")
+setwd(dirname(rstudioapi::getActieDocumentContext()$path))
+library(ggplot2)
+library(gridExtra)
+library(ggpubr)
+library(reshape2)
+library(data.table)
+library(eiPack)
+rawNC = fread("../eiresults/scenario_SIG0.02_0_N527.csv")
+ncobs = rawNC[var %in% c("n","v"),]
+nc_obs = rawNC[var %in% c("n","v"),]
+library(tidyr)
+nc_wide = spread(nc_obs, list(r,c), val)
+names(nc_obs)
+nc_obs[,valname = paste0(var,r,c)]
+nc_obs[,valname := paste0(var,r,c)]
+head(nc_obs)
+nc_wide = spread(nc_obs, valname, val)
+nc_obs_only = nc_obs[,list(u,valname,val)]
+nc_wide = spread(nc_obs_only, valname, val)
+head(nc_wide)
+eibayes = ei.reg.bayes(cbind(vNA0,vNA1,vNA2)~cbind(n0NA,n1NA,n2NA), nc_wide)
+ei.draws
+ei
+eibayes$draws
+cover.plot(eibayes,1,1)
+eibayes = ei.MD.bayes(cbind(vNA0,vNA1,vNA2)~cbind(n0NA,n1NA,n2NA), nc_wide)
+eibayes = ei.MD.bayes(cbind(vNA0,vNA1,vNA2)~cbind(n0NA,n1NA,n2NA), data=nc_wide)
+cover.plot(eibayes,1,1)
+densityplot(eibayes)
+lamei = lambda.MD(eibayes)
+eibayes$draws[[1]]
+eibayes$draws
+names(eibayes)
+head(nc_wide)
+densityplot(eibayes,c("vNA0","vNA1"))
+lamei = lambda.MD(eibayes,c("vNA0","vNA1"))
+densityplot(eibayes)
+densityplot(lamei)
+lamei = lambda.MD(eibayes,c("vNA0","vNA1","vNA2"))
+densityplot(lamei)
+dim(lamei)
+summary(lamei)
+l2 = lamei * 2
+summary(lamei)
+summary(l2)
+totn = nc_obs[var=="n",sum(val)]
+l2 = lamei * totn
+densityplot(l2)
+l2m = matrix(l2)
+l2m
+dim(l2m)
+l2m = matrix(l2,1000,9)
+head(l2m)
+summary(l2m)
+summary(l2m)
+all.fits = list.files("../eiresults/", pattern="fit.*.json",full.names=T)
+all.samps = list.files("../eiresults/", pattern="samps.*.json",full.names=T)
+fit.filename = all.fits[1]
+samp.filename = all.samps[1]
+fit = fromJSON(file=fit.filename)
+R = 3
+C = 3
+samp=fread(samp.filename)
+sparts = strsplit(samp.filename,"_")[[1]]
+scenario.filename = paste("../eiresults/scenario",sparts[5],sparts[6],sparts[7],sep="_")
+scenario = fread(paste0(scenario.filename,".csv"))
+Y = c()
+for (rr in 0:2) {
+for (cc in 0:2) {
+Y = c(Y, scenario[var=="y"&r==rr&c==cc,sum(val+1)])
+}
+}
+BASE_DIRECTORY = "../testresults"
+Y
+data_dir = "../eiresults_penultimate/"
+all.fits = list.files(data_dir, pattern="fit.*.json",full.names=T)
+all.samps = list.files(data_dir, "../eiresults/", pattern="samps.*.json",full.names=T)
+fit.filename = all.fits[1]
+samp.filename = all.samps[1]
+data_dir = "../eiresults_penultimate/"
+all.fits = list.files(data_dir, pattern="fit.*.json",full.names=T)
+all.samps = list.files(data_dir, pattern="samps.*.json",full.names=T)
+fit.filename = all.fits[1]
+samp.filename = all.samps[1]
+fit = fromJSON(file=fit.filename)
+R = 3
+C = 3
+samp=fread(samp.filename)
+sparts = strsplit(samp.filename,"_")[[1]]
+scenario.filename = paste("../eiresults/scenario",sparts[5],sparts[6],sparts[7],sep="_")
+scenario = fread(paste0(scenario.filename,".csv"))
+samp=fread(samp.filename)
+sparts = strsplit(samp.filename,"_")[[1]]
+scenario.filename = paste(paste0(data_dir,"scenario"),sparts[5],sparts[6],sparts[7],sep="_")
+scenario = fread(paste0(scenario.filename,".csv"))
+data_dir = "../eiresults.penultimate/"
+all.fits = list.files(data_dir, pattern="fit.*.json",full.names=T)
+all.samps = list.files(data_dir, pattern="samps.*.json",full.names=T)
+fit.filename = all.fits[1]
+samp.filename = all.samps[1]
+fit = fromJSON(file=fit.filename)
+R = 3
+C = 3
+samp=fread(samp.filename)
+sparts = strsplit(samp.filename,"_")[[1]]
+scenario.filename = paste(paste0(data_dir,"scenario"),sparts[5],sparts[6],sparts[7],sep="_")
+scenario = fread(paste0(scenario.filename,".csv"))
+Y = c()
+for (rr in 0:2) {
+for (cc in 0:2) {
+Y = c(Y, scenario[var=="y"&r==rr&c==cc,sum(val+1)])
+}
+}
+data_dir = "../eiresults.penultimate/"
+all.fits = list.files(data_dir, pattern="fit.*.json",full.names=T)
+all.samps = list.files(data_dir, pattern="samps.*.json",full.names=T)
+fit.filename = all.fits[1]
+samp.filename = all.samps[1]
+fit = fromJSON(file=fit.filename)
+R = 3
+C = 3
+samp=fread(samp.filename)
+sparts = strsplit(samp.filename,"_")[[1]]
+scenario.filename = paste(paste0(data_dir,"scenario"),sparts[5],sparts[6],sparts[7],sep="_")
+scenario.filename = paste0(scenario.filename,".csv")
+scenario = fread(scenario.filename)
+Y = c()
+for (rr in 0:2) {
+for (cc in 0:2) {
+Y = c(Y, scenario[var=="y"&r==rr&c==cc,sum(val+1)])
+}
+}
+Y
+Ymat = matrix(Y,3,3)
+Ymat
+samp_eis = function(filename="../eiresults_penultimate/scenario_SIG0.02_0_N527.csv") {
+rawNC = fread(filename)
+nc_obs = rawNC[var %in% c("n","v"),]
+names(nc_obs)
+nc_obs[,valname := paste0(var,r,c)]
+nc_obs_only = nc_obs[,list(u,valname,val)]
+nc_wide = spread(nc_obs_only, valname, val)
+eibayes = ei.MD.bayes(cbind(vNA0,vNA1,vNA2)~cbind(n0NA,n1NA,n2NA), nc_wide)
+cover.plot(eibayes,1,1)
+lamei = lambda.MD(eibayes,c("vNA0","vNA1","vNA2"))
+densityplot(lamei)
+dim(lamei)
+densityplot(lamei)
+totn = nc_obs[var=="n",sum(val)]
+l2 = lamei * totn
+l2m = matrix(l2,1000,9)
+return(l2m)
+}
+sampei = samp_eis(scenario)
+scenario
+sampei = samp_eis(scenario.filename)
+samp_eis = function(filename="../eiresults_penultimate/scenario_SIG0.02_0_N527.csv") {
+rawNC = fread(filename)
+nc_obs = rawNC[var %in% c("n","v"),]
+names(nc_obs)
+nc_obs[,valname := paste0(var,r,c)]
+nc_obs_only = nc_obs[,list(u,valname,val)]
+nc_wide = spread(nc_obs_only, valname, val)
+eibayes = ei.MD.bayes(cbind(vNA0,vNA1,vNA2)~cbind(n0NA,n1NA,n2NA), data=nc_wide)
+cover.plot(eibayes,1,1)
+lamei = lambda.MD(eibayes,c("vNA0","vNA1","vNA2"))
+densityplot(lamei)
+dim(lamei)
+densityplot(lamei)
+totn = nc_obs[var=="n",sum(val)]
+l2 = lamei * totn
+l2m = matrix(l2,1000,9)
+return(l2m)
+}
+sampei = samp_eis(scenario.filename)
+summary(sampei)
+summary(samp - 1)
+totn = nc_obs[var=="n",sum(val),by=r]
+totn
+totn = nc_obs[var=="n",sum(val),by=r]
+totn = nc_obs[var=="n",sum(val),by=c]
+totn = nc_obs[var=="v",sum(val),by=c]
+totn
+totrc = nc_obs[var=="v",sum(val),by=r,c]
+totrc = nc_obs[var=="v",sum(val),by=list(r,c)]
+totrc
+totrc = nc_obs[var=="y",sum(val),by=list(r,c)]
+totrc
+totrc = rawNC[var=="y",sum(val),by=list(r,c)]
+totrc
+totr = rawNC[var=="y",sum(val),by=list(r)]
+totr = rawNC[var=="y",sum(val),by=r]
+totr
+totc = rawNC[var=="y",sum(val),by=c]
+totc
+totn
+sum(totc[V1,])
+sum(totc[,V1])
+sum(totr[,V1])
+sum(totrc[,V1])
+l00 = .2 - .15
+l01 = -.48-.43
+l02 = .28+.94
+sex = exp(l00)+exp(l01)+exp(l02)
+exp(l00)/sex
+exp(l01)/sex
+exp(l02)/sex
+totn
+totn = nc_obs[var=="n",sum(val),by=r]
+totn
+totn = nc_obs[var=="n",sum(val),by=r][,V1]
+totn
+l2m1 = matrix(lamei,1000,3,3)
+dim(l2m1)
+l2m1 = matrix(lamei,1000,9)
+dim(l2m1)
+head(l2m1)
+l2m1 * totn
+l2m2 = matrix(l2m1 * totn,1000,9)
+head(l2m2)
+head(l2m1)
+l2m2 = t(matrix(t(l2m1) * totn,9,1000))
+head(l2m2)
+samp_eis = function(filename="../eiresults_penultimate/scenario_SIG0.02_0_N527.csv") {
+rawNC = fread(filename)
+nc_obs = rawNC[var %in% c("n","v"),]
+names(nc_obs)
+nc_obs[,valname := paste0(var,r,c)]
+nc_obs_only = nc_obs[,list(u,valname,val)]
+nc_wide = spread(nc_obs_only, valname, val)
+eibayes = ei.MD.bayes(cbind(vNA0,vNA1,vNA2)~cbind(n0NA,n1NA,n2NA), data=nc_wide)
+cover.plot(eibayes,1,1)
+lamei = lambda.MD(eibayes,c("vNA0","vNA1","vNA2"))
+densityplot(lamei)
+dim(lamei)
+densityplot(lamei)
+totn = nc_obs[var=="n",sum(val),by=r][,V1]
+l2m1 = matrix(lamei,1000,9)
+l2m2 = t(matrix(t(l2m1) * totn,9,1000))
+return(l2m2)
+}
+sampei = samp_eis(scenario.filename)
+summary(sampei)
+samp_eis = function(filename="../eiresults_penultimate/scenario_SIG0.02_0_N527.csv") {
+rawNC = fread(filename)
+nc_obs = rawNC[var %in% c("n","v"),]
+names(nc_obs)
+nc_obs[,valname := paste0(var,r,c)]
+nc_obs_only = nc_obs[,list(u,valname,val)]
+nc_wide = spread(nc_obs_only, valname, val)
+eibayes = ei.MD.bayes(cbind(vNA0,vNA1,vNA2)~cbind(n0NA,n1NA,n2NA), data=nc_wide)
+#cover.plot(eibayes,1,1)
+lamei = lambda.MD(eibayes,c("vNA0","vNA1","vNA2"))
+#densityplot(lamei)
+dim(lamei)
+#densityplot(lamei)
+totn = nc_obs[var=="n",sum(val),by=r][,V1]
+l2m1 = matrix(lamei,1000,9)
+l2m2 = t(matrix(t(l2m1) * totn,9,1000))
+return(l2m2)
+}
+sampei = samp_eis(scenario.filename)
+summary(sampei)
+summary(sampei)
+summary(sampei+527)
+psamp = matrix(samp)[,c(1,4,7,2,5,8,3,6,9)]
+dim(matrix(samp))
+samp=fread(samp.filename)
+dim(samp)
+matrix(samp)
+ss = as.matrix(samp)
+dim(ss)
+psamp = as.matrix(samp)[,c(1,4,7,2,5,8,3,6,9)]
+summary(sampei)
+summary(psamp - 1)
+data_dir = "../eiresults/"
+all.fits = list.files(data_dir, pattern="fit.*.json",full.names=T)
+all.samps = list.files(data_dir, pattern="dsamps.*.json",full.names=T)
+fit.filename = all.fits[1]
+samp.filename = all.samps[1]
+all.samps = list.files(data_dir, pattern="dsamps.*.csv",full.names=T)
+data_dir = "../eiresults/"
+all.fits = list.files(data_dir, pattern="fit.*.json",full.names=T)
+all.samps = list.files(data_dir, pattern="dsamps.*.csv",full.names=T)
+fit.filename = all.fits[1]
+samp.filename = all.samps[1]
+data_dir = "../eiresults"
+all.fits = list.files(data_dir, pattern="fit.*.json",full.names=T)
+all.samps = list.files(data_dir, pattern="dsamps.*.csv",full.names=T)
+fit.filename = all.fits[1]
+samp.filename = all.samps[1]
+fit = fromJSON(file=fit.filename)
+R = 3
+C = 3
+samp=fread(samp.filename)
+psamp = as.matrix(samp)[,c(1,4,7,2,5,8,3,6,9)]
+msamp = as.matrix(samp)
+dim(msamp)
+psamp= samp[,c(1,4,7,2,5,8,3,6,9)+7]
+sparts = strsplit(samp.filename,"_")[[1]]
+scenario.filename = paste(paste0(data_dir,"scenario"),sparts[5],sparts[6],sparts[7],sep="_")
+scenario.filename = paste0(scenario.filename,".csv")
+scenario = fread(scenario.filename)
+scenario.filename = paste(paste0(data_dir,"/scenario"),sparts[5],sparts[6],sparts[7],sep="_")
+scenario.filename = paste0(scenario.filename,".csv")
+scenario = fread(scenario.filename)
+Y = c()
+for (rr in 0:2) {
+for (cc in 0:2) {
+Y = c(Y, scenario[var=="y"&r==rr&c==cc,sum(val+1)])
+}
+}
+Ymat = matrix(Y,3,3)
+sampei = samp_eis(scenario.filename)
+summary(sampei)
+summary(psamp - 1)
+psamp= samp[,c(1,4,7,2,5,8,3,6,9)+7]
+summary(psamp - 1)
+msamp = as.matrix(samp)
+psamp= msamp[,c(1,4,7,2,5,8,3,6,9)+7]
+summary(psamp - 1)
+summary(sampei)
+summary(psamp - 1)
+Y
+Ymat
+samp_eis = function(filename="../eiresults/scenario_SIG0.02_0_N2774.csv") {
+rawNC = fread(filename)
+nc_obs = rawNC[var %in% c("n","v"),]
+names(nc_obs)
+nc_obs[,valname := paste0(var,r,c)]
+nc_obs_only = nc_obs[,list(u,valname,val)]
+nc_wide = spread(nc_obs_only, valname, val)
+eibayes = ei.MD.bayes(cbind(vNA0,vNA1,vNA2)~cbind(n0NA,n1NA,n2NA), data=nc_wide)
+#cover.plot(eibayes,1,1)
+lamei = lambda.MD(eibayes,c("vNA0","vNA1","vNA2"))
+#densityplot(lamei)
+dim(lamei)
+#densityplot(lamei)
+totn = nc_obs[var=="n",sum(val),by=r][,V1]
+l2m1 = matrix(lamei,1000,9)
+l2m2 = t(matrix(t(l2m1) * totn,9,1000))
+return(l2m2)
+}
+data_dir = "../eiresults.icky"
+all.fits = list.files(data_dir, pattern="fit.*.json",full.names=T)
+all.samps = list.files(data_dir, pattern="dsamps.*.csv",full.names=T)
+fit.filename = all.fits[1]
+samp.filename = all.samps[1]
+fit = fromJSON(file=fit.filename)
+R = 3
+C = 3
+samp=fread(samp.filename)
+msamp = as.matrix(samp)
+psamp= msamp[,c(1,4,7,2,5,8,3,6,9)+6]
+sparts = strsplit(samp.filename,"_")[[1]]
+scenario.filename = paste(paste0(data_dir,"/scenario"),sparts[5],sparts[6],sparts[7],sep="_")
+scenario.filename = paste0(scenario.filename,".csv")
+scenario = fread(scenario.filename)
+Y = c()
+for (rr in 0:2) {
+for (cc in 0:2) {
+Y = c(Y, scenario[var=="y"&r==rr&c==cc,sum(val+1)])
+}
+}
+Ymat = matrix(Y,3,3)
+sampei = samp_eis(scenario.filename)
+summary(sampei)
+summary(psamp - 1)
+Ymat
+samp_eis = function(filename="../eiresults/scenario_SIG0.02_0_N2774.csv") {
+rawNC = fread(filename)
+nc_obs = rawNC[var %in% c("n","v"),]
+names(nc_obs)
+nc_obs[,valname := paste0(var,r,c)]
+nc_obs_only = nc_obs[,list(u,valname,val)]
+nc_wide = spread(nc_obs_only, valname, val)
+eibayes = ei.MD.bayes(cbind(vNA0,vNA1,vNA2)~cbind(n0NA,n1NA,n2NA), data=nc_wide)
+#cover.plot(eibayes,1,1)
+lamei = lambda.MD(eibayes,c("vNA0","vNA1","vNA2"))
+#densityplot(lamei)
+dim(lamei)
+#densityplot(lamei)
+totn = nc_obs[var=="n",sum(val),by=r][,V1]
+l2m1 = matrix(lamei,1000,9)
+l2m2 = t(matrix(t(l2m1) * totn,9,1000))
+return(l2m2)
+}
+data_dir = "../eiresults"
+all.fits = list.files(data_dir, pattern="fit.*.json",full.names=T)
+all.samps = list.files(data_dir, pattern="dsamps.*.csv",full.names=T)
+fit.filename = all.fits[1]
+samp.filename = all.samps[1]
+fit = fromJSON(file=fit.filename)
+R = 3
+C = 3
+samp=fread(samp.filename)
+msamp = as.matrix(samp)
+psamp= msamp[,c(1,4,7,2,5,8,3,6,9)+6]
+sparts = strsplit(samp.filename,"_")[[1]]
+scenario.filename = paste(paste0(data_dir,"/scenario"),sparts[5],sparts[6],sparts[7],sep="_")
+scenario.filename = paste0(scenario.filename,".csv")
+scenario = fread(scenario.filename)
+Y = c()
+for (rr in 0:2) {
+for (cc in 0:2) {
+Y = c(Y, scenario[var=="y"&r==rr&c==cc,sum(val+1)])
+}
+}
+Ymat = matrix(Y,3,3)
+sampei = samp_eis(scenario.filename)
+summary(sampei)
+summary(psamp - 1)
+Ymat
+sparts
+sparts[5]
+citation(package="eiPack")
+data_dir = "../ei_post_results"
+all.fits = list.files(data_dir, pattern="fit.*.json",full.names=T)
+all.samps = list.files(data_dir, pattern="dsamps.*.csv",full.names=T)
+all.samps
+samp.filename = all.samps[1]
+fit = fromJSON(file=fit.filename)
+R = 3
+C = 3
+samp=fread(samp.filename)
+msamp = as.matrix(samp)
+psamp= msamp[,c(1,4,7,2,5,8,3,6,9)+6]
+sparts = strsplit(samp.filename,"_")[[1]]
+scenario.filename = paste(paste0(data_dir,"/scenario"),sparts[5],sparts[6],sparts[7],sep="_")
+scenario.filename = paste0(scenario.filename,".csv")
+scenario = fread(scenario.filename)
+Y = c()
+for (rr in 0:2) {
+for (cc in 0:2) {
+Y = c(Y, scenario[var=="y"&r==rr&c==cc,sum(val+1)])
+}
+}
+Ymat = matrix(Y,3,3)
+sampei = samp_eis(scenario.filename)
+summary(sampei)
+summary(psamp - 1)
+Ymat
+sparts[5]
