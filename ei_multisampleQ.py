@@ -53,8 +53,8 @@ pyro.enable_validation(True)
 pyro.set_rng_seed(0)
 
 
-EI_VERSION = "7.0.2"
-FILEBASE = "ei_results_2020/"
+EI_VERSION = "7.0.3"
+FILEBASE = "ei_results_2020.3/"
 
 init_narrow = 10  # Numerically stabilize initialization.
 
@@ -70,12 +70,12 @@ BUNCHFAC = 35
 #P=30, BUNCHFAC = 9999: 189/51 2346..1708..1175..864..746
 
 MAX_NEWTON_STEP = 1. #neutral = 1
-STARPOINT_AS_PORTION_OF_NU_ESTIMATE = 1. #neutral=1
+STARPOINT_AS_PORTION_OF_NU_ESTIMATE = .8 #neutral=1
 NEW_DETACHED_FRACTION = 0. #as in Newton, get it? neutral=0
 SDS_TO_SHRINK_BY = 2/3 #neutral = 1.
 
 REATTACH_GRAD_PORTION = 1. #neutral = 1.
-SIGMA_NU_DETACHED_FRACTION = 1. #Neutral = 0. but very defensible up to 1. Moreover, seems to work!
+SIGMA_NU_DETACHED_FRACTION = 0. #Neutral = 0. but very defensible up to 1. Moreover, seems to work!
 
 NSTEPS = 2000
 SUBSET_SIZE = 30
@@ -99,7 +99,7 @@ PSEUDOVOTERS_PER_CELL = 1.
 
 DEBUG_ARROWHEAD = False
 
-SDC = SDRC = 2.
+SDC = SDRC = 4.
 
 
 SDPRC_STD = 1.2
@@ -1060,7 +1060,7 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
         ##################################################################
         #stupid_local = torch.exp(log_jacobian_adjustment_elbo_local)
         #if stupid_local>0 and torch.isfinite(stupid_local):
-        junk = pyro.sample(f"{iter}jacobian",
+        junk = pyro.sample(f"{iter}_jacobian",
                     dist.Delta(torch.zeros(1),# stupid_local),
                             log_density=-log_jacobian_adjustment_elbo_local),
                     infer={'is_auxiliary': True}) #there's probably a better way but whatevs.
