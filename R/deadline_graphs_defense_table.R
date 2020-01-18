@@ -41,7 +41,7 @@ samp_eis = function(filename="xxx"){#../eiresults/scenario_SIG0.02_0_N2774.csv")
 }
 
 
-data_dir = "../ei_results_2020/"
+data_dir = "../ei_results_2020.3"
 all.fits = list.files(data_dir, pattern="fit.*.json",full.names=T)
 all.samps = list.files(data_dir, pattern="Dsamps.*.csv",full.names=T)
 all.fits
@@ -140,7 +140,8 @@ for (i in 1:length(all.samps)) {
   print(t1)
   rr = data.table(file=samp.filename,
                   parts=sparts[5],samps=sparts[10],sig=sparts[7],steps=sparts[6],grad=sparts[3],
-                  btrump=t1[6,7],bvar=t1[6,8])
+                  btrump=t1[6,7],bvar=t1[6,8],
+                  latex = capture.output(print(xtable(t1),include.rownames = F,sanitize.text.function = identity)))
   results = rbind(results,rr,fill=T)
 }
 

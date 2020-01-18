@@ -2,7 +2,6 @@ import torch
 import math
 import json
 from .boost_vectorized import _boost, make_diag, get_diag, transpose
-from .boost_sdd import rescaledSDD
 from .debugGizmos import *
 
 def boost_to_chol(Ms,psi,include_sym=False): #Ms is a tensor of matrices
