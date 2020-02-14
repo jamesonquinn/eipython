@@ -5,6 +5,16 @@ import math
 #from .debugGizmos import *
 
 
+def softmax2(t,minval=0.,psi=.0125):
+    if minval == 0.:
+        mins = torch.zeros_like(t)
+    else:
+        mins = torch.ones_like(t)*minval
+    return softmax(torch.stack((t,mins)),0,psi)
+
+def softmax(t, dim, psi):
+    return torch.logsumexp(t/psi,dim)*psi
+
 S = torch.tensor([[2.,5.,0.],[5.,4.,1.],[0.,1.,3.]], requires_grad=True)
 C = torch.tensor([[2.,1.,0.],[1.,4.,2.],[0.,2.,3.]], requires_grad=True)
 M = torch.stack((S,C),0)
@@ -34,7 +44,7 @@ def zeros_and_one(U,k):
 #    U is an integer
 #    M is a U-by-n-by-n tensor (the program figures out n by itself)
 #    psi is an n tensor
-def _boost(U,M, psi, alwaysBoost=False):
+def _boost(U,M, psi, alwaysBoost=False, useSoftmax=True):
    n=M.size()[1]
    if alwaysBoost:
        psi1 = psi+torch.ones(n)
@@ -44,10 +54,10 @@ def _boost(U,M, psi, alwaysBoost=False):
    M_abs = torch.abs(M)
    d_abs = get_diag(M_abs)
    # eta = max diagonal element
-   eta = torch.max(d_abs, dim=1)[0]
+   eta = softmax(d_abs, 1, psi)[0]
    # zeta = max off-diagonal element
-   zeta = torch.max((M_abs - make_diag(d_abs)).view(U,-1),1)[0]
-   beta2 = torch.max(torch.stack((eta, zeta**2/math.sqrt(n^2-1)),1),1)[0]
+   zeta = softmax((M_abs - make_diag(d_abs)).view(U,-1),1,psi)[0]
+   beta2 = softmax(torch.stack((eta, zeta**2/math.sqrt(n^2-1)),1),1,psi)[0]
    if beta2 <= 0.0001:
        throw Exception("Boosting: beta2 <= 0. What's going on?")
    LT=[]
@@ -55,13 +65,13 @@ def _boost(U,M, psi, alwaysBoost=False):
    A=M
    for k in range(n):
       if k==n-1:
-         d=torch.max(torch.stack((torch.ones(U)*psi[k], torch.abs(A[:,0,0])*psi1[k]),1),1)[0]
+         d=softmax(torch.stack((torch.ones(U)*psi[k], torch.abs(A[:,0,0])*psi1[k]),1),1,psi)[0]
          D.append(d)
          LT.append(zeros_and_one(U,k))
       else:
          c = A[:,0,1:n-k]
-         cmax = torch.max(torch.abs(c),1)[0]
-         d = torch.max(torch.stack((torch.ones(U)*psi[k], torch.abs(A[:,0,0])*psi1[k], cmax**2/beta2),1),1)[0]
+         cmax = softmax(torch.abs(c),1,psi)[0]
+         d = softmax(torch.stack((torch.ones(U)*psi[k], torch.abs(A[:,0,0])*psi1[k], cmax**2/beta2),1),1,psi)[0]
          D.append(d)
          LT.append(torch.cat((zeros_and_one(U,k), c/d.unsqueeze(1)),1))
          A = A[:,1:n-k,1:n-k]-torch.matmul(c.unsqueeze(2),c.unsqueeze(1))/d.unsqueeze(1).unsqueeze(2)

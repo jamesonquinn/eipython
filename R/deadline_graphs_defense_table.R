@@ -129,8 +129,10 @@ makeResultTable = function(samp.filename,fit.filename,dodescribe=F) {
     return(results)
 }
 #0.3
-t1 = makeResultTable(samp.filename,fit.filename)
-print(xtable(t1),include.rownames = F,sanitize.text.function = identity)
+if (FALSE) {
+  t1 = makeResultTable(samp.filename,fit.filename)
+  print(xtable(t1),include.rownames = F,sanitize.text.function = identity)
+}
 
 results = data.table()
 for (i in 1:length(all.samps)) {
@@ -141,7 +143,7 @@ for (i in 1:length(all.samps)) {
   rr = data.table(file=samp.filename,
                   parts=sparts[5],samps=sparts[10],sig=sparts[7],steps=sparts[6],grad=sparts[3],
                   btrump=t1[6,7],bvar=t1[6,8],
-                  latex = capture.output(print(xtable(t1),include.rownames = F,sanitize.text.function = identity)))
+                  latex = paste0(capture.output(print(xtable(t1),include.rownames = F,sanitize.text.function = identity)),collapse='\n'))
   results = rbind(results,rr,fill=T)
 }
 

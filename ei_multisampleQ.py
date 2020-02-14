@@ -38,7 +38,7 @@ from utilities.cmult import CMult
 from utilities import polytopize
 reload(polytopize)
 from utilities.polytopize import get_indep, polytopizeU, depolytopizeU, to_subspace, process_data, approx_eq
-from utilities.arrowhead_precision import *
+from utilities.arrowhead_precision import * #includes softmax, softmax2
 
 use_cuda = torch.cuda.is_available()
 
@@ -607,14 +607,6 @@ def exp_ldaj(t,return_ldaj=False):
         return (result,-torch.sum(t))
     return result
 
-def softmax(t,minval=0.,mult=80.):
-    if minval == 0.:
-        mins = torch.zeros_like(t)
-    else:
-        mins = torch.ones_like(t)*minval*mult
-    return torch.logsumexp(torch.stack((t*mult,mins)),0)/mult
-
-
 def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsamps = 1, icky_sigma=ICKY_SIGMA,
             *args, **kwargs):
     ddp("guide:begin",scale,include_nuisance)
@@ -738,8 +730,8 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
 
             #sign_residual = logresidual_raw.sign()
             #abs_residual = logresidual_raw * sign_residual
-            #shrunk_residual = softmax(abs_residual - lr_sd_of_like * SDS_TO_REDUCE_BY) * sign_residual
-            sdprc_raw = torch.sqrt(torch.mean(softmax(logresidual_raw**2-  lr_var_of_like)))
+            #shrunk_residual = softmax2(abs_residual - lr_sd_of_like * SDS_TO_REDUCE_BY) * sign_residual
+            sdprc_raw = torch.sqrt(torch.mean(softmax2(logresidual_raw**2-  lr_var_of_like)))
             if SIGMA_NU_DETACHED_FRACTION == 1.:
 
                 sdprc = sdprc_raw.clone().detach().requires_grad_(True) #* SIGMA_NU_DETACHED_FRACTION + sdprc_raw * (1.-SIGMA_NU_DETACHED_FRACTION)
@@ -1193,9 +1185,56 @@ def guide(data, scale, include_nuisance=True, do_print=False, inits=dict(), nsam
 
 
 
+def get_traces(tracer, model, guide, guideParams, n, *args, **kwargs):
+    """
+    Runs the guide and runs the model against the guide with
+    the result packaged as a trace generator.
+    """
+    if tracer.max_plate_nesting == float('inf'):
+        tracer._guess_max_plate_nesting(model, guide, *args, **kwargs)
+    if tracer.vectorize_particles:
+        guide = tracer._vectorized_num_particles(guide)
+        model = tracer._vectorized_num_particles(model)
 
+    # Enable parallel enumeration over the vectorized guide and model.
+    # The model allocates enumeration dimensions after (to the left of) the guide,
+    # accomplished by preserving the _ENUM_ALLOCATOR state after the guide call.
+    guide_enum = EnumerateMessenger(first_available_dim=-1 - self.max_plate_nesting)
+    model_enum = EnumerateMessenger()  # preserve _ENUM_ALLOCATOR state
+    guide = guide_enum(guide)
+    model = model_enum(model)
 
+    q = queue.LifoQueue()
+    guide = poutine.queue(guide, q,
+                          escape_fn=iter_discrete_escape,
+                          extend_fn=iter_discrete_extend)
 
+    theParamStore = get_param_store()
+    old_param_state = theParamStore.get_state()
+    if set(guideParams.keys()) != set(['params', 'constraints']):
+        guideParams = dict(params=guideParams, constraints=dict())
+    theParamStore.set_state(guideParams)
+    for i in range(n):
+        q.put(poutine.Trace())
+        while not q.empty():
+            yield tracer._get_trace(model, guide, *args, **kwargs)
+    theParamStore.set_state(old_param_state)
+
+def point_ELBO(tracer, model, guide, guideParams, n, *args, **kwargs):
+    """
+    :returns: returns an estimate of the ELBO
+    :rtype: float
+
+    Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
+    """
+    elbo = 0.0
+    for model_trace, guide_trace in get_traces(tracer, model, guide, guideParams, n, *args, **kwargs):
+        elbo_particle = torch_item(model_trace.log_prob_sum()) - torch_item(guide_trace.log_prob_sum())
+        elbo += elbo_particle / self.num_particles
+
+    loss = -elbo
+    warn_if_nan(loss, "loss")
+    return loss
 
 
 
@@ -1596,7 +1635,8 @@ def trainGuide(subsample_n = SUBSET_SIZE,
 
 
     # Now let's train the guide.
-    svi = SVI(model, guide, ClippedAdam({'lr': 0.005}), Trace_ELBO(1))
+    tracer = Trace_ELBO(1)
+    svi = SVI(model, guide, ClippedAdam({'lr': 0.005}), tracer)
 
     pyro.clear_param_store()
     losses = []
@@ -1710,7 +1750,7 @@ def modelQvar(samps=30,
     print("raw qvars")
     qvars = qses.var(1) #samps x R x C
     print("qvars_corrected")
-    qvars_corrected = (softmax(qvars-vvarmeans)) #samps x R x C
+    qvars_corrected = (softmax2(qvars-vvarmeans)) #samps x R x C
     result = (qvars_corrected, qvars, vvarmeans, nvarmeans)
     print("mQv sizes",sizes(qses,vvars,vvarmeans,qvars,qvars_corrected))
     saveYsamps(result, runs[0], "XX", "XX","XX",dversion="0",filebase=filebase+"modelQvar",i="XX",N=dummydata.U)
